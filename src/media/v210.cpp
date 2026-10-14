@@ -1,6 +1,7 @@
 #include "media/v210.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <cstring>
 
 namespace scopes
@@ -9,14 +10,27 @@ namespace
 {
 inline void put32(std::uint8_t* dst, std::uint32_t word)
 {
-    dst[0] = static_cast<std::uint8_t>(word & 0xff);
-    dst[1] = static_cast<std::uint8_t>((word >> 8) & 0xff);
-    dst[2] = static_cast<std::uint8_t>((word >> 16) & 0xff);
-    dst[3] = static_cast<std::uint8_t>((word >> 24) & 0xff);
+    if constexpr (std::endian::native == std::endian::little)
+    {
+        std::memcpy(dst, &word, sizeof(word));
+    }
+    else
+    {
+        dst[0] = static_cast<std::uint8_t>(word & 0xff);
+        dst[1] = static_cast<std::uint8_t>((word >> 8) & 0xff);
+        dst[2] = static_cast<std::uint8_t>((word >> 16) & 0xff);
+        dst[3] = static_cast<std::uint8_t>((word >> 24) & 0xff);
+    }
 }
 
 inline std::uint32_t get32(std::uint8_t const* src)
 {
+    if constexpr (std::endian::native == std::endian::little)
+    {
+        std::uint32_t word;
+        std::memcpy(&word, src, sizeof(word));
+        return word;
+    }
     return static_cast<std::uint32_t>(src[0]) | (static_cast<std::uint32_t>(src[1]) << 8) | (static_cast<std::uint32_t>(src[2]) << 16) |
            (static_cast<std::uint32_t>(src[3]) << 24);
 }

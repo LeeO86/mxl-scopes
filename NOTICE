@@ -1,0 +1,10 @@
+mxl-scopes is MIT licensed (LICENSE). It includes or links:
+
+- picojson (third_party/picojson), BSD 2-Clause, Copyright 2009-2010 Cybozu Labs, Inc., 2011-2014 Kazuho Oku.
+- doctest (third_party/doctest), MIT, Copyright 2016-2023 Viktor Kirilov.
+- stb_image_write (third_party/stb), public domain or MIT, Sean Barrett.
+- font8x8 basic (third_party/font8x8_basic.h), public domain, Daniel Hepper (after Marcel Sondaar / IBM).
+- MXL (dmf-mxl/mxl), Apache-2.0, linked as a shared library.
+- nmos-cpp (sony/nmos-cpp), Apache-2.0, and its dependencies (cpprestsdk MIT, Boost BSL-1.0, OpenSSL Apache-2.0).
+
+The SHA-1, UUID, HTTP and configuration helpers come from the author's sibling MXL functions.

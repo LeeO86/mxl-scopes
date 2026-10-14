@@ -237,9 +237,10 @@ TEST_CASE("golden: a flat grey is one line at its code")
     {
         CAPTURE(level);
         auto const picture = renderPattern("flat", level);
-        auto const plan = makeRenderPlan(makeLayout(1920, 1080), DisplaySettings{}, 1728, 1920ull * 1080, 2);
+        auto const layout = makeLayout(1920, 1080);
+        auto const plan = makeRenderPlan(layout, DisplaySettings{}, layout.plotW, 1920ull * 1080, 2);
         int const row = rowOfCode(plan, level);
-        for (int px : {0, 100, 864, 1727})
+        for (int px : {0, 100, layout.plotW / 2, layout.plotW - 1})
         {
             auto const [y, at] = brightest(picture, plan, px);
             CHECK(y > 600);
@@ -258,7 +259,8 @@ TEST_CASE("golden: a flat grey is one line at its code")
 TEST_CASE("golden: a luma ramp is a diagonal")
 {
     auto const picture = renderPattern("ramp", 0);
-    auto const plan = makeRenderPlan(makeLayout(1920, 1080), DisplaySettings{}, 1728, 1920ull * 1080, 2);
+    auto const layout = makeLayout(1920, 1080);
+        auto const plan = makeRenderPlan(layout, DisplaySettings{}, layout.plotW, 1920ull * 1080, 2);
     int previous = 1 << 30;
     for (int px = 0; px < 1728; px += 96)
     {
@@ -268,7 +270,7 @@ TEST_CASE("golden: a luma ramp is a diagonal")
         previous = row;
     }
     CHECK(brightest(picture, plan, 0).second == rowOfCode(plan, 64));
-    CHECK(brightest(picture, plan, 1727).second == rowOfCode(plan, 940));
+    CHECK(brightest(picture, plan, layout.plotW - 1).second == rowOfCode(plan, 940));
 }
 
 TEST_CASE("golden: colour bars are horizontal segments at their luma")
@@ -278,13 +280,14 @@ TEST_CASE("golden: colour bars are horizontal segments at their luma")
         CAPTURE(pattern);
         double const a = std::string(pattern) == "bars75" ? 0.75 : 1.0;
         auto const picture = renderPattern(pattern, 0);
-        auto const plan = makeRenderPlan(makeLayout(1920, 1080), DisplaySettings{}, 1728, 1920ull * 1080, 2);
+        auto const layout = makeLayout(1920, 1080);
+        auto const plan = makeRenderPlan(layout, DisplaySettings{}, layout.plotW, 1920ull * 1080, 2);
         double const rgb[8][3] = {{1, 1, 1}, {1, 1, 0}, {0, 1, 1}, {0, 1, 0}, {1, 0, 1}, {1, 0, 0}, {0, 0, 1}, {0, 0, 0}};
         for (int bar = 0; bar < 8; ++bar)
         {
             CAPTURE(bar);
             auto const c = rgbToYcbcr709(a * rgb[bar][0], a * rgb[bar][1], a * rgb[bar][2]);
-            int const px = (2 * bar + 1) * 1728 / 16; // the middle of the bar
+            int const px = (2 * bar + 1) * layout.plotW / 16; // the middle of the bar
             CHECK(brightest(picture, plan, px).second == rowOfCode(plan, c.y));
         }
     }
@@ -299,7 +302,7 @@ TEST_CASE("golden hashes of the default picture")
         char const* pattern;
         std::uint64_t hash;
     };
-    for (auto const& golden : {Golden{"ramp", 4862521577682967074ull}, Golden{"bars75", 6794709991138549607ull}, Golden{"bars100", 9258855212320524807ull}, Golden{"flat", 5276922575832373767ull}})
+    for (auto const& golden : {Golden{"ramp", 7384256726905344186ull}, Golden{"bars75", 2826592181012396248ull}, Golden{"bars100", 9629069767906594335ull}, Golden{"flat", 14827436196761363586ull}})
     {
         auto const frame = packPattern(makePattern(golden.pattern, 1920, 1080, 512));
         ScopeEngine engine(SimdLevel::Scalar);

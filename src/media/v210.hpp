@@ -1,6 +1,8 @@
 #pragma once
 
+#include <bit>
 #include <cstddef>
+#include <cstring>
 #include <cstdint>
 #include <vector>
 
@@ -33,10 +35,17 @@ struct Frame422
 inline void unpackGroupLuma(std::uint8_t const* group, std::uint16_t out[6])
 {
     std::uint32_t w[4];
-    for (int i = 0; i < 4; ++i)
+    if constexpr (std::endian::native == std::endian::little)
     {
-        w[i] = static_cast<std::uint32_t>(group[4 * i]) | (static_cast<std::uint32_t>(group[4 * i + 1]) << 8) |
-               (static_cast<std::uint32_t>(group[4 * i + 2]) << 16) | (static_cast<std::uint32_t>(group[4 * i + 3]) << 24);
+        std::memcpy(w, group, sizeof(w));
+    }
+    else
+    {
+        for (int i = 0; i < 4; ++i)
+        {
+            w[i] = static_cast<std::uint32_t>(group[4 * i]) | (static_cast<std::uint32_t>(group[4 * i + 1]) << 8) |
+                   (static_cast<std::uint32_t>(group[4 * i + 2]) << 16) | (static_cast<std::uint32_t>(group[4 * i + 3]) << 24);
+        }
     }
     out[0] = static_cast<std::uint16_t>((w[0] >> 10) & 0x3ffu);
     out[1] = static_cast<std::uint16_t>(w[1] & 0x3ffu);

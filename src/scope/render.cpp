@@ -5,6 +5,7 @@
 #include <font8x8_basic.h>
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -135,10 +136,12 @@ Layout makeLayout(int width, int height)
     int const text = 8 * layout.textScale;
     int const top = std::max(static_cast<int>(std::lround(height * 0.04)), text + 6);
     int const bottom = std::max(static_cast<int>(std::lround(height * 0.04)), text / 2 + 2);
-    layout.plotX = even(static_cast<int>(std::lround(width * 0.08)));
+    // The plot starts and ends on v210 group boundaries (6 pixels), so the renderer packs whole
+    // groups of the plot and keeps the still picture's bytes where a group has no trace.
+    layout.plotX = 6 * static_cast<int>(std::lround(width * 0.08 / 6.0));
     int const right = even(std::max(2, static_cast<int>(std::lround(width * 0.02))));
     layout.plotY = top;
-    layout.plotW = even(width - layout.plotX - right);
+    layout.plotW = ((width - layout.plotX - right) / 6) * 6;
     layout.plotH = height - top - bottom;
     return layout;
 }
@@ -308,88 +311,121 @@ void renderEmptyPlot(RenderPlan const& plan, Frame422& frame)
     }
 }
 
+namespace
+{
+inline void put32(std::uint8_t* dst, std::uint32_t word)
+{
+    if constexpr (std::endian::native == std::endian::little)
+    {
+        std::memcpy(dst, &word, sizeof(word));
+    }
+    else
+    {
+        for (int i = 0; i < 4; ++i)
+        {
+            dst[i] = static_cast<std::uint8_t>((word >> (8 * i)) & 0xff);
+        }
+    }
+}
+
+inline std::uint32_t word3(std::uint32_t a, std::uint32_t b, std::uint32_t c)
+{
+    return a | (b << 10) | (c << 20);
+}
+} // namespace
+
 void renderPacked(RenderPlan const& plan, Histogram& hist, Frame422 const& still, std::uint8_t const* stillPacked, std::uint8_t* dst)
 {
     auto const& layout = plan.layout;
-    int const width = still.width;
-    int const cw = still.chromaWidth();
-    auto const rowBytes = v210RowBytes(width);
-    // Rows above and below the plot never change between two still pictures.
+    auto const rowBytes = v210RowBytes(still.width);
+    bool const hasCounts = !hist.counts.empty() && hist.columns == plan.columns && hist.bins == plan.bins;
+    if (!hasCounts)
+    {
+        std::memcpy(dst, stillPacked, rowBytes * static_cast<std::size_t>(still.height));
+        return;
+    }
+    // Rows outside the plot are the still picture's.
     std::memcpy(dst, stillPacked, rowBytes * static_cast<std::size_t>(layout.plotY));
     auto const below = static_cast<std::size_t>(layout.plotY + layout.plotH);
     std::memcpy(dst + rowBytes * below, stillPacked + rowBytes * below, rowBytes * (static_cast<std::size_t>(still.height) - below));
-    bool const hasCounts = !hist.counts.empty() && hist.columns == plan.columns && hist.bins == plan.bins;
-    std::vector<std::uint16_t> ys(static_cast<std::size_t>(width));
-    std::vector<std::uint16_t> cbs(static_cast<std::size_t>(cw));
-    std::vector<std::uint16_t> crs(static_cast<std::size_t>(cw));
-    std::vector<std::uint16_t> sampled(hasCounts && !plan.identityColumns ? static_cast<std::size_t>(layout.plotW) : 0);
+    std::vector<std::uint16_t> sampled(plan.identityColumns ? 0 : static_cast<std::size_t>(layout.plotW));
     auto const* lut = plan.intensity.data();
     auto const maxCount = plan.maxCount;
-    int const x0 = layout.plotX;
+    int const groups = layout.plotW / 6;
     for (int r = 0; r < layout.plotH; ++r)
     {
-        int const row = layout.plotY + r;
-        // Margins from the still picture; the plot is written below.
-        auto const* sy = still.y.data() + static_cast<std::size_t>(row) * width;
-        auto const* scb = still.cb.data() + static_cast<std::size_t>(row) * cw;
-        auto const* scr = still.cr.data() + static_cast<std::size_t>(row) * cw;
-        std::memcpy(ys.data(), sy, sizeof(std::uint16_t) * static_cast<std::size_t>(x0));
-        std::memcpy(ys.data() + x0 + layout.plotW, sy + x0 + layout.plotW, sizeof(std::uint16_t) * static_cast<std::size_t>(width - x0 - layout.plotW));
-        std::memcpy(cbs.data(), scb, sizeof(std::uint16_t) * static_cast<std::size_t>(x0 / 2));
-        std::memcpy(crs.data(), scr, sizeof(std::uint16_t) * static_cast<std::size_t>(x0 / 2));
-        int const rightC = (x0 + layout.plotW) / 2;
-        std::memcpy(cbs.data() + rightC, scb + rightC, sizeof(std::uint16_t) * static_cast<std::size_t>(cw - rightC));
-        std::memcpy(crs.data() + rightC, scr + rightC, sizeof(std::uint16_t) * static_cast<std::size_t>(cw - rightC));
-        auto* py = ys.data() + x0;
-        auto* pcb = cbs.data() + x0 / 2;
-        auto* pcr = crs.data() + x0 / 2;
-        if (!hasCounts)
+        auto const row = static_cast<std::size_t>(layout.plotY + r);
+        auto* out = dst + rowBytes * row;
+        // The still row: margins, background and graticule. Groups with a trace are packed over it.
+        std::memcpy(out, stillPacked + rowBytes * row, rowBytes);
+        auto const bin = plan.binOfRow[static_cast<std::size_t>(r)];
+        auto* counts = hist.counts.data() + static_cast<std::size_t>(bin) * static_cast<std::size_t>(plan.columns);
+        std::uint16_t const* line = counts;
+        if (!plan.identityColumns)
         {
-            std::fill(py, py + layout.plotW, kBackgroundY);
-            std::fill(pcb, pcb + layout.plotW / 2, kBackgroundC);
-            std::fill(pcr, pcr + layout.plotW / 2, kBackgroundC);
-        }
-        else
-        {
-            auto const bin = plan.binOfRow[static_cast<std::size_t>(r)];
-            auto* counts = hist.counts.data() + static_cast<std::size_t>(bin) * static_cast<std::size_t>(plan.columns);
-            std::uint16_t const* line = counts;
-            if (!plan.identityColumns)
+            for (int px = 0; px < layout.plotW; ++px)
             {
-                for (int px = 0; px < layout.plotW; ++px)
-                {
-                    sampled[static_cast<std::size_t>(px)] = counts[plan.columnOf[static_cast<std::size_t>(px)]];
-                }
-                line = sampled.data();
+                sampled[static_cast<std::size_t>(px)] = counts[plan.columnOf[static_cast<std::size_t>(px)]];
             }
-            for (int px = 0; px < layout.plotW; px += 2)
+            line = sampled.data();
+        }
+        auto gi = plan.graticuleStart[static_cast<std::size_t>(r)];
+        auto const gend = plan.graticuleStart[static_cast<std::size_t>(r) + 1];
+        for (int g = 0; g < groups; ++g)
+        {
+            auto const* c = line + 6 * g;
+            int const x0 = layout.plotX + 6 * g;
+            std::uint64_t head = 0;
+            std::uint32_t tail = 0;
+            std::memcpy(&head, c, sizeof(head));
+            std::memcpy(&tail, c + 4, sizeof(tail));
+            if ((head | tail) == 0)
             {
-                std::uint32_t const c0 = line[px];
-                std::uint32_t const c1 = line[px + 1];
-                if ((c0 | c1) == 0)
+                // No trace: the still bytes are right, graticule included.
+                while (gi < gend && plan.plotGraticule[gi].x < x0 + 6)
                 {
-                    py[px] = kBackgroundY;
-                    py[px + 1] = kBackgroundY;
-                    pcb[px / 2] = kBackgroundC;
-                    pcr[px / 2] = kBackgroundC;
-                    continue;
+                    ++gi;
                 }
+                continue;
+            }
+            std::uint16_t y[6];
+            std::uint16_t cb[3];
+            std::uint16_t cr[3];
+            for (int p = 0; p < 6; p += 2)
+            {
+                std::uint32_t const c0 = c[p];
+                std::uint32_t const c1 = c[p + 1];
+                // intensity[0] is 0: no branch on empty cells.
                 int const i0 = lut[std::min(c0, maxCount)];
                 int const i1 = lut[std::min(c1, maxCount)];
-                py[px] = plan.yOf[static_cast<std::size_t>(i0)];
-                py[px + 1] = plan.yOf[static_cast<std::size_t>(i1)];
+                y[p] = plan.yOf[static_cast<std::size_t>(i0)];
+                y[p + 1] = plan.yOf[static_cast<std::size_t>(i1)];
                 auto const mean = static_cast<std::size_t>((i0 + i1 + 1) >> 1);
-                pcb[px / 2] = plan.cbOf[mean];
-                pcr[px / 2] = plan.crOf[mean];
+                cb[p / 2] = plan.cbOf[mean];
+                cr[p / 2] = plan.crOf[mean];
             }
-            // Clear the bin once the last plot row that shows it is drawn.
-            if (r + 1 == layout.plotH || plan.binOfRow[static_cast<std::size_t>(r) + 1] != bin)
+            for (; gi < gend && plan.plotGraticule[gi].x < x0 + 6; ++gi)
             {
-                std::memset(counts, 0, sizeof(std::uint16_t) * static_cast<std::size_t>(plan.columns));
+                auto const& gp = plan.plotGraticule[gi];
+                int const at = gp.x - x0;
+                y[at] = blend(y[at], gp.luma, gp.alpha);
+                if ((at & 1) == 0)
+                {
+                    cb[at / 2] = blend(cb[at / 2], kBackgroundC, gp.alpha);
+                    cr[at / 2] = blend(cr[at / 2], kBackgroundC, gp.alpha);
+                }
             }
+            auto* group = out + 16 * static_cast<std::size_t>(x0 / 6);
+            put32(group, word3(cb[0], y[0], cr[0]));
+            put32(group + 4, word3(y[1], cb[1], y[2]));
+            put32(group + 8, word3(cr[1], y[3], cb[2]));
+            put32(group + 12, word3(y[4], cr[2], y[5]));
         }
-        blendGraticuleRow(plan, r, py - x0, pcb - x0 / 2, pcr - x0 / 2);
-        packV210Line(ys.data(), cbs.data(), crs.data(), width, dst + rowBytes * static_cast<std::size_t>(row), rowBytes);
+        // Clear the bin once the last plot row that shows it is drawn.
+        if (r + 1 == layout.plotH || plan.binOfRow[static_cast<std::size_t>(r) + 1] != bin)
+        {
+            std::memset(counts, 0, sizeof(std::uint16_t) * static_cast<std::size_t>(plan.columns));
+        }
     }
 }
 
