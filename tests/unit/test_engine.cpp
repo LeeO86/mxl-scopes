@@ -299,7 +299,7 @@ TEST_CASE("golden hashes of the default picture")
         char const* pattern;
         std::uint64_t hash;
     };
-    for (auto const& golden : {Golden{"ramp", 12643153030590494626ull}, Golden{"bars75", 5444655765699388903ull}, Golden{"bars100", 13853864728963787911ull}, Golden{"flat", 2022167930782572679ull}})
+    for (auto const& golden : {Golden{"ramp", 4862521577682967074ull}, Golden{"bars75", 6794709991138549607ull}, Golden{"bars100", 9258855212320524807ull}, Golden{"flat", 5276922575832373767ull}})
     {
         auto const frame = packPattern(makePattern(golden.pattern, 1920, 1080, 512));
         ScopeEngine engine(SimdLevel::Scalar);

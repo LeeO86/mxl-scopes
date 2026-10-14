@@ -2,6 +2,7 @@
 // strip width and sampling step, from generated frames (IMPLEMENTATION_PLAN.md M0).
 // No libmxl. Pin it to one core when measuring: taskset -c N mxl-scopes-bench ...
 #include "media/patterns.hpp"
+#include "media/png.hpp"
 #include "scope/cpu/dispatch.hpp"
 #include "scope/engine.hpp"
 
@@ -9,6 +10,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -74,9 +76,29 @@ int main(int argc, char** argv)
         {
             std::cout << "mxl-scopes-bench [--rasters 1920x1080,3840x2160] [--output 1920x1080] [--simd scalar,avx2]\n"
                          "                 [--strips 32,64,128] [--steps 1/1,2/1,2/2] [--pattern random|bars75|ramp|flat]\n"
-                         "                 [--iterations 200]\n";
+                         "                 [--iterations 200]\n"
+                         "mxl-scopes-bench --golden DIR   (writes the golden pictures as PNG)\n";
             return 0;
         }
+    }
+    if (auto const dir = arg(argc, argv, "--golden", ""); !dir.empty())
+    {
+        // The golden pictures of the unit tests as PNGs for review (SPECIFICATION §14.1).
+        for (auto const* pattern : {"ramp", "bars75", "bars100", "flat"})
+        {
+            ScopeEngine engine(SimdLevel::Scalar);
+            engine.configure({1920, 1080, v210RowBytes(1920)}, DisplaySettings{}, 1920, 1080);
+            auto const frame = packPattern(makePattern(pattern, 1920, 1080, 512));
+            std::vector<std::uint8_t> out(engine.packedSize());
+            engine.analyse(frame.data());
+            engine.render("Luma waveform", "", out.data());
+            Frame422 picture;
+            picture.allocate(1920, 1080);
+            unpackV210(out.data(), v210RowBytes(1920), picture);
+            std::ofstream(dir + "/" + pattern + ".png", std::ios::binary) << encodePng(picture, 1);
+            std::printf("%s/%s.png\n", dir.c_str(), pattern);
+        }
+        return 0;
     }
     auto const rasters = split(arg(argc, argv, "--rasters", "1920x1080,3840x2160"));
     auto const output = arg(argc, argv, "--output", "1920x1080");

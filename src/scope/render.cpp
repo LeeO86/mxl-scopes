@@ -255,7 +255,8 @@ RenderPlan makeRenderPlan(Layout const& layout, DisplaySettings const& settings,
             [](GraticulePixel const& a, GraticulePixel const& b) { return a.row != b.row ? a.row < b.row : a.x < b.x; });
         // Units in the top-left corner of the margin.
         std::string const units = settings.graticuleUnits == "mv" ? "mV" : settings.graticuleUnits == "percent" ? "%" : "code";
-        drawText(plan.base, std::max(0, layout.plotX - 3 * s - textWidth(units, s)), std::max(0, layout.plotY - 12 * s), s, units, labelLuma);
+        int const bandBottom = std::max(0, layout.plotY - 4 * s);
+        drawText(plan.base, std::max(0, layout.plotX - 3 * s - textWidth(units, s)), std::max(0, (bandBottom - 8 * s) / 2), s, units, labelLuma);
     }
     plan.graticuleStart.assign(static_cast<std::size_t>(layout.plotH) + 1, 0);
     std::size_t next = 0;

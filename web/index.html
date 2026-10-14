@@ -1,1 +1,316 @@
-<!doctype html><title>mxl-scopes</title>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mxl-scopes</title>
+<style>
+/* Shared look of the LeeO86 MXL function UIs. M0: one page without a build step; the Vue 3 UI
+   of SPECIFICATION §9.1 replaces it in M3. */
+:root {
+  --bg: #0f1419; --panel: #161d26; --panel2: #1d2733; --border: #2a3644; --text: #d7e0ea;
+  --muted: #8496a8; --accent: #4da3ff; --ok: #3fb968; --warn: #e0a83a; --bad: #e05a4e; --chip: #233041;
+  font-size: 15px; color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f3f5f8; --panel: #ffffff; --panel2: #eef1f5; --border: #d4dbe3; --text: #1b2430;
+    --muted: #5d6b7a; --accent: #1f6fd1; --ok: #1f8f47; --warn: #a86d00; --bad: #c23b2f; --chip: #e6ebf1;
+    color-scheme: light;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { display: flex; align-items: center; gap: .4rem 1rem; padding: .7rem 1.2rem; background: var(--panel); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+header h1 { font-size: 1.05rem; margin: 0; font-weight: 600; }
+header .node, .muted { color: var(--muted); font-size: .85rem; }
+.spacer { flex: 1; }
+nav { display: flex; gap: .25rem; padding: .4rem 1.2rem 0; background: var(--panel); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+nav button { background: none; border: none; border-bottom: 2px solid transparent; color: var(--muted); padding: .5rem .9rem; cursor: pointer; font-size: .9rem; font-family: inherit; }
+nav button:hover { color: var(--text); }
+nav button.active { color: var(--text); border-bottom-color: var(--accent); }
+main { padding: 1.2rem; max-width: 1400px; margin: 0 auto; }
+.panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: .9rem 1rem; min-width: 0; }
+.panel h3 { margin: .1rem 0 .6rem; font-size: .85rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.panel + .panel { margin-top: .9rem; }
+.grid { display: grid; gap: .9rem; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
+.scope { display: grid; gap: .9rem; grid-template-columns: minmax(0, 3fr) minmax(260px, 1fr); }
+@media (max-width: 900px) { .scope { grid-template-columns: 1fr; } }
+.picture { width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 6px; object-fit: contain; display: block; }
+table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+th { color: var(--muted); text-align: left; font-weight: 500; padding: .35rem .5rem; border-bottom: 1px solid var(--border); white-space: nowrap; }
+td { padding: .35rem .5rem; border-bottom: 1px solid var(--panel2); vertical-align: middle; word-break: break-all; }
+td.key { color: var(--muted); white-space: nowrap; word-break: normal; width: 40%; }
+.pill { display: inline-block; padding: .1rem .55rem; border-radius: 99px; font-size: .72rem; font-weight: 600; white-space: nowrap; background: var(--chip); }
+.pill.ok { background: var(--ok); color: #fff; } .pill.warn { background: var(--warn); color: #20180a; } .pill.bad { background: var(--bad); color: #fff; }
+label.field { display: block; font-size: .78rem; color: var(--muted); margin: .55rem 0 .2rem; }
+select, input { width: 100%; padding: .35rem .5rem; background: var(--panel2); color: var(--text); border: 1px solid var(--border); border-radius: 5px; font: inherit; font-size: .85rem; }
+input[type=range] { padding: 0; }
+button.action { background: var(--accent); color: #fff; border: none; border-radius: 5px; padding: .4rem .8rem; cursor: pointer; font: inherit; font-size: .85rem; }
+a { color: var(--accent); }
+.error { color: var(--bad); font-size: .8rem; min-height: 1em; margin-top: .5rem; }
+.hidden { display: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>mxl-scopes</h1>
+  <span class="node" id="node">–</span>
+  <span class="spacer"></span>
+  <span class="pill" id="pill-input">input</span>
+  <span class="pill" id="pill-ready">ready</span>
+  <span class="pill" id="pill-live">offline</span>
+  <span class="muted" id="version"></span>
+</header>
+<nav id="tabs">
+  <button data-tab="scope">Scope</button>
+  <button data-tab="input">Input</button>
+  <button data-tab="nmos">NMOS</button>
+  <button data-tab="status">Status</button>
+  <button data-tab="settings">Settings</button>
+</nav>
+<main>
+  <section id="tab-scope">
+    <div class="scope">
+      <div class="panel">
+        <h3>Scope <span class="muted" id="snapshot-note">(snapshot, the WebRTC preview arrives in M3)</span></h3>
+        <img class="picture" id="picture" alt="scope picture">
+      </div>
+      <div class="panel">
+        <h3>Controls</h3>
+        <label class="field">Mode</label>
+        <select data-field="mode"><option value="luma">Luma waveform</option></select>
+        <label class="field">Update rate</label>
+        <select data-field="update_rate">
+          <option value="frame">every frame</option><option value="50">50 Hz</option><option value="25">25 Hz</option>
+          <option value="12.5">12.5 Hz</option><option value="10">10 Hz</option><option value="5">5 Hz</option><option value="1">1 Hz</option>
+        </select>
+        <label class="field">Sampling</label>
+        <select id="sampling">
+          <option value="1/1">full (every line, every sample)</option>
+          <option value="2/1">half (every 2nd line)</option>
+          <option value="2/2">quarter (every 2nd line and sample)</option>
+        </select>
+        <label class="field">Intensity <span id="intensity-value"></span></label>
+        <input type="range" min="1" max="400" data-field="intensity">
+        <label class="field">Graticule units</label>
+        <select data-field="graticule_units"><option value="mv">mV</option><option value="percent">%</option><option value="code">code</option></select>
+        <label class="field">Graticule level <span id="level-value"></span></label>
+        <input type="range" min="0" max="100" data-field="graticule_level">
+        <label class="field">Trace colour</label>
+        <select data-field="trace_color"><option value="green">green</option><option value="white">white</option><option value="amber">amber</option></select>
+        <label class="field">Range</label>
+        <select data-field="range"><option value="limited">BT.709 limited</option><option value="full">full</option></select>
+        <div class="error" id="scope-error"></div>
+      </div>
+    </div>
+  </section>
+  <section id="tab-input" class="hidden"><div class="panel"><h3>Input</h3><table id="input-table"></table></div></section>
+  <section id="tab-nmos" class="hidden"><div class="grid">
+    <div class="panel"><h3>Node</h3><table id="nmos-table"></table></div>
+    <div class="panel"><h3>Output flow</h3><table id="output-table"></table></div>
+  </div></section>
+  <section id="tab-status" class="hidden"><div class="grid">
+    <div class="panel"><h3>Renderer</h3><table id="renderer-table"></table></div>
+    <div class="panel"><h3>Probes</h3><table id="probe-table"></table>
+      <p class="muted"><a href="/metrics" target="_blank">/metrics</a> · <a href="/api/v1/status" target="_blank">/api/v1/status</a></p></div>
+  </div></section>
+  <section id="tab-settings" class="hidden"><div class="panel">
+    <h3>Settings</h3>
+    <p class="muted">Environment settings are read-only. Restart and flow settings apply at the next start.
+      <a href="/api/v1/config/export" download="mxl-scopes-config.json">Export</a> ·
+      <a href="/api/v1/config/env" target="_blank">KEY=value</a> ·
+      <label style="display:inline"><a href="#" id="import-link">Import</a><input type="file" id="import-file" accept="application/json" class="hidden"></label></p>
+    <div class="error" id="settings-error"></div>
+    <table id="settings-table"></table>
+  </div></section>
+</main>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const esc = (v) => String(v ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+let info = null;
+let scope = null;
+let status = null;
+let editing = 0;
+
+function table(el, rows) {
+  el.innerHTML = rows.map(([k, v]) => `<tr><td class="key">${esc(k)}</td><td>${esc(v)}</td></tr>`).join("");
+}
+function pill(el, text, kind) {
+  el.textContent = text;
+  el.className = "pill " + (kind || "");
+}
+async function api(path, options) {
+  const response = await fetch(path, options);
+  const text = await response.text();
+  let body = null;
+  try { body = JSON.parse(text); } catch (e) { body = text; }
+  if (!response.ok) throw new Error((body && body.error) || response.statusText);
+  return body;
+}
+
+function showTab(id) {
+  for (const b of document.querySelectorAll("nav button")) b.classList.toggle("active", b.dataset.tab === id);
+  for (const s of document.querySelectorAll("main > section")) s.classList.toggle("hidden", s.id !== "tab-" + id);
+  if (id === "settings") loadSettings();
+}
+$("tabs").addEventListener("click", (e) => {
+  if (e.target.dataset.tab) location.hash = e.target.dataset.tab;
+});
+window.addEventListener("hashchange", () => showTab(location.hash.slice(1) || "scope"));
+
+function renderScope() {
+  if (!scope || Date.now() < editing) return;
+  for (const el of document.querySelectorAll("[data-field]")) {
+    const value = scope[el.dataset.field];
+    if (value !== undefined) el.value = String(value);
+  }
+  $("sampling").value = `${scope.line_step}/${scope.pixel_step}`;
+  $("intensity-value").textContent = scope.intensity + " %";
+  $("level-value").textContent = scope.graticule_level + " %";
+}
+
+let pending = {};
+let timer = null;
+function change(field, value) {
+  // At most ten changes per second (§9.1).
+  pending[field] = value;
+  editing = Date.now() + 1500;
+  if (!timer) timer = setTimeout(flush, 100);
+}
+async function flush() {
+  timer = null;
+  const body = pending;
+  pending = {};
+  try {
+    const result = await api("/api/v1/scope", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    scope = result.scope;
+    $("scope-error").textContent = result.not_persisted.length ? "Set in the environment, applied until the restart: " + result.not_persisted.join(", ") : "";
+  } catch (e) {
+    $("scope-error").textContent = e.message;
+  }
+  editing = 0;
+  renderScope();
+}
+for (const el of document.querySelectorAll("[data-field]")) {
+  el.addEventListener(el.type === "range" ? "input" : "change", () => {
+    const numeric = ["intensity", "graticule_level"].includes(el.dataset.field);
+    change(el.dataset.field, numeric ? Number(el.value) : el.value);
+    if (el.dataset.field === "intensity") $("intensity-value").textContent = el.value + " %";
+    if (el.dataset.field === "graticule_level") $("level-value").textContent = el.value + " %";
+  });
+}
+$("sampling").addEventListener("change", () => {
+  const [line, pixel] = $("sampling").value.split("/").map(Number);
+  change("line_step", line);
+  change("pixel_step", pixel);
+});
+
+function renderStatus() {
+  if (!status) return;
+  const input = status.input;
+  const kinds = { running: "ok", holding: "warn", waiting: "warn", no_signal: "bad", format_mismatch: "bad", not_routed: "" };
+  pill($("pill-input"), input.state.replace("_", " "), kinds[input.state]);
+  pill($("pill-ready"), status.ready ? "ready" : "not ready", status.ready ? "ok" : "warn");
+  table($("input-table"), [
+    ["state", input.state + (input.reason ? " (" + input.reason + ")" : "")],
+    ["label", input.label], ["flow", input.route.flow_id || "–"], ["domain", input.route.domain_id || "–"], ["sender", input.route.sender_id || "–"],
+    ["format", input.width ? `${input.width}×${input.height} ${input.interlaced ? "i" : "p"} ${input.rate}` : "–"],
+    ["media type", input.media_type], ["colorimetry", input.colorimetry + (input.colorimetry_warning ? " (not BT.709: shown as BT.709)" : "")],
+    ["grains", input.grains], ["resyncs", input.resyncs], ["latency", input.latency_ms.toFixed(1) + " ms"],
+  ]);
+  const out = status.output;
+  table($("output-table"), [["flow", out.flow_id || "–"], ["domain", out.domain_id], ["format", `${out.width}×${out.height} @ ${out.rate}`],
+    ["media type", out.media_type], ["frames", out.frames], ["late", out.late], ["missed", out.missed]]);
+  const r = status.renderer;
+  table($("renderer-table"), [["updates", r.updates], ["skipped", r.skipped], ["torn", r.torn], ["update rate", r.update_rate_hz.toFixed(2) + " Hz"],
+    ["analyse", r.analyse_ms.toFixed(2) + " ms"], ["render", r.render_ms.toFixed(2) + " ms"], ["SIMD", r.simd]]);
+  table($("probe-table"), [["live", status.live], ["ready", status.ready + (status.ready_reason ? " (" + status.ready_reason + ")" : "")],
+    ["registered", status.nmos.registered], ["preview", status.preview.state]]);
+  if (info) {
+    table($("nmos-table"), [["node", info.node_id], ["device", info.device_id], ["receiver", info.receiver_id], ["sender", info.sender_id],
+      ["registry", status.nmos.registry || "none"], ["registered", status.nmos.registered], ["NMOS port", info.ports.nmos]]);
+  }
+}
+
+async function loadSettings() {
+  try {
+    const config = await api("/api/v1/config");
+    $("settings-table").innerHTML = "<tr><th>Key</th><th>Value</th><th>Source</th><th>Applies</th></tr>" + config.settings.map((s) =>
+      `<tr><td class="key">${esc(s.key)}</td><td>${s.editable ? `<input data-key="${esc(s.key)}" value="${esc(s.value)}" placeholder="${esc(s.default)}">` : esc(s.value)}</td>` +
+      `<td>${esc(s.source)}</td><td>${esc(s.apply)}</td></tr>`).join("");
+    for (const el of document.querySelectorAll("#settings-table input")) {
+      el.addEventListener("change", async () => {
+        try {
+          const result = await api("/api/v1/config", { method: "PUT", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ [el.dataset.key]: el.value === "" ? null : el.value }) });
+          $("settings-error").textContent = result.restart_required ? "Saved. Restart required for: " + result.keys.join(", ") : "Saved.";
+        } catch (e) {
+          $("settings-error").textContent = e.message;
+        }
+      });
+    }
+  } catch (e) {
+    $("settings-error").textContent = e.message;
+  }
+}
+$("import-link").addEventListener("click", (e) => { e.preventDefault(); $("import-file").click(); });
+$("import-file").addEventListener("change", async () => {
+  const file = $("import-file").files[0];
+  if (!file) return;
+  try {
+    const result = await api("/api/v1/config/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: await file.text() });
+    $("settings-error").textContent = "Imported." + (result.skipped.length ? " Skipped (environment): " + result.skipped.join(", ") : "") +
+      (result.restart_required ? " Restart required." : "");
+    loadSettings();
+  } catch (e) {
+    $("settings-error").textContent = e.message;
+  }
+});
+
+// The picture: the snapshot PNG twice a second while the page is visible.
+function refreshPicture() {
+  if (!document.hidden && !$("tab-scope").classList.contains("hidden")) {
+    const next = new Image();
+    next.onload = () => { $("picture").src = next.src; };
+    next.src = "/api/v1/snapshot.png?t=" + Date.now();
+  }
+  setTimeout(refreshPicture, 500);
+}
+
+function connect() {
+  const socket = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/api/v1/events");
+  socket.onopen = () => pill($("pill-live"), "live", "ok");
+  socket.onmessage = (e) => {
+    const message = JSON.parse(e.data);
+    status = message.status;
+    scope = message.scope;
+    renderStatus();
+    renderScope();
+  };
+  socket.onclose = () => {
+    pill($("pill-live"), "offline", "bad");
+    setTimeout(connect, 2000);
+  };
+}
+
+(async () => {
+  showTab(location.hash.slice(1) || "scope");
+  try {
+    info = await api("/api/v1/info");
+    $("node").textContent = `${info.label} · ${info.output.format} · SIMD ${info.simd.level}`;
+    $("version").textContent = `v${info.version} · MXL ${info.mxl_revision.slice(0, 7)}`;
+    scope = await api("/api/v1/scope");
+    status = await api("/api/v1/status");
+    renderScope();
+    renderStatus();
+  } catch (e) {
+    $("scope-error").textContent = e.message;
+  }
+  connect();
+  refreshPicture();
+})();
+</script>
+</body>
+</html>

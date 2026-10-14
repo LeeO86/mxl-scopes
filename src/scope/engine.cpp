@@ -56,6 +56,12 @@ void ScopeEngine::analyse(std::uint8_t const* v210)
     }
 }
 
+void ScopeEngine::clear()
+{
+    std::fill(hist_.counts.begin(), hist_.counts.end(), std::uint16_t{0});
+    std::fill(hist_.scratch.begin(), hist_.scratch.end(), std::uint16_t{0});
+}
+
 void ScopeEngine::render(std::string const& caption, std::string const& state, std::uint8_t* dst)
 {
     if (!stillValid_ || caption != caption_ || state != state_)

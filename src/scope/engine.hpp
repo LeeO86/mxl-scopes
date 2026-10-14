@@ -36,6 +36,9 @@ public:
     // afterwards. With a state text (NOT ROUTED, NO SIGNAL, ...) the plot shows no trace.
     void render(std::string const& caption, std::string const& state, std::uint8_t* dst);
 
+    // Drops the counts of an analysed frame (a torn read, §2.2).
+    void clear();
+
     // The picture without a trace, with the last caption and state.
     [[nodiscard]] Frame422 const& still() const
     {

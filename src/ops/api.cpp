@@ -3,6 +3,7 @@
 #include "media/png.hpp"
 #include "media/timebase.hpp"
 #include "nmos/ids.hpp"
+#include "scope/render.hpp"
 #include "util/jsonutil.hpp"
 #include "util/logging.hpp"
 #include "version.hpp"
@@ -201,7 +202,11 @@ std::string Api::outputJson() const
     out << "{\"flow_id\":" << (o.flowId.empty() ? "null" : quote(o.flowId)) << ",\"domain_id\":" << quote(o.domainId) << ",\"width\":" << o.width
         << ",\"height\":" << o.height << ",\"rate\":" << quote(rateText(o.rateNum, o.rateDen)) << ",\"media_type\":"
         << quote(o.key ? "video/v210a" : "video/v210") << ",\"key\":" << boolean(o.key) << ",\"writing\":" << boolean(o.writing)
-        << ",\"frames\":" << o.frames << ",\"late\":" << o.late << ",\"missed\":" << o.missed << "}";
+        << ",\"frames\":" << o.frames << ",\"late\":" << o.late << ",\"missed\":" << o.missed;
+    // Where the plot sits in the raster (§5.2), for tests and tools that sample the output.
+    auto const layout = makeLayout(config_.outputWidth, config_.outputHeight);
+    out << ",\"plot\":{\"x\":" << layout.plotX << ",\"y\":" << layout.plotY << ",\"width\":" << layout.plotW << ",\"height\":" << layout.plotH
+        << ",\"bins\":" << histogramBins(layout) << "}}";
     return out.str();
 }
 
