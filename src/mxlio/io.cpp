@@ -261,15 +261,15 @@ struct MediaIo::Impl
         auto nextSnapshot = std::chrono::steady_clock::now();
         Labels const modeLabel{{"mode", "luma"}};
 
+        // The reader goes; what was last seen on this route stays, so a flow that disappears
+        // holds and then shows NO SIGNAL like one that stops (§11).
         auto closeReader = [&] {
             if (reader != nullptr)
             {
                 mxlReleaseFlowReader(instance, reader);
                 reader = nullptr;
             }
-            haveGrain = false;
             problem.clear();
-            scheduler.resetInput();
         };
         auto closeAll = [&] {
             closeReader();
@@ -357,6 +357,8 @@ struct MediaIo::Impl
                 backoff = 250;
                 view = InputView{.grains = view.grains, .resyncs = view.resyncs};
                 view.route = route;
+                haveGrain = false;
+                scheduler.resetInput();
             }
             if (!route.enable || route.flowId.empty() || route.domainId.empty())
             {
@@ -369,7 +371,32 @@ struct MediaIo::Impl
                 wait(50);
                 continue;
             }
+            // §11: the last picture holds for SCOPES_HOLD_MS after the newest grain, then NO SIGNAL.
+            auto const staleState = [&](std::uint64_t now) {
+                auto const frameNs = meta.rateNum > 0 ? static_cast<std::uint64_t>(1e9 * meta.rateDen / meta.rateNum) : 40'000'000ull;
+                if (now > newestOrigin + static_cast<std::uint64_t>(settings.holdMs) * 1'000'000ull)
+                {
+                    view.state = "no_signal";
+                }
+                else if (now > newestOrigin + 3 * frameNs)
+                {
+                    view.state = "holding";
+                }
+            };
             auto const toWaiting = [&](char const* reason) {
+                if (haveGrain)
+                {
+                    // The flow was running on this route: it went away, it is not missing yet.
+                    staleState(mxlGetTime());
+                    view.reason = reason;
+                    publishView();
+                    if (view.state == "no_signal")
+                    {
+                        showState(settings);
+                    }
+                    wait(std::min(backoff, 250));
+                    return;
+                }
                 view.state = "waiting";
                 view.reason = reason;
                 publishView();
@@ -497,16 +524,7 @@ struct MediaIo::Impl
             }
             else
             {
-                // §11: the last picture holds for SCOPES_HOLD_MS, then NO SIGNAL.
-                auto const frameNs = static_cast<std::uint64_t>(1e9 * meta.rateDen / std::max(1, meta.rateNum));
-                if (now > newestOrigin + static_cast<std::uint64_t>(settings.holdMs) * 1'000'000ull)
-                {
-                    view.state = "no_signal";
-                }
-                else if (now > newestOrigin + 3 * frameNs)
-                {
-                    view.state = "holding";
-                }
+                staleState(now);
             }
             publishView();
 

@@ -9,9 +9,9 @@
 
 namespace scopes
 {
-// Column-strip width in plot columns (SPECIFICATION §4.3). 512, not 64: the M0 numbers
-// (IMPLEMENTATION_PLAN.md) show narrow strips cost more than their cache gain on real pictures.
-inline constexpr int kDefaultStripColumns = 512;
+// Column-strip width in plot columns (SPECIFICATION §4.3), fixed at 64 by the M0 numbers
+// (IMPLEMENTATION_PLAN.md): best or within 6 % of the best of 64, 128 and 512 in every case.
+inline constexpr int kDefaultStripColumns = 64;
 
 // Everything the analyse step needs, built once per input format and settings change.
 // Every backend uses the same plan, so the counts are the same (§3.2).
