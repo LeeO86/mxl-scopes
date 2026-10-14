@@ -2,9 +2,11 @@
 
 This plan comes before any code. It is updated as the work goes on: every decision and every deviation from `SPECIFICATION.md` is recorded here, as in the sibling repos.
 
-## Status (2026-10-14)
+## Status (2026-10-15)
 
-Design draft. No repository yet. The open questions in SPECIFICATION §16 need the maintainer's answers before M1.
+M0 in review: PR #1 (`feat/m0`). The open questions of SPECIFICATION §16 are decided (§16 there).
+
+M0 was widened by the maintainer's brief of 2026-10-15 to a working vertical slice (deviation 1): environment config, MXL video in, luma waveform, MXL video out, REST with a snapshot picture, metrics, NMOS, the web page, the image and CI. The spike part of M0 (engine, bit-exact tests, benchmark, numbers) is done; what is left is listed under M0 below.
 
 ## Pins
 
@@ -12,12 +14,13 @@ Design draft. No repository yet. The open questions in SPECIFICATION §16 need t
 | --- | --- |
 | MXL | `dmf-mxl/mxl` `release/v1.1` at `218ddaa0a08c12ffe75fc475ae65aa3d9eef16d7`, `-DMXL_ENABLE_FABRICS_OFI=OFF`; one `MXL_REF` in `docker/Dockerfile` and `.github/workflows/ci.yaml` |
 | nmos-cpp | `fe303849527394b03bdedc8f161f377fe458bb62` (the siblings' commit) |
-| Blend2D, DejaVu Sans | the versions mxl-multiviewer uses (graticule drawing only) |
-| FFmpeg | Ubuntu 24.04 system libraries (preview) |
-| MediaMTX | the version mxl-multiviewer pins (preview own mode, tests) |
-| doctest | vendored |
+| Blend2D, DejaVu Sans | the versions mxl-multiviewer uses (graticule drawing only); not used in M0 (deviation 6) |
+| FFmpeg | Ubuntu 24.04 system libraries (preview); not used before M3 |
+| MediaMTX | the version mxl-multiviewer pins (preview own mode, tests); not used before M3 |
+| doctest | vendored (2.4.12) |
+| picojson, stb_image_write, font8x8 | vendored (`NOTICE`) |
 
-## Source layout (planned)
+## Source layout (planned; M0 state below)
 
 ```
 src/
@@ -41,6 +44,8 @@ docker/ deploy/ docs/
 
 `scopes-core` (config, scope, media) links neither libmxl nor nmos-cpp, so the bit-exact tests run anywhere.
 
+M0 as built: `src/config` (schema, store), `src/scope` (`analyse`, `render`, `engine`, `scheduler`, `settings`), `src/scope/cpu` (`avx2.cpp` with `-mavx2 -mfma`, `dispatch`, `group.hpp` the shared reference step), `src/media` (`v210`, `patterns`, `png`, `timebase`), `src/app` (`state`, `triplebuffer`), `src/mxlio/io.cpp` (renderer and writer threads), `src/nmos` (`ids`, `node`), `src/ops` (`api`, `httpserver`, `metrics`), `web/index.html`, `tools/bench.cpp`, `tests/unit`, `tests/tools`, `tests/integration/scope.sh`, `docs/golden`.
+
 ## Milestones
 
 ### M0: spike and skeleton
@@ -57,6 +62,50 @@ Goal: prove the cost estimate (SPECIFICATION §4.9) before the rest is built.
 - Decide open question 8 (AVX-512) from these numbers.
 
 Exit: AVX2 luma analyse + render < 4 ms at 1080p on the desktop class, bit-exact with scalar. If not, revise §4.3 before M1.
+
+Progress (2026-10-15):
+
+- [x] Repository scaffold, CMake, pins, CI that builds MXL and nmos-cpp, doctest.
+- [x] Scalar reference engine for `luma`: unpack, bin, per-column histogram with strips and two sub-histograms, intensity LUT, render, v210 pack.
+- [x] AVX2 analyse step for `luma`; run-time dispatch (`SCOPES_SIMD`, cpuid and XGETBV). Render and pack are shared integer code for both levels (byte-identical by construction).
+- [x] Bit-exact unit tests, AVX2 vs scalar: random and edge frames (all codes 0–1023), widths 1–1280 incl. not multiples of 6 or 48, every line and pixel step, column counts 1..width, bins 1..1024, strip widths, padded strides; whole pictures byte for byte at 720p, 1080p, 2160p. Thread counts: M2 (one renderer thread in M0).
+- [x] Golden pictures: ramp, 75 % and 100 % bars, flat grey; checked by trace position and by hash; PNGs in `docs/golden` (`mxl-scopes-bench --golden`).
+- [x] `mxl-scopes-bench`: analyse and render time per raster, SIMD level, strip width and step.
+- [x] Measured on the Skylake-SP class (lab) and an AVX2 server CPU (CI runner); strip width fixed at 64.
+- [ ] Measure on the desktop class (8-core AVX2 desktop CPU). Not available tonight.
+- [x] Open question 8 (AVX-512): stays out of v1 (see "M0 numbers").
+- [x] Vertical slice (deviation 1): config, MXL reader and writer, REST, probes, metrics, NMOS, web page, Dockerfile, CI, integration test.
+
+Left of M0: the desktop-class numbers; a lab run of the image (README "Lab run").
+
+### M0 numbers
+
+`mxl-scopes-bench`, one thread pinned to one core, 1920×1080 output, median ms (p99 in brackets). Analyse = histogram of one input frame; render = histogram to packed v210 (shared code, so equal for both levels). "bars" is 75 % colour bars (flat areas), "noise" is uniformly random codes (worst case: every sample a random cell).
+
+Lab host class, Skylake-SP (Xeon Gold 6136, 3.0 GHz, AVX-512 present but unused), other agents on the socket:
+
+| Input | Step | Scalar analyse | AVX2 analyse | Render | AVX2 total |
+| --- | --- | --- | --- | --- | --- |
+| 1080p bars | 1/1 | 6.0 | 1.73 (1.86) | 1.73 | 3.48 (3.82) |
+| 1080p bars | 2/1 | 2.5 | 0.87 | 1.66 | 2.55 |
+| 1080p bars | 2/2 | 1.4 | 0.63 | 1.58 | 2.21 |
+| 1080p noise | 1/1 | 6.5 | 3.37 (3.61) | 4.23 | 7.55 (7.96) |
+| 2160p bars | 1/1 | 23.4 | 9.17 (9.42) | 1.79 | 10.97 (11.22) |
+| 2160p bars | 2/1 | 12.7 | 5.73 | 1.78 | 7.47 |
+| 2160p noise | 1/1 | 27.7 | 14.6 (14.8) | 4.21 | 18.8 (19.0) |
+
+AVX2 server class (CI runner, AMD EPYC 7763), before the render rework (render then 2.9 ms): 1080p bars AVX2 analyse 1.16 ms, scalar 6.2 ms (old byte-wise unpack); 2160p bars AVX2 analyse about 4.6 ms.
+
+Strip width (AVX2 analyse, ms): 1080p bars 1.73 / 1.65 / 1.85 and noise 3.37 / 3.28 / 3.52 at 64 / 128 / 512 columns; 2160p bars 9.17 / 9.21 / 9.39 and noise 14.6 / 15.5 / 20.2. 64 is best or within 6 % of the best everywhere: fixed at 64 (`kDefaultStripColumns`).
+
+Findings:
+
+- Exit criterion: AVX2 analyse + render is 3.5 ms (p99 3.8 ms) for a 1080p picture with flat areas on the lab class, below 4 ms already on the slower class; uniform noise takes 7.6 ms. The desktop class is still to be measured. The 2160p target of §13 (< 12 ms) holds for bars (11.0 ms) and not for noise (18.8 ms); line step 2 brings noise to 12.6 ms.
+- Scalar 1080p (p99 < 15 ms, §13): met (8.2 ms bars, 10.9 ms noise).
+- The hot loop is the scalar increment, as §4.9 expected; the AVX2 unpack, bin and index step makes analyse 2.5–3.5 times faster than scalar. AVX-512 would widen only that step, so open question 8 stays "not in v1".
+- The column strips of §4.3 read a few cache lines per row at a stride above 4 KiB, which the hardware prefetcher does not follow; the loops prefetch six rows ahead.
+- Render cost is independent of the input raster. It was 2.7–3 ms with a planar intermediate picture and a full pack; packing only the 6-pixel groups that carry a trace over the packed still picture brought it to 1.7 ms for typical pictures (4.2 ms for noise, where every group has a trace). An AVX2 pack is the next step if noise matters.
+- §4.9's estimate (1.5–2 ms per luma update on a 4.5 GHz desktop) looks reachable on that class; on the 3 GHz lab class it is 3.5 ms.
 
 ### M1: luma waveform end to end
 
@@ -127,6 +176,42 @@ Exit: 1.0.0 released and deployable by the platform.
 6. The output runs at full rate; the update rate only changes how often the picture changes.
 7. Neutral mode names; the Y-against-chroma display is `luma-chroma`.
 
+## Platform guideline G1–G14
+
+| # | Rule | Status | Evidence | Note |
+| --- | --- | --- | --- | --- |
+| G1 | Env, then one JSON file, then defaults. Unknown env ignored. Invalid values exit 78. One settings table. State only under one directory, default `/config`. Secrets never logged. | met | `src/config/config.cpp` `loadConfig`, `settingSchema`; `src/config/store.cpp`; `src/main.cpp` | `SCOPES_CONFIG_FILE`, else `<SCOPES_STATE_DIR>/config.json`. No secrets. |
+| G2 | Scan `/Volumes/mxl`. Own output domain from `MXL_OUTPUT_DOMAIN_DIR` / `MXL_OUTPUT_DOMAIN_ID`, created if missing. A different id in `domain_def.json` is logged and not overwritten. No writes into other domains. `history_duration` configurable. | met | `src/mxlio/io.cpp` `ensureDomain`; `src/domain/scan.cpp` | Default `/Volumes/mxl/scopes-<first 8 hex of the domain id>`. A mirror or an uncreatable directory exits 78. `options.json` only for a new domain. |
+| G3 | `NMOS_SEED` UUIDv5 for node, device, source, flow, sender, receiver and the default domain id. `NMOS_LABEL`, `NMOS_TAGS` on node and device. Group hints. | met | `src/nmos/ids.cpp`, `src/nmos/node.cpp` | Names `mxl-scopes/<seed>/...` as SPECIFICATION §7.1. |
+| G4 | Registry and query addresses; query defaults to the registry and port + 1. `NMOS_DNS_SD` false disables browse and advertisement. | met | `src/config/config.cpp`, `src/nmos/node.cpp` (`pri`, `highest_pri`) | As the siblings. |
+| G5 | Announced addresses are IP literals from `NMOS_HOST_ADDRESS`, default the first non-loopback IPv4. | met | `src/config/config.cpp` `announceableIpv4`; `src/nmos/node.cpp` | Loopback or `0.0.0.0` exits 78. |
+| G6 | Every listen port is a setting, NMOS WebSocket at `NMOS_PORT+1`. Bind failure exits 75. | met | `src/config/config.cpp` `checkPorts`; `src/main.cpp`; CI "Exit codes" | MediaMTX ports count only in own mode (M3). |
+| G7 | `/livez`, `/readyz` (serving, and registered when a registry is set), `/metrics` with prefix `mxl_scopes_`. | met | `src/ops/api.cpp` `live`, `ready`; `src/ops/metrics.cpp` | Readiness also needs the output flow (§9.4). |
+| G8 | SIGTERM within `SHUTDOWN_TIMEOUT_S`: stop media, DELETE the node, optionally remove only the output domain, exit 143. | met | `src/main.cpp`; `src/nmos/node.cpp`; `src/mxlio/io.cpp` `removeOwnDomain`; `tests/integration/scope.sh` | `MXL_CLEANUP_ON_EXIT` defaults false. |
+| G9 | Senders report `mxl_domain_id` and `mxl_flow_id`; receivers take the staged PATCH; `master_enable: false` stops the reader; the route survives a restart. | met | `src/nmos/node.cpp`; `src/app/state.cpp` `saveRoute`, `loadRoute`; `tests/integration/scope.sh` | The restored route is also the IS-05 active state and the IS-04 subscription. |
+| G10 | `GET /api/v1/config/export`, `POST /api/v1/config/import`; secrets omitted unless requested. | met | `src/ops/api.cpp`; `tests/unit/test_api.cpp` | No secrets; environment keys skipped on import and listed. |
+| G11 | Actions builds and pushes `ghcr.io/leeo86/mxl-scopes`: `main` `git-<sha7>` and `nightly-dev`; `vX.Y.Z` `X.Y.Z`, `X.Y`, `X`. uid 1000. OCI labels. | met (not yet run) | `.github/workflows/container.yaml`, `docker/Dockerfile` | Runs after the merge. The PR builds the image without pushing (`ci.yaml` job `image`). No `latest`. |
+| G12 | Pod network, standard env, probes, grace period, MXL hostPath, writable `/config`, no `hostIPC`. | open (M4) | — | `deploy/k8s/deployment.yaml` in M4. |
+| G13 | README settings, ports, exit codes, API, platform run. CHANGELOG. SPEC matches the code. | partial | `README.md`, `CHANGELOG.md` | The deviations below are the differences to SPECIFICATION.md until they are folded in. |
+| G14 | Unit tests for parsing and the new behaviour. Integration covers start, ready, SIGTERM, deregister and domain removal. CI green. | met | `tests/unit`, `tests/integration/scope.sh`, `.github/workflows/ci.yaml` | |
+
 ## Deviations
 
-None yet.
+1. **M0 scope.** The maintainer's brief of 2026-10-15 asked for a working vertical slice in M0: configuration, MXL reader and writer, REST, metrics, NMOS, a web page, Dockerfile and CI, besides the engine spike. Parts of M1 (config, MXL I/O, NMOS, probes, minimal REST, `scope.sh`) and of M3 (a web page, config export) are therefore in M0; their remaining parts stay in M1 and M3.
+2. **Reader and renderer are one thread** (SPECIFICATION §2.1 has two). The thread waits for the next grain with a timeout up to the next update tick, analyses the grain in place and renders; nothing else ever waits for it, and the grain is never copied. Strip workers (M2) can split the analyse step later.
+3. **Bin-major histogram** (§4.3 says column-major). The columns of one bin are contiguous: the renderer reads the counts line by line, and a strip touches two cache lines per bin instead of one per column. Counts are equal either way. Cell indices are 32-bit and absolute (§4.9 has 16-bit indices inside a strip); one or two sub-histograms, not four.
+4. **Flow keys apply at the restart in M0.** `SCOPES_OUTPUT_FORMAT`, `SCOPES_OUTPUT_RATE` and `SCOPES_OUTPUT_KEY` are saved and reported as `restart_required` (§8 has them live with a new flow id). `SCOPES_OUTPUT_RATE=input` does follow the routed flow live: a route to another rate mints a new output flow id and the NMOS flow and sender follow.
+5. **Values not built yet exit 78:** modes other than `luma` (M2), `SCOPES_ACCUMULATE=all` (M1), `SCOPES_OUTPUT_KEY=true` (M2), `SCOPES_THREADS` above 1 (M2). A PATCH with them answers 400.
+6. **Graticule text** uses the 8×8 public-domain bitmap font scaled to 16 px at 1080 lines, not Blend2D with DejaVu Sans (§3.1). Blend2D comes with the label polish in M1.
+7. **Preview.** No WebRTC preview yet (M3). The web page shows `GET /api/v1/snapshot.png` twice a second; the renderer copies the picture for it every 500 ms. `PREVIEW_*`, `MEDIAMTX_*` and `SCOPES_PREVIEW_*` are validated but unused; `/api/v1/info` reports the preview state `not_implemented`. The image has neither MediaMTX nor FFmpeg yet.
+8. **Web page.** One static HTML page in the family look without Vue or a build step; the Vue 3 UI and the `scope` widget (`/widgets`, `/widget/scope`) are M3.
+9. **Measurements** (§4.7), their metrics and `GET /api/v1/measurements` are M2 as planned; not in M0.
+10. **PATCH of an environment key.** A `PATCH /api/v1/scope` of a key the environment sets applies live until the restart and is listed as `not_persisted` (§9.2 says the PATCH is saved to the file; the file cannot beat the environment, and the platform sets `SCOPES_MODE` and `SCOPES_UPDATE_RATE` in the environment).
+11. **A running flow that disappears** (a writer that stops and deletes its flow) holds for `SCOPES_HOLD_MS` and then shows `NO SIGNAL`, like a flow that stops; `waiting` stays for a flow that has not run on this route (§11 lists only the missing flow).
+12. **Plot geometry.** The plot starts and ends on 6-pixel v210 group boundaries and has a 2 % right margin (§5.2 gives only the left, top and bottom margins); the renderer packs only the groups with a trace over the packed still picture.
+
+## Questions for the maintainer
+
+1. **Intensity curve (§4.4).** With `g = SCOPES_INTENSITY / 100 × 4` and `c_ref` the count of an evenly spread column, a single sample per cell already gives about 96 % brightness at 1080p (c_ref is about 1.2): the default trace is nearly binary. Keep it, or use `g = intensity / 100 × 0.5` (or `c_ref` per column of a flat field) so density shows? A lab look decides it; it changes only the table.
+2. **AVX-512 (open question 8)** stays out of v1 on the M0 numbers. Confirm.
+3. **M0 merge:** the slice is in one PR; review per commit if that is easier.
