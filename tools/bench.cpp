@@ -1,0 +1,146 @@
+// mxl-scopes-bench: analyse, render and pack time of the scope engine per raster, SIMD level,
+// strip width and sampling step, from generated frames (IMPLEMENTATION_PLAN.md M0).
+// No libmxl. Pin it to one core when measuring: taskset -c N mxl-scopes-bench ...
+#include "media/patterns.hpp"
+#include "scope/cpu/dispatch.hpp"
+#include "scope/engine.hpp"
+
+#include <algorithm>
+#include <chrono>
+#include <cstdio>
+#include <cstring>
+#include <iostream>
+#include <sstream>
+#include <string>
+#include <vector>
+
+using namespace scopes;
+
+namespace
+{
+std::vector<std::string> split(std::string const& text)
+{
+    std::vector<std::string> out;
+    std::stringstream stream(text);
+    std::string item;
+    while (std::getline(stream, item, ','))
+    {
+        if (!item.empty())
+        {
+            out.push_back(item);
+        }
+    }
+    return out;
+}
+
+std::string arg(int argc, char** argv, char const* name, std::string const& fallback)
+{
+    for (int i = 1; i + 1 < argc; ++i)
+    {
+        if (std::strcmp(argv[i], name) == 0)
+        {
+            return argv[i + 1];
+        }
+    }
+    return fallback;
+}
+
+struct Stats
+{
+    double median = 0;
+    double p99 = 0;
+};
+
+Stats stats(std::vector<double> values)
+{
+    std::sort(values.begin(), values.end());
+    Stats s;
+    s.median = values[values.size() / 2];
+    s.p99 = values[std::min(values.size() - 1, (values.size() * 99) / 100)];
+    return s;
+}
+
+double ms(std::chrono::steady_clock::duration d)
+{
+    return std::chrono::duration<double, std::milli>(d).count();
+}
+} // namespace
+
+int main(int argc, char** argv)
+{
+    for (int i = 1; i < argc; ++i)
+    {
+        if (std::strcmp(argv[i], "--help") == 0)
+        {
+            std::cout << "mxl-scopes-bench [--rasters 1920x1080,3840x2160] [--output 1920x1080] [--simd scalar,avx2]\n"
+                         "                 [--strips 32,64,128] [--steps 1/1,2/1,2/2] [--pattern random|bars75|ramp|flat]\n"
+                         "                 [--iterations 200]\n";
+            return 0;
+        }
+    }
+    auto const rasters = split(arg(argc, argv, "--rasters", "1920x1080,3840x2160"));
+    auto const output = arg(argc, argv, "--output", "1920x1080");
+    auto simds = split(arg(argc, argv, "--simd", "scalar,avx2"));
+    auto const strips = split(arg(argc, argv, "--strips", "32,64,128"));
+    auto const steps = split(arg(argc, argv, "--steps", "1/1,2/1,2/2"));
+    auto const pattern = arg(argc, argv, "--pattern", "random");
+    int const iterations = std::max(5, std::stoi(arg(argc, argv, "--iterations", "200")));
+    int const outW = std::stoi(output.substr(0, output.find('x')));
+    int const outH = std::stoi(output.substr(output.find('x') + 1));
+    bool const avx2 = cpuHasAvx2() && avx2Compiled();
+    std::printf("# cpu avx2=%s pattern=%s output=%dx%d iterations=%d\n", avx2 ? "yes" : "no", pattern.c_str(), outW, outH, iterations);
+    std::printf("%-10s %-7s %-6s %-6s %10s %10s %10s %10s %10s %10s\n", "raster", "simd", "strip", "step", "analyse", "an_p99", "render", "-", "total",
+        "total_p99");
+    for (auto const& raster : rasters)
+    {
+        int const w = std::stoi(raster.substr(0, raster.find('x')));
+        int const h = std::stoi(raster.substr(raster.find('x') + 1));
+        auto const frame = packPattern(makePattern(pattern, w, h, 512, 7));
+        for (auto const& simd : simds)
+        {
+            if (simd == "avx2" && !avx2)
+            {
+                std::printf("%-10s %-7s (no AVX2 on this CPU)\n", raster.c_str(), simd.c_str());
+                continue;
+            }
+            for (auto const& strip : strips)
+            {
+                for (auto const& step : steps)
+                {
+                    DisplaySettings settings;
+                    settings.lineStep = std::stoi(step.substr(0, step.find('/')));
+                    settings.pixelStep = std::stoi(step.substr(step.find('/') + 1));
+                    ScopeEngine engine(simd == "avx2" ? SimdLevel::Avx2 : SimdLevel::Scalar, std::stoi(strip));
+                    engine.configure({w, h, v210RowBytes(w)}, settings, outW, outH);
+                    std::vector<std::uint8_t> out(engine.packedSize());
+                    std::vector<double> analyse;
+                    std::vector<double> render;
+                    std::vector<double> pack;
+                    std::vector<double> total;
+                    for (int i = 0; i < iterations + 3; ++i)
+                    {
+                        auto const t0 = std::chrono::steady_clock::now();
+                        engine.analyse(frame.data());
+                        auto const t1 = std::chrono::steady_clock::now();
+                        engine.render("Luma waveform", "", out.data());
+                        auto const t2 = std::chrono::steady_clock::now();
+                        auto const t3 = t2;
+                        if (i >= 3)
+                        {
+                            analyse.push_back(ms(t1 - t0));
+                            render.push_back(ms(t2 - t1));
+                            pack.push_back(ms(t3 - t2));
+                            total.push_back(ms(t3 - t0));
+                        }
+                    }
+                    auto const a = stats(analyse);
+                    auto const t = stats(total);
+                    std::printf("%-10s %-7s %-6s %-6s %10.3f %10.3f %10.3f %10.3f %10.3f %10.3f\n", raster.c_str(), simd.c_str(), strip.c_str(), step.c_str(),
+                        a.median, a.p99, stats(render).median, stats(pack).median, t.median, t.p99);
+                    std::fflush(stdout);
+                }
+            }
+        }
+    }
+    return 0;
+}
