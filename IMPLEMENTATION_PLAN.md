@@ -76,7 +76,7 @@ Progress (2026-10-15):
 - [x] Open question 8 (AVX-512): stays out of v1 (see "M0 numbers").
 - [x] Vertical slice (deviation 1): config, MXL reader and writer, REST, probes, metrics, NMOS, web page, Dockerfile, CI, integration test.
 
-Left of M0: the desktop-class numbers; a lab run of the image (README "Lab run").
+Left of M0: the desktop-class numbers; a lab run of the image (README "Lab run") with a real camera picture and the multiviewer tile; the process CPU targets of §13 on the lab class (see "M0 numbers").
 
 ### M0 numbers
 
@@ -98,6 +98,8 @@ AVX2 server class (CI runner, AMD EPYC 7763), before the render rework (render t
 
 Strip width (AVX2 analyse, ms): 1080p bars 1.73 / 1.65 / 1.85 and noise 3.37 / 3.28 / 3.52 at 64 / 128 / 512 columns; 2160p bars 9.17 / 9.21 / 9.39 and noise 14.6 / 15.5 / 20.2. 64 is best or within 6 % of the best everywhere: fixed at 64 (`kDefaultStripColumns`).
 
+Whole process, lab class (2026-10-15, `mxl-scopes` against the pinned libmxl, NMOS off, pinned to one core; `mxl-scopes-writer` 1080p50 75 % bars on another core; 1080p50 output): 25 Hz 0.23 core (renderer thread 0.16, writer thread 0.07), every frame 0.29 core; 0 late, 0 missed, 0 skipped, 0 torn grains over the run. Analyse inside the process averages 3.4 ms against 1.7 ms in the benchmark: the grain was just written from another core, and at 25 Hz the renderer sleeps between ticks.
+
 Findings:
 
 - Exit criterion: AVX2 analyse + render is 3.5 ms (p99 3.8 ms) for a 1080p picture with flat areas on the lab class, below 4 ms already on the slower class; uniform noise takes 7.6 ms. The desktop class is still to be measured. The 2160p target of §13 (< 12 ms) holds for bars (11.0 ms) and not for noise (18.8 ms); line step 2 brings noise to 12.6 ms.
@@ -106,6 +108,7 @@ Findings:
 - The column strips of §4.3 read a few cache lines per row at a stride above 4 KiB, which the hardware prefetcher does not follow; the loops prefetch six rows ahead.
 - Render cost is independent of the input raster. It was 2.7–3 ms with a planar intermediate picture and a full pack; packing only the 6-pixel groups that carry a trace over the packed still picture brought it to 1.7 ms for typical pictures (4.2 ms for noise, where every group has a trace). An AVX2 pack is the next step if noise matters.
 - §4.9's estimate (1.5–2 ms per luma update on a 4.5 GHz desktop) looks reachable on that class; on the 3 GHz lab class it is 3.5 ms.
+- §13 process targets (< 0.15 core at 25 Hz, < 0.25 core every frame) are not met on the lab class (0.23 and 0.29). The next savings: render straight into the output grain when an update falls on it and skip the writer's 5.5 MB copy (§2.4 allows it; about 0.07 core), and an AVX2 pack for pictures with many trace groups. To be re-measured on the desktop class.
 
 ### M1: luma waveform end to end
 
