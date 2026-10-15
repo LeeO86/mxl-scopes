@@ -102,3 +102,32 @@ TEST_CASE("an oversized request head is refused with 431")
     CHECK(answer.rfind("HTTP/1.1 431", 0) == 0);
     server.stop();
 }
+
+TEST_CASE("a client that half-closes after its request gets the answer")
+{
+    HttpServer server;
+    server.start(0, [](HttpRequest const&) {
+        HttpResponse response;
+        response.body = std::string(256 * 1024, 'y'); // more than one send
+        return response;
+    });
+    int const fd = connectTo(server.port());
+    std::string const request = "GET / HTTP/1.1\r\nHost: x\r\n\r\n";
+    ::send(fd, request.data(), request.size(), MSG_NOSIGNAL);
+    ::shutdown(fd, SHUT_WR); // EOF on the server side while the reply drains
+    std::size_t received = 0;
+    auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    while (std::chrono::steady_clock::now() < deadline)
+    {
+        char buf[65536];
+        auto const n = ::recv(fd, buf, sizeof(buf), 0);
+        if (n <= 0)
+        {
+            break;
+        }
+        received += static_cast<std::size_t>(n);
+    }
+    ::close(fd);
+    CHECK(received > 256 * 1024);
+    server.stop();
+}

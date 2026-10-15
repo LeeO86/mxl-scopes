@@ -14,6 +14,7 @@
 #include <atomic>
 #include <cctype>
 #include <cerrno>
+#include <chrono>
 #include <cstring>
 #include <list>
 #include <mutex>
@@ -32,6 +33,9 @@ constexpr std::size_t kMaxHeaderBytes = 64u * 1024u;
 // A WebSocket client with more than this queued is too slow and is dropped, so one stalled
 // client never holds the server or the probes (§9.4).
 constexpr std::size_t kMaxWebSocketQueue = 1024u * 1024u;
+// An HTTP connection without progress (an incomplete request, a reply nobody reads) is closed
+// after this long. Open WebSockets have no idle limit; their queue bound drops slow ones.
+constexpr auto kIdleTimeout = std::chrono::seconds(30);
 
 std::string lower(std::string text)
 {
@@ -138,6 +142,7 @@ struct HttpServer::Impl
         bool websocket = false;
         bool closeAfterWrite = false;
         bool peerClosed = false;
+        std::chrono::steady_clock::time_point lastActivity = std::chrono::steady_clock::now();
         std::atomic<bool> dead{false};
         std::string in;
         std::string out;
@@ -280,7 +285,8 @@ struct HttpServer::Impl
                 std::lock_guard lock{connMu};
                 for (auto& conn : conns)
                 {
-                    short events = POLLIN;
+                    // After the peer's EOF only the reply is left: POLLIN would fire forever.
+                    short events = conn.peerClosed ? 0 : POLLIN;
                     if (!conn.out.empty())
                     {
                         events |= POLLOUT;
@@ -309,7 +315,9 @@ struct HttpServer::Impl
                     }
                     setNonBlocking(fd);
                     std::lock_guard lock{connMu};
-                    conns.emplace_back().fd = fd;
+                    auto& conn = conns.emplace_back();
+                    conn.fd = fd;
+                    conn.lastActivity = std::chrono::steady_clock::now();
                 }
             }
             for (std::size_t i = 0; i < polled.size(); ++i)
@@ -329,6 +337,7 @@ struct HttpServer::Impl
                         auto const n = ::recv(conn.fd, buf, sizeof(buf), 0);
                         if (n > 0)
                         {
+                            conn.lastActivity = std::chrono::steady_clock::now();
                             if (conn.websocket)
                             {
                                 // Clients only ever send close frames to us; anything else is ignored.
@@ -378,6 +387,7 @@ struct HttpServer::Impl
                     if (n > 0)
                     {
                         sent += static_cast<std::size_t>(n);
+                        conn.lastActivity = std::chrono::steady_clock::now();
                         continue;
                     }
                     if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR))
@@ -396,9 +406,14 @@ struct HttpServer::Impl
                     }
                 }
             }
+            auto const now = std::chrono::steady_clock::now();
             std::lock_guard lock{connMu};
             for (auto it = conns.begin(); it != conns.end();)
             {
+                if (!it->websocket && now - it->lastActivity > kIdleTimeout)
+                {
+                    it->dead = true;
+                }
                 if (it->dead)
                 {
                     ::close(it->fd);

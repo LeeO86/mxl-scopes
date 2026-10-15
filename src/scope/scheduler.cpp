@@ -18,8 +18,9 @@ std::uint64_t tickTime(std::uint64_t tick, double rate)
 }
 } // namespace
 
-void UpdateScheduler::configure(double rateHz, double inputHz)
+void UpdateScheduler::configure(double rateHz, double inputHz, std::uint64_t step)
 {
+    step_ = step == 0 ? 1 : step;
     bool const frame = rateHz <= 0 || (inputHz > 0 && rateHz >= inputHz);
     if (frame != frame_ || rateHz != rate_)
     {
@@ -54,9 +55,9 @@ UpdateScheduler::Decision UpdateScheduler::poll(std::uint64_t nowNs, bool hasGra
         {
             return decision;
         }
-        if (analysed_ && newest > lastIndex_ + 1)
+        if (analysed_ && newest > lastIndex_ + step_)
         {
-            decision.skipped = newest - lastIndex_ - 1;
+            decision.skipped = (newest - lastIndex_) / step_ - 1;
         }
         decision.update = true;
         analysed_ = true;

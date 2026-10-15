@@ -217,6 +217,17 @@ for order in tff bff; do
   PIXI="$("$SAMPLE" --domain "$WORK/scopes" --flow "$FLOW_OUT" --width 640 --at "$COL,$ROW")"
   echo "interlaced $order trace=$PIXI"
   (( PIXI > 400 )) || fail "no trace for the interlaced input ($order)"
+  if [[ "$order" == "tff" ]]; then
+    # `frame` on 1080i50: one update per frame (25/s), each field analysed once.
+    curl -sf -X PATCH -H 'Content-Type: application/json' -d '{"update_rate":"frame"}' "$API/api/v1/scope" >/dev/null || fail "PATCH frame"
+    sleep 0.5
+    U0="$(curl -sf "$API/api/v1/status" | json 'd["renderer"]["updates"]')"
+    sleep 4
+    U1="$(curl -sf "$API/api/v1/status" | json 'd["renderer"]["updates"]')"
+    echo "interlaced frame mode: $((U1 - U0)) updates in 4 s"
+    (( U1 - U0 >= 85 && U1 - U0 <= 115 )) || fail "interlaced frame mode made $((U1 - U0)) updates in 4 s, expected about 100"
+    curl -sf -X PATCH -H 'Content-Type: application/json' -d '{"update_rate":10}' "$API/api/v1/scope" >/dev/null
+  fi
   [[ "$(curl -sf "$API/api/v1/output" | json 'd["flow_id"]')" == "$FLOW_OUT" ]] || fail "1080i50 (50 fields) changed the 50p output flow"
   kill "$W2"; wait "$W2" 2>/dev/null || true; W2=
   wait_state no_signal

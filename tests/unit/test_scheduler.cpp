@@ -92,3 +92,23 @@ TEST_CASE("no grain: a tick passes without an update")
     CHECK_FALSE(scheduler.poll(1'000'000'000'000ull, false, 0).update);
     CHECK(scheduler.nextTickNs() > 1'000'000'000'000ull);
 }
+
+TEST_CASE("interlaced frame mode: one update per field pair, nothing counted as skipped")
+{
+    // 1080i50: field grains at 50 Hz, frames at 25 Hz; the renderer passes the odd field that
+    // completes each frame, so `frame` updates 25 times a second and never re-reads a field.
+    UpdateScheduler scheduler;
+    scheduler.configure(0, 25, 2);
+    std::uint64_t updates = 0;
+    std::uint64_t skipped = 0;
+    for (std::uint64_t field = 1000; field < 1100; ++field)
+    {
+        auto const target = field % 2 == 0 ? field - 1 : field;
+        auto const d = scheduler.poll(field * 20'000'000ull, true, target);
+        updates += d.update ? 1 : 0;
+        skipped += d.skipped;
+    }
+    CHECK(updates == 51); // targets 999, 1001, ..., 1099
+    CHECK(skipped == 0);
+    CHECK(scheduler.effectiveHz() == 25);
+}

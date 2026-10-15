@@ -280,6 +280,7 @@ Exit: 1.0.0 released and deployable by the platform.
 - The helpers compiled into the SIMD units have internal linkage.
 - `MXL_CLEANUP_ON_EXIT` removes only a domain this process created, or one an earlier mxl-scopes run made with this id (label `mxl-scopes`).
 - `POST /api/v1/config/import` needs `Content-Type: application/json` (415 otherwise) and validates the routes (UUIDs) before writing `routes.json` in canonical form.
+- Re-review (2026-10-16): a half-closed HTTP client is no longer polled for input while its reply drains; HTTP connections without progress close after 30 s (open WebSockets have no idle limit); on an interlaced flow an update is a whole frame (fields 2k, 2k + 1), so `frame` updates 25 times a second at 1080i50 and no field is analysed twice (unit test and `scope.sh`).
 
 ## Questions for the maintainer
 

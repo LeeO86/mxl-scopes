@@ -11,8 +11,9 @@ namespace scopes
 class UpdateScheduler
 {
 public:
-    // `rateHz` 0 is `frame`; `inputHz` is the routed flow's grain rate (0 unknown).
-    void configure(double rateHz, double inputHz);
+    // `rateHz` 0 is `frame`; `inputHz` is the routed flow's frame rate (0 unknown). `step` is the
+    // index distance of two frames: 2 for an interlaced flow, whose grains are fields.
+    void configure(double rateHz, double inputHz, std::uint64_t step = 1);
 
     struct Decision
     {
@@ -40,6 +41,7 @@ private:
     bool started_ = false;
     std::uint64_t nextTick_ = 0;
     bool analysed_ = false;
+    std::uint64_t step_ = 1;
     std::uint64_t lastIndex_ = 0;
 };
 } // namespace scopes

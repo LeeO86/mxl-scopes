@@ -525,7 +525,8 @@ struct MediaIo::Impl
             }
             engine.configure({meta.width, grainRows, v210RowBytes(meta.width), fields}, settings, config.outputWidth, config.outputHeight);
             auto const grainBytes = v210RowBytes(meta.width) * static_cast<std::size_t>(grainRows);
-            scheduler.configure(settings.updateRate, static_cast<double>(meta.rateNum) / meta.rateDen);
+            // The input's frame rate: for an interlaced flow two field grains make one frame.
+            scheduler.configure(settings.updateRate, static_cast<double>(meta.rateNum) / meta.rateDen / fields, static_cast<std::uint64_t>(fields));
 
             mxlFlowInfo info{};
             if (mxlFlowReaderGetInfo(reader, &info) != MXL_STATUS_OK)
@@ -605,6 +606,13 @@ struct MediaIo::Impl
                 // §2.2: the grain SCOPES_INPUT_OFFSET_GRAINS behind the newest, if still in the ring.
                 auto const back = std::min<std::uint64_t>(static_cast<std::uint64_t>(settings.inputOffsetGrains), grainCount - 2);
                 target = newest >= back ? newest - back : newest;
+            }
+            if (fields == 2 && target % 2 == 0 && target > 0)
+            {
+                // Interlaced: an update is a whole frame, fields (2k, 2k + 1); the newest complete
+                // frame ends on an odd field. So `frame` updates once per frame and no field is
+                // analysed twice.
+                --target;
             }
             auto const decision = scheduler.poll(now, live, target);
             if (decision.skipped > 0)
