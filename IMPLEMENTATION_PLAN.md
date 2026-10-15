@@ -240,7 +240,7 @@ Exit: 1.0.0 released and deployable by the platform.
 | G3 | `NMOS_SEED` UUIDv5 for node, device, source, flow, sender, receiver and the default domain id. `NMOS_LABEL`, `NMOS_TAGS` on node and device. Group hints. | met | `src/nmos/ids.cpp`, `src/nmos/node.cpp` | Names `mxl-scopes/<seed>/...` as SPECIFICATION §7.1. |
 | G4 | Registry and query addresses; query defaults to the registry and port + 1. `NMOS_DNS_SD` false disables browse and advertisement. | met | `src/config/config.cpp`, `src/nmos/node.cpp` (`pri`, `highest_pri`) | As the siblings. |
 | G5 | Announced addresses are IP literals from `NMOS_HOST_ADDRESS`, default the first non-loopback IPv4. | met | `src/config/config.cpp` `announceableIpv4`; `src/nmos/node.cpp` | Loopback or `0.0.0.0` exits 78. |
-| G6 | Every listen port is a setting, NMOS WebSocket at `NMOS_PORT+1`. Bind failure exits 75. | met | `src/config/config.cpp` `checkPorts`; `src/main.cpp`; CI "Exit codes" | MediaMTX ports count only in own mode (M3). |
+| G6 | Every listen port is a setting, NMOS WebSocket at `NMOS_PORT+1`. Bind failure exits 75. | met | `src/config/config.cpp` `checkPorts`; `src/main.cpp`; `src/nmos/node.cpp` (ready only after the listeners opened); CI "Exit codes" (web port and NMOS port taken) | MediaMTX ports count only in own mode (M3). |
 | G7 | `/livez`, `/readyz` (serving, and registered when a registry is set), `/metrics` with prefix `mxl_scopes_`. | met | `src/ops/api.cpp` `live`, `ready`; `src/ops/metrics.cpp` | Readiness also needs the output flow (§9.4). |
 | G8 | SIGTERM within `SHUTDOWN_TIMEOUT_S`: stop media, DELETE the node, optionally remove only the output domain, exit 143. | met | `src/main.cpp`; `src/nmos/node.cpp`; `src/mxlio/io.cpp` `removeOwnDomain`; `tests/integration/scope.sh` | `MXL_CLEANUP_ON_EXIT` defaults false. |
 | G9 | Senders report `mxl_domain_id` and `mxl_flow_id`; receivers take the staged PATCH; `master_enable: false` stops the reader; the route survives a restart. | met | `src/nmos/node.cpp`; `src/app/state.cpp` `saveRoute`, `loadRoute`; `tests/integration/scope.sh` | The restored route is also the IS-05 active state and the IS-04 subscription. |
@@ -266,6 +266,20 @@ Exit: 1.0.0 released and deployable by the platform.
 12. **Plot geometry.** The plot starts and ends on 6-pixel v210 group boundaries and has a 2 % right margin (§5.2 gives only the left, top and bottom margins); a picture is the packed still picture plus the groups with a trace.
 
 13. **`SCOPES_SIMD=auto` does not pick AVX-512** (confirmed by the maintainer 2026-10-15). The fallback order is AVX-512 → AVX2 → scalar; `auto` takes AVX2 because the AVX-512 step is slower on both CPUs measured (Skylake-SP, Zen 4). AVX-512 stays selectable with `SCOPES_SIMD=avx512`.
+
+14. **NMOS APIs only on `NMOS_PORT`.** §9.1 said they also answer on `WEB_PORT`; they do not (the spec text is corrected). The web page's NMOS tab shows state and ids; IS-05 activation from the page is M3.
+
+## M0 review fixes (2026-10-16)
+
+- Interlaced input (1080i50, the house format): MXL 218ddaa stores an interlaced grain as one field (height/2 lines) at twice the flow_def grain_rate. The reader takes rate and grain count from `mxlFlowInfo.config`, analyses height/2 lines per grain and both fields of a frame per update (twice the samples for the intensity), checks `grainSize` ≥ stride × lines before reading, and stamps grains at the field rate, so hold and NO SIGNAL work. `scope.sh` runs 1080i50 tff and bff writers.
+- The reader blocks on the grain after the last one fetched (valid or invalid) and jumps to the head only when behind: an invalid-grain or slice-committing writer no longer makes it spin (`scope.sh` measures the CPU with both).
+- HTTP: non-blocking sockets, one output queue per connection, nothing sent under the connection lock, a WebSocket client with more than 1 MiB queued is dropped, request heads above 64 KiB answer 431 (`test_http.cpp`: a client that stops reading, `/livez` still answers).
+- NMOS: ready only after the listeners opened, so a taken NMOS port exits 75 (CI check).
+- Metrics: counters print as integers.
+- Torn check: each analysed grain is read again after the analyse step and must still be the same index.
+- The helpers compiled into the SIMD units have internal linkage.
+- `MXL_CLEANUP_ON_EXIT` removes only a domain this process created, or one an earlier mxl-scopes run made with this id (label `mxl-scopes`).
+- `POST /api/v1/config/import` needs `Content-Type: application/json` (415 otherwise) and validates the routes (UUIDs) before writing `routes.json` in canonical form.
 
 ## Questions for the maintainer
 

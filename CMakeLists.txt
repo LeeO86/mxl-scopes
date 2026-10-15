@@ -85,6 +85,7 @@ if(SCOPES_BUILD_TESTS)
         tests/unit/test_render.cpp
         tests/unit/test_scheduler.cpp
         tests/unit/test_api.cpp
+        tests/unit/test_http.cpp
     )
     target_link_libraries(unit-tests PRIVATE scopes-core)
     target_compile_options(unit-tests PRIVATE ${SCOPES_WARNINGS})

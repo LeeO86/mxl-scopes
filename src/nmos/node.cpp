@@ -55,6 +55,8 @@ struct NmosNode::Impl
     std::mutex readyMu;
     std::condition_variable readyCv;
     bool ready = false;
+    // The resources are in the model; `ready` follows once the listeners are open too.
+    bool modelReady = false;
     std::string error;
     // Work for the node thread, applied under the model's write lock.
     std::mutex pendingMu;
@@ -430,8 +432,7 @@ void NmosNode::start()
                     lock.unlock();
                     {
                         std::lock_guard readyLock{impl_->readyMu};
-                        impl_->ready = true;
-                        impl_->running.store(true);
+                        impl_->modelReady = true;
                         impl_->readyCv.notify_all();
                     }
                     auto waitLock = nodeModel.write_lock();
@@ -445,14 +446,19 @@ void NmosNode::start()
                     impl_->readyCv.notify_all();
                 }
             });
+            // Throws when a listener cannot open (the NMOS port taken): start() then fails and
+            // the process exits 75 (G6). Ready only after the listeners are open.
             nmos::server_guard guard(server);
             {
                 std::unique_lock readyLock{impl_->readyMu};
-                impl_->readyCv.wait(readyLock, [&] { return impl_->ready; });
-            }
-            if (!impl_->error.empty())
-            {
-                throw std::runtime_error(impl_->error);
+                impl_->readyCv.wait(readyLock, [&] { return impl_->modelReady || !impl_->error.empty(); });
+                if (!impl_->error.empty())
+                {
+                    throw std::runtime_error(impl_->error);
+                }
+                impl_->ready = true;
+                impl_->running.store(true);
+                impl_->readyCv.notify_all();
             }
             logInfo("nmos_node_ready", {{"port", std::to_string(impl_->config.nmosPort)}, {"node", impl_->ids.node}});
             std::string currentFlow;

@@ -3,6 +3,9 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
+
+#include <picojson/picojson.h>
 #include <string>
 
 #include "app/state.hpp"
@@ -19,6 +22,9 @@ struct BuildInfo
     SimdChoice simd;
     bool nmosCompiled = false;
 };
+
+// The route of an imported routes document, validated; nullopt when malformed.
+std::optional<Route> parseRoutes(picojson::value const& value);
 
 // REST, probes, metrics and the web UI on WEB_PORT (SPECIFICATION §9).
 class Api

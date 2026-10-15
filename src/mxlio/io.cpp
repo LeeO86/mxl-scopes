@@ -122,7 +122,8 @@ std::string formatText(InputView const& view)
         return {};
     }
     double const hz = static_cast<double>(view.rateNum) / view.rateDen;
-    double const shown = view.interlaced ? hz * 2 : hz;
+    // The grain rate: the field rate of an interlaced flow (MXL grains are fields), so 1080i50.
+    double const shown = hz;
     char rate[32];
     if (std::fabs(shown - std::round(shown)) < 0.005)
     {
@@ -189,6 +190,8 @@ struct MediaIo::Impl
     SimdLevel level;
     NmosIds ids;
     std::string domainId;
+    // True when this process wrote the domain's domain_def.json (MXL_CLEANUP_ON_EXIT).
+    bool createdDomain = false;
     std::atomic<bool> run{false};
     std::atomic<bool> firstFrame{false};
     // One update on its way from the renderer (analyse) to the writer (render into the grain).
@@ -242,6 +245,7 @@ struct MediaIo::Impl
             {
                 throw ConfigError("cannot write " + defPath.string());
             }
+            createdDomain = true;
         }
         else if (auto const existing = readDomainId(config.outputDomainDir))
         {
@@ -274,6 +278,13 @@ struct MediaIo::Impl
         int backoff = 250;
         InputView view;
         bool haveGrain = false;
+        // The last grain index fetched, valid or not: the next read waits for cursor + 1, so an
+        // invalid or partly written head grain never makes the loop spin.
+        bool haveCursor = false;
+        std::uint64_t cursor = 0;
+        // Lines of one grain (half the frame for an interlaced flow) and grains per update.
+        int grainRows = 0;
+        int fields = 1;
         std::uint64_t newest = 0;
         std::uint64_t newestOrigin = 0;
         std::string metricState;
@@ -290,6 +301,7 @@ struct MediaIo::Impl
                 reader = nullptr;
             }
             problem.clear();
+            haveCursor = false;
         };
         auto closeAll = [&] {
             closeReader();
@@ -467,8 +479,26 @@ struct MediaIo::Impl
                 backoff = 250;
                 meta = parseFlow(readFlowDef(instance, route.flowId));
                 mxlFlowInfo info{};
-                grainCount = mxlFlowReaderGetInfo(reader, &info) == MXL_STATUS_OK ? info.config.discrete.grainCount : 0;
+                grainCount = 0;
+                if (mxlFlowReaderGetInfo(reader, &info) == MXL_STATUS_OK)
+                {
+                    grainCount = info.config.discrete.grainCount;
+                    // MXL indexes grains at its own rate: the field rate of an interlaced flow
+                    // (twice the flow_def grain_rate, FlowParser at 218ddaa).
+                    if (info.config.common.grainRate.numerator > 0 && info.config.common.grainRate.denominator > 0)
+                    {
+                        meta.rateNum = static_cast<int>(info.config.common.grainRate.numerator);
+                        meta.rateDen = static_cast<int>(info.config.common.grainRate.denominator);
+                    }
+                }
                 problem = formatProblem(meta);
+                if (problem.empty() && meta.interlaced && meta.height % 2 != 0)
+                {
+                    problem = "interlaced height " + std::to_string(meta.height) + " is odd";
+                }
+                // An interlaced grain is one field: half the lines (§4.1); an update takes both.
+                grainRows = meta.interlaced ? meta.height / 2 : meta.height;
+                fields = meta.interlaced ? 2 : 1;
                 view.label = meta.label;
                 view.mediaType = meta.mediaType;
                 view.width = meta.width;
@@ -493,7 +523,8 @@ struct MediaIo::Impl
                 wait(1000);
                 continue;
             }
-            engine.configure({meta.width, meta.height, v210RowBytes(meta.width)}, settings, config.outputWidth, config.outputHeight);
+            engine.configure({meta.width, grainRows, v210RowBytes(meta.width), fields}, settings, config.outputWidth, config.outputHeight);
+            auto const grainBytes = v210RowBytes(meta.width) * static_cast<std::size_t>(grainRows);
             scheduler.configure(settings.updateRate, static_cast<double>(meta.rateNum) / meta.rateDen);
 
             mxlFlowInfo info{};
@@ -508,26 +539,32 @@ struct MediaIo::Impl
             mxlGrainInfo grain{};
             std::uint8_t* payload = nullptr;
             mxlStatus status = MXL_STATUS_OK;
-            if (haveGrain && newest >= head)
+            // Wait for the grain after the last one fetched; jump to the head only when behind.
+            // A blocking read with a timeout, so a head grain that is invalid or not yet complete
+            // never makes this loop spin.
+            std::uint64_t const want = !haveCursor || cursor + 1 < head ? head : cursor + 1;
+            std::uint64_t timeout = kGrainWaitNs;
+            if (auto const tick = scheduler.nextTickNs(), now = mxlGetTime(); tick > now)
             {
-                // Caught up: wait for the next grain, at most until the next update tick.
-                std::uint64_t timeout = kGrainWaitNs;
-                auto const now = mxlGetTime();
-                if (auto const tick = scheduler.nextTickNs(); tick > now)
-                {
-                    timeout = std::clamp<std::uint64_t>(tick - now, 1'000'000, kGrainWaitNs);
-                }
-                status = mxlFlowReaderGetGrain(reader, newest + 1, timeout, &grain, &payload);
+                timeout = std::clamp<std::uint64_t>(tick - now, 1'000'000, kGrainWaitNs);
             }
-            else
-            {
-                status = mxlFlowReaderGetGrainNonBlocking(reader, head, &grain, &payload);
-            }
+            status = mxlFlowReaderGetGrain(reader, want, timeout, &grain, &payload);
             if (status == MXL_ERR_OUT_OF_RANGE_TOO_LATE)
             {
                 ++view.resyncs;
                 metrics.inc("input_resyncs_total", {});
-                status = mxlFlowReaderGetGrainNonBlocking(reader, head, &grain, &payload);
+                haveCursor = false;
+                continue;
+            }
+            if (status == MXL_STATUS_OK)
+            {
+                cursor = grain.index;
+                haveCursor = true;
+            }
+            else if (status != MXL_ERR_TIMEOUT && status != MXL_ERR_FLOW_INVALID)
+            {
+                // Any other answer (too early, ...) comes back at once: do not spin on it.
+                wait(5);
             }
             if (status == MXL_ERR_FLOW_INVALID)
             {
@@ -538,7 +575,8 @@ struct MediaIo::Impl
                 continue;
             }
             auto const now = mxlGetTime();
-            if (status == MXL_STATUS_OK && payload != nullptr && (grain.flags & MXL_GRAIN_FLAG_INVALID) == 0 && (!haveGrain || grain.index > newest))
+            if (status == MXL_STATUS_OK && payload != nullptr && (grain.flags & MXL_GRAIN_FLAG_INVALID) == 0 && grain.grainSize >= grainBytes &&
+                (!haveGrain || grain.index > newest))
             {
                 newest = grain.index;
                 newestOrigin = mxlIndexToTimestamp(&rate, grain.index);
@@ -576,29 +614,56 @@ struct MediaIo::Impl
             }
             if (decision.update)
             {
-                mxlGrainInfo analysed{};
-                std::uint8_t* picture = nullptr;
-                if (target == grain.index && payload != nullptr && status == MXL_STATUS_OK)
+                // The grains of this update: the target, and for an interlaced flow the field
+                // before it as well (both fields of a frame). Each is checked for its size.
+                auto const fetch = [&](std::uint64_t index, std::uint8_t** picture) {
+                    mxlGrainInfo info{};
+                    if (mxlFlowReaderGetGrainNonBlocking(reader, index, &info, picture) != MXL_STATUS_OK || *picture == nullptr ||
+                        (info.flags & MXL_GRAIN_FLAG_INVALID) != 0 || info.index != index || info.grainSize < grainBytes)
+                    {
+                        *picture = nullptr;
+                    }
+                };
+                std::uint8_t* pictures[2] = {nullptr, nullptr};
+                std::uint64_t indexes[2] = {target, target};
+                fetch(target, &pictures[0]);
+                if (fields == 2)
                 {
-                    analysed = grain;
-                    picture = payload;
+                    indexes[1] = target > 0 ? target - 1 : target;
+                    fetch(indexes[1], &pictures[1]);
+                    if (pictures[1] == nullptr)
+                    {
+                        // No earlier field in the ring: the one field counts twice.
+                        pictures[1] = pictures[0];
+                        indexes[1] = target;
+                    }
                 }
-                else if (mxlFlowReaderGetGrainNonBlocking(reader, target, &analysed, &picture) != MXL_STATUS_OK)
-                {
-                    picture = nullptr;
-                }
-                if (picture != nullptr && (analysed.flags & MXL_GRAIN_FLAG_INVALID) == 0)
+                if (pictures[0] != nullptr)
                 {
                     auto& job = nextJob();
                     auto const c0 = threadCpuNs();
                     auto const t0 = std::chrono::steady_clock::now();
-                    engine.analyse(picture, job.hist);
+                    for (int f = 0; f < fields; ++f)
+                    {
+                        engine.analyse(pictures[f], job.hist);
+                    }
                     auto const t1 = std::chrono::steady_clock::now();
                     auto const c1 = threadCpuNs();
-                    // §2.2: analysed in place, so check the writer did not reach this slot meanwhile.
+                    // §2.2: analysed in place, so check the writer did not reach these slots
+                    // meanwhile: the head far enough behind, and each grain still the one read.
+                    bool torn = false;
                     mxlFlowRuntimeInfo runtime{};
-                    bool const torn = grainCount > 0 && mxlFlowReaderGetRuntimeInfo(reader, &runtime) == MXL_STATUS_OK &&
-                                      runtime.headIndex + 1 >= target + grainCount;
+                    if (grainCount > 0 && mxlFlowReaderGetRuntimeInfo(reader, &runtime) == MXL_STATUS_OK &&
+                        runtime.headIndex + 1 >= std::min(indexes[0], indexes[1]) + grainCount)
+                    {
+                        torn = true;
+                    }
+                    for (int f = 0; f < fields && !torn; ++f)
+                    {
+                        std::uint8_t* again = nullptr;
+                        fetch(indexes[f], &again);
+                        torn = again != pictures[f];
+                    }
                     if (torn)
                     {
                         ++stats.torn;
@@ -918,6 +983,23 @@ void MediaIo::removeOwnDomain()
     auto const& config = impl_->config;
     if (config.outputDomainDir.empty() || isMirrorDomain(config.outputDomainDir))
     {
+        return;
+    }
+    // Only a domain this process created, or one an earlier mxl-scopes run with this seed
+    // created (our id and label): never another function's domain the setting points at.
+    bool ours = impl_->createdDomain;
+    if (!ours)
+    {
+        std::ifstream in(std::filesystem::path(config.outputDomainDir) / "domain_def.json");
+        std::string body((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        std::string error;
+        auto const root = json::parse(body, error);
+        ours = error.empty() && json::fieldString(root, "id").value_or("") == config.outputDomainId &&
+               json::fieldString(root, "label").value_or("") == "mxl-scopes";
+    }
+    if (!ours)
+    {
+        logWarn("domain_cleanup_skipped", {{"path", config.outputDomainDir}, {"reason", "not created by mxl-scopes with this id"}});
         return;
     }
     std::error_code ec;

@@ -123,6 +123,14 @@ jobs:
           SCOPES_MODE=rainbow ./build/mxl-scopes; test $? -eq 78 || exit 1
           SCOPES_STATE_DIR=/tmp/scopes-exit NMOS_ENABLE=false MXL_DOMAIN_SCAN_PATH=/dev/shm MXL_OUTPUT_DOMAIN_DIR=/dev/shm/scopes-exit WEB_PORT=22 \
             ./build/mxl-scopes; test $? -eq 75 || exit 1
+          # The NMOS port taken by another listener: startup fails and exits 75 (G6).
+          python3 -c 'import socket,time; s=socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(("0.0.0.0", 13399)); s.listen(); time.sleep(120)' &
+          BLOCKER=$!
+          sleep 1
+          SCOPES_STATE_DIR=/tmp/scopes-nmos MXL_DOMAIN_SCAN_PATH=/dev/shm MXL_OUTPUT_DOMAIN_DIR=/dev/shm/scopes-nmos NMOS_PORT=13399 WEB_PORT=18199 \
+            timeout 60 ./build/mxl-scopes; CODE=$?
+          kill $BLOCKER
+          test $CODE -eq 75 || { echo "NMOS port taken: exit $CODE, expected 75"; exit 1; }
           echo "exit codes ok"
 
       - name: Integration

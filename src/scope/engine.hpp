@@ -15,8 +15,12 @@ namespace scopes
 struct InputFormat
 {
     int width = 0;  // 0: no input
+    // Lines of one grain: the frame height, or half of it for an interlaced flow, whose MXL
+    // grains are single fields.
     int height = 0;
     std::size_t stride = 0;
+    // Grains analysed into one update: 2 for interlaced (both fields of a frame), else 1.
+    int fields = 1;
     [[nodiscard]] bool operator==(InputFormat const&) const = default;
 };
 

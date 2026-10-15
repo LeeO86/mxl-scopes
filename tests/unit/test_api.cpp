@@ -37,12 +37,16 @@ struct Fixture
     {
         std::filesystem::remove_all(dir);
     }
-    HttpResponse call(std::string method, std::string path, std::string body = {})
+    HttpResponse call(std::string method, std::string path, std::string body = {}, std::string type = "application/json")
     {
         HttpRequest request;
         request.method = std::move(method);
         request.path = std::move(path);
         request.body = std::move(body);
+        if (!type.empty())
+        {
+            request.headers["content-type"] = type;
+        }
         return api->handle(request);
     }
 };
@@ -121,6 +125,12 @@ TEST_CASE("config: list, restart keys, export and import")
     }
     CHECK(skippedColor);
     CHECK(loadRoute(f.dir)->flowId == "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
+    // CSRF: a cross-site form posts text/plain; routes are validated.
+    CHECK(f.call("POST", "/api/v1/config/import", exported.body, "text/plain").status == 415);
+    CHECK(f.call("POST", "/api/v1/config/import", exported.body, "").status == 415);
+    CHECK(f.call("POST", "/api/v1/config/import", R"({"routes":{"routes":[{"enable":true,"flow_id":"../../etc"}]}})").status == 400);
+    CHECK(f.call("POST", "/api/v1/config/import", R"({"routes":{"routes":"x"}})").status == 400);
+    CHECK(loadRoute(f.dir)->flowId == "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
     auto const envText = f.call("GET", "/api/v1/config/env").body;
     CHECK(envText.find("NMOS_LABEL=Scope 1\n") != std::string::npos);
 }
@@ -140,6 +150,8 @@ TEST_CASE("info, status, metrics, unknown paths")
     CHECK(metrics.find("mxl_scopes_updates_total{mode=\"luma\"} 1") != std::string::npos);
     CHECK(metrics.find("mxl_scopes_analyse_seconds_bucket{le=\"0.002\",mode=\"luma\"} 1") != std::string::npos);
     CHECK(metrics.find("mxl_scopes_analyse_seconds_bucket{le=\"+Inf\",mode=\"luma\"} 1") != std::string::npos);
+    f.metrics.inc("output_frames_total", {}, 1234567);
+    CHECK(f.call("GET", "/metrics").body.find("mxl_scopes_output_frames_total 1234567\n") != std::string::npos);
     CHECK(f.call("GET", "/nope").status == 404);
     CHECK(f.call("GET", "/api/v1/snapshot.png").status == 503);
 }

@@ -1,6 +1,7 @@
 #include "ops/metrics.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <set>
 #include <sstream>
 
@@ -23,6 +24,20 @@ std::string labelText(Labels const& labels)
         out << (i != 0 ? "," : "") << labels[i].first << "=\"" << labels[i].second << '"';
     }
     out << '}';
+    return out.str();
+}
+
+// Integral values (every counter) as integers, others with full precision: the default six
+// digits printed 1234567 as 1.23457e+06.
+std::string number(double value)
+{
+    if (std::isfinite(value) && std::floor(value) == value && std::fabs(value) < 9.0e15)
+    {
+        return std::to_string(static_cast<long long>(value));
+    }
+    std::ostringstream out;
+    out.precision(17);
+    out << value;
     return out.str();
 }
 
@@ -99,7 +114,7 @@ std::string Metrics::render() const
         {
             out << "# TYPE " << kPrefix << base << ' ' << (series.gauge ? "gauge" : "counter") << '\n';
         }
-        out << kPrefix << name << ' ' << series.value << '\n';
+        out << kPrefix << name << ' ' << number(series.value) << '\n';
     }
     for (auto const& [name, hist] : histograms_)
     {
@@ -116,7 +131,7 @@ std::string Metrics::render() const
         }
         out << kPrefix << base << "_bucket{le=\"+Inf\"" << sep << "} " << hist.count << '\n';
         auto const braces = labels.empty() ? std::string{} : "{" + labels + "}";
-        out << kPrefix << base << "_sum" << braces << ' ' << hist.sum << '\n';
+        out << kPrefix << base << "_sum" << braces << ' ' << number(hist.sum) << '\n';
         out << kPrefix << base << "_count" << braces << ' ' << hist.count << '\n';
     }
     return out.str();

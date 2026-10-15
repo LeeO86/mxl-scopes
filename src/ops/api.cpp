@@ -6,6 +6,7 @@
 #include "scope/render.hpp"
 #include "util/jsonutil.hpp"
 #include "util/logging.hpp"
+#include "util/uuid.hpp"
 #include "version.hpp"
 
 #include <cmath>
@@ -366,8 +367,62 @@ HttpResponse Api::exportConfig() const
     return jsonResponse(200, out.str());
 }
 
+std::optional<Route> parseRoutes(picojson::value const& value)
+{
+    if (!value.is<picojson::object>())
+    {
+        return std::nullopt;
+    }
+    auto const& obj = value.get<picojson::object>();
+    auto const list = obj.find("routes");
+    if (list == obj.end() || !list->second.is<picojson::array>())
+    {
+        return std::nullopt;
+    }
+    Route route;
+    for (auto const& item : list->second.get<picojson::array>())
+    {
+        if (!item.is<picojson::object>())
+        {
+            return std::nullopt;
+        }
+        auto const& entry = item.get<picojson::object>();
+        if (auto const video = entry.find("video"); video != entry.end() && video->second.is<bool>() && !video->second.get<bool>())
+        {
+            continue;
+        }
+        auto const enable = entry.find("enable");
+        if (enable != entry.end() && !enable->second.is<bool>())
+        {
+            return std::nullopt;
+        }
+        route.enable = enable != entry.end() && enable->second.get<bool>();
+        for (auto const& [key, target] : {std::pair<char const*, std::string*>{"domain_id", &route.domainId}, {"flow_id", &route.flowId}, {"sender_id", &route.senderId}})
+        {
+            auto const field = entry.find(key);
+            if (field == entry.end() || field->second.is<picojson::null>())
+            {
+                continue;
+            }
+            if (!field->second.is<std::string>() || (!field->second.get<std::string>().empty() && !isUuid(field->second.get<std::string>())))
+            {
+                return std::nullopt;
+            }
+            *target = field->second.get<std::string>();
+        }
+        break;
+    }
+    return route;
+}
+
 HttpResponse Api::importConfig(HttpRequest const& request)
 {
+    // A cross-site form can POST text/plain without a preflight; an import must say it is JSON.
+    auto const type = request.headers.find("content-type");
+    if (type == request.headers.end() || type->second.rfind("application/json", 0) != 0)
+    {
+        return error(415, "the import needs Content-Type: application/json");
+    }
     std::string parseError;
     auto const root = json::parse(request.body, parseError);
     if (!parseError.empty() || !root.is<picojson::object>())
@@ -415,24 +470,13 @@ HttpResponse Api::importConfig(HttpRequest const& request)
     bool routesRestart = false;
     if (auto const routes = obj.find("routes"); routes != obj.end())
     {
-        if (!routes->second.is<picojson::object>())
+        auto const route = parseRoutes(routes->second);
+        if (!route)
         {
-            return error(400, "routes must be an object");
+            return error(400, "routes must be {\"routes\":[{\"enable\":bool,\"domain_id\":uuid,\"flow_id\":uuid,\"sender_id\":uuid}]} (ids may be empty)");
         }
-        std::error_code ec;
-        std::filesystem::create_directories(config_.stateDir, ec);
-        auto const path = std::filesystem::path(config_.stateDir) / "routes.json";
-        auto const tmp = path.string() + ".tmp";
-        {
-            std::ofstream out(tmp, std::ios::trunc);
-            out << routes->second.serialize() << "\n";
-            if (!out.flush())
-            {
-                return error(500, "cannot write routes.json");
-            }
-        }
-        std::filesystem::rename(tmp, path, ec);
-        if (ec)
+        // Written in the canonical form, never the imported text as it came.
+        if (!saveRoute(config_.stateDir, *route))
         {
             return error(500, "cannot write routes.json");
         }

@@ -4,10 +4,13 @@
 
 namespace scopes::cpu
 {
+// These helpers are `static`: they are compiled into the AVX2 and AVX-512 units with their
+// flags, and an inline function with external linkage could be emitted there and then picked
+// by the linker for the baseline code (SIGILL on an older CPU in a build that does not inline).
 // The reference step for one v210 group: every pixelStep-th luma sample inside the width,
 // odd x into the scratch sub-histogram when the plan has two. The AVX2 engine uses it for
 // the groups it does not take in pairs, so both engines share the exact rule.
-inline void analyseGroup(AnalysePlan const& plan, std::uint8_t const* row, int g, std::uint16_t* counts, std::uint16_t* scratch)
+static inline void analyseGroup(AnalysePlan const& plan, std::uint8_t const* row, int g, std::uint16_t* counts, std::uint16_t* scratch)
 {
     std::uint16_t y[6];
     unpackGroupLuma(row + 16 * static_cast<std::size_t>(g), y);
@@ -32,7 +35,7 @@ inline void analyseGroup(AnalysePlan const& plan, std::uint8_t const* row, int g
 }
 
 // Folds the odd-x sub-histogram of a strip into the counts and clears it.
-inline void foldStrip(AnalysePlan const& plan, AnalysePlan::Strip const& strip, std::uint16_t* counts, std::uint16_t* scratch)
+static inline void foldStrip(AnalysePlan const& plan, AnalysePlan::Strip const& strip, std::uint16_t* counts, std::uint16_t* scratch)
 {
     for (int b = 0; b < plan.bins; ++b)
     {
@@ -46,7 +49,7 @@ inline void foldStrip(AnalysePlan const& plan, AnalysePlan::Strip const& strip, 
 }
 
 // Starts loading the strip's bytes of a row a few rows ahead (kPrefetchRows).
-inline void prefetchStrip(AnalysePlan const& plan, AnalysePlan::Strip const& strip, std::uint8_t const* v210, int y)
+static inline void prefetchStrip(AnalysePlan const& plan, AnalysePlan::Strip const& strip, std::uint8_t const* v210, int y)
 {
     int const ahead = y + kPrefetchRows * plan.lineStep;
     if (ahead >= plan.height)

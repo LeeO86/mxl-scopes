@@ -32,7 +32,7 @@ struct Frame422
 };
 
 // The six luma samples of one 16-byte v210 group.
-inline void unpackGroupLuma(std::uint8_t const* group, std::uint16_t out[6])
+static inline void unpackGroupLuma(std::uint8_t const* group, std::uint16_t out[6])
 {
     std::uint32_t w[4];
     if constexpr (std::endian::native == std::endian::little)

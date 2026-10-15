@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <stdexcept>
 
 namespace scopes
 {
@@ -68,6 +69,10 @@ bool ScopeEngine::configure(InputFormat const& input, DisplaySettings const& set
     if (input.width > 0)
     {
         analyse_ = makeAnalysePlan(input.width, input.height, input.stride, settings.lineStep, settings.pixelStep, columns, bins, stripColumns_);
+        if (static_cast<std::uint64_t>(analyse_.maxCellCount) * static_cast<std::uint64_t>(std::max(1, input.fields)) > 65535)
+        {
+            throw std::invalid_argument("a histogram cell could exceed 16 bits");
+        }
         hist_.reset(analyse_);
     }
     else
@@ -87,8 +92,10 @@ bool ScopeEngine::configure(InputFormat const& input, DisplaySettings const& set
 PaintParams ScopeEngine::paintParams() const
 {
     auto const layout = makeLayout(outputWidth_, outputHeight_);
-    return PaintParams{settings_, outputWidth_, outputHeight_, histogramColumns(layout, input_.width), analyse_.samples, analyse_.maxCellCount,
-        input_.width > 0};
+    // Both fields of an interlaced frame go into one update: twice the samples per update.
+    auto const fields = static_cast<std::uint32_t>(std::max(1, input_.fields));
+    return PaintParams{settings_, outputWidth_, outputHeight_, histogramColumns(layout, input_.width), analyse_.samples * fields,
+        analyse_.maxCellCount * fields, input_.width > 0};
 }
 
 void ScopeEngine::fit(Histogram& hist) const

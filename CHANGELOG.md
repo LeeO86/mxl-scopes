@@ -2,6 +2,8 @@
 
 ## Unreleased (M0, done 2026-10-15)
 
+- Review fixes (2026-10-16): interlaced input (MXL field grains, 1080i50 tff and bff) with grain-size checks; the reader no longer spins on invalid or partial head grains; non-blocking HTTP server that drops a stalled WebSocket client; a taken NMOS port exits 75; counters print as integers; a stricter torn-read check; cleanup removes only our own domain; config import needs JSON and validates routes.
+
 - Measured on the lab class (Skylake-SP, 1080p50 in and out, AVX2): about 0.25 core at 25 Hz and 0.45 core every frame for a real picture, bars 0.1–0.15 and 0.2 core; SPECIFICATION §13 updated. The mostly idle core runs at a lower clock; a performance power profile on the host lowers the figures.
 - The render step skips empty stretches and leaves rows without a trace unwritten; `analyse_cpu_seconds` exports the analyse thread's CPU time.
 

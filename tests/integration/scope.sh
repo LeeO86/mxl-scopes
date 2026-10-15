@@ -19,6 +19,7 @@ WORK="$(mktemp -d /dev/shm/scopes-int-XXXXXX)"
 cleanup() {
   [[ -n "${SC_PID:-}" ]] && { kill "$SC_PID" 2>/dev/null || true; wait "$SC_PID" 2>/dev/null || true; }
   [[ -n "${W1:-}" ]] && { kill "$W1" 2>/dev/null || true; }
+  [[ -n "${W2:-}" ]] && { kill "$W2" 2>/dev/null || true; }
   [[ -n "${REG_PID:-}" ]] && { kill "$REG_PID" 2>/dev/null || true; }
   rm -rf "$WORK"
 }
@@ -180,6 +181,70 @@ sleep 0.3
 TRACE="$("$SAMPLE" --domain "$WORK/scopes" --flow "$FLOW_OUT" --width 640 --at "$COL,$ROW")"
 (( TRACE < 400 )) || fail "the trace is still shown after no signal ($TRACE)"
 echo "no signal"
+
+# Route the receiver to another flow over IS-05.
+route() {
+  local body="{\"sender_id\":null,\"master_enable\":true,\"activation\":{\"mode\":\"activate_immediate\"},\"transport_params\":[{\"mxl_domain_id\":\"$DOMAIN_ID\",\"mxl_flow_id\":\"$1\"}]}"
+  local code
+  code="$(curl -s -o /dev/null -w '%{http_code}' -X PATCH -H 'Content-Type: application/json' -d "$body" \
+    "http://127.0.0.1:${NMOS_PORT}/x-nmos/connection/v1.2/single/receivers/${RX}/staged")"
+  [[ "$code" == "200" || "$code" == "202" ]] || fail "IS-05 PATCH to $1: $code"
+}
+# CPU of the scopes process over $1 seconds, in percent of one core.
+cpu_over() {
+  local hz a b
+  hz="$(getconf CLK_TCK)"
+  a="$(awk '{print $14 + $15}' "/proc/$SC_PID/stat")"
+  sleep "$1"
+  b="$(awk '{print $14 + $15}' "/proc/$SC_PID/stat")"
+  echo $(( (b - a) * 100 / (hz * $1) ))
+}
+
+# Interlaced input (1080i50, tff and bff): MXL grains are fields of 540 lines at 50 Hz. The
+# scope analyses both fields of a frame, follows the field rate and shows NO SIGNAL when it stops.
+for order in tff bff; do
+  case "$order" in tff) FI="cccccccc-cccc-4ccc-8ccc-cccccccccccc" ;; bff) FI="dddddddd-dddd-4ddd-8ddd-dddddddddddd" ;; esac
+  "$WRITER" --domain "$WORK/src" --flow "$FI" --pattern flat --level 512 --width 1920 --height 1080 --rate 25 --interlace "$order" \
+    --label "Test 1080i $order" >"$WORK/writer-$order.log" 2>&1 &
+  W2=$!
+  sleep 0.5
+  route "$FI"
+  wait_state running
+  IN="$(curl -sf "$API/api/v1/input")"
+  echo "$IN" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["interlaced"] is True and d["rate"] == "50" and d["height"] == 1080, d' \
+    || fail "interlaced input not seen as 1080i50 ($order): $IN"
+  sleep 0.5
+  PIXI="$("$SAMPLE" --domain "$WORK/scopes" --flow "$FLOW_OUT" --width 640 --at "$COL,$ROW")"
+  echo "interlaced $order trace=$PIXI"
+  (( PIXI > 400 )) || fail "no trace for the interlaced input ($order)"
+  [[ "$(curl -sf "$API/api/v1/output" | json 'd["flow_id"]')" == "$FLOW_OUT" ]] || fail "1080i50 (50 fields) changed the 50p output flow"
+  kill "$W2"; wait "$W2" 2>/dev/null || true; W2=
+  wait_state no_signal
+done
+echo "interlaced ok"
+
+# A writer that commits only invalid grains, and one that commits each grain in two halves:
+# the reader waits for the next grain instead of spinning on the head.
+"$WRITER" --domain "$WORK/src" --flow "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee" --pattern flat --width 320 --height 180 --rate 50 --invalid 1 \
+  >"$WORK/writer-invalid.log" 2>&1 &
+W2=$!
+sleep 0.5
+route "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
+sleep 1
+CPU="$(cpu_over 3)"
+echo "invalid grains: state $(input_state), cpu ${CPU} %"
+(( CPU < 40 )) || fail "the renderer spins on invalid grains (${CPU} % of a core)"
+kill "$W2"; wait "$W2" 2>/dev/null || true; W2=
+"$WRITER" --domain "$WORK/src" --flow "ffffffff-ffff-4fff-8fff-ffffffffffff" --pattern flat --level 512 --width 320 --height 180 --rate 50 --partial 1 \
+  >"$WORK/writer-partial.log" 2>&1 &
+W2=$!
+sleep 0.5
+route "ffffffff-ffff-4fff-8fff-ffffffffffff"
+wait_state running
+CPU="$(cpu_over 3)"
+echo "partial grains: cpu ${CPU} %"
+(( CPU < 40 )) || fail "the renderer spins on partial grains (${CPU} % of a core)"
+kill "$W2"; wait "$W2" 2>/dev/null || true; W2=
 
 kill -TERM "$SC_PID"
 set +e
