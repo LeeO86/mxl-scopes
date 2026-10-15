@@ -11,7 +11,7 @@ Video scopes for MXL: a media function that reads one MXL video flow and writes 
 - Output `video/v210`, or `video/v210a` with a key for overlays, default 1920×1080 at the input rate.
 - Modes: `luma`, `ycbcr-parade`, `rgb-parade`, `rgb-overlay`. Later: `vectorscope`, `luma-chroma`, HDR.
 - Configurable update rate (`frame`, or 1–60 Hz) and reduced sampling, to save CPU.
-- CPU engine with AVX2 and a scalar reference, bit-exact; a CUDA backend can be added later.
+- CPU engine with AVX-512, AVX2 and a scalar reference, bit-exact; a CUDA backend can be added later.
 - NMOS IS-04/IS-05 with BCP-007-03; web UI and REST; `/livez`, `/readyz`, `/metrics`; the `scope` widget; WebRTC preview through the platform's preview contract.
 
 ## Ports
@@ -35,7 +35,7 @@ Environment > `SCOPES_CONFIG_FILE` (flat JSON, else `<SCOPES_STATE_DIR>/config.j
 | `SCOPES_INTENSITY`, `SCOPES_TRACE_MIN`, `SCOPES_TRACE_COLOR`, `SCOPES_CAPTION` | 100, 96, `green`, `true` | live |
 | `SCOPES_OUTPUT_FORMAT`, `SCOPES_OUTPUT_RATE` | `1920x1080`, `input` | at start (`input` follows the routed flow live) |
 | `SCOPES_HOLD_MS`, `SCOPES_INPUT_OFFSET_GRAINS` | 1000, 0 | live |
-| `SCOPES_SIMD` | `auto` | `auto`, `avx2`, `scalar` |
+| `SCOPES_SIMD` | `auto` | `auto`, `avx512`, `avx2`, `scalar` (`auto`: AVX-512 except on Skylake-SP and Cascade Lake, else AVX2) |
 | `SCOPES_STATE_DIR` | `/config` | `config.json`, `routes.json` |
 | `MXL_DOMAIN_SCAN_PATH`, `MXL_OUTPUT_DOMAIN_DIR`, `MXL_OUTPUT_DOMAIN_ID`, `MXL_HISTORY_DURATION_NS`, `MXL_CLEANUP_ON_EXIT` | `/Volumes/mxl`, `/Volumes/mxl/scopes-<id>`, UUIDv5 of the seed, 200 ms, `false` | |
 | `NMOS_*`, `WEB_*`, `LOG_LEVEL`, `LOG_FORMAT`, `SHUTDOWN_TIMEOUT_S` | as the sibling functions | |

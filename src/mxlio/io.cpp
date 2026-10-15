@@ -183,7 +183,20 @@ struct MediaIo::Impl
     std::string domainId;
     std::atomic<bool> run{false};
     std::atomic<bool> firstFrame{false};
-    TripleBuffer buffers;
+    // One update on its way from the renderer (analyse) to the writer (render into the grain).
+    struct Job
+    {
+        PaintParams params;
+        Histogram hist;
+        std::string caption;
+        std::string state;
+        std::uint64_t update = 0;
+        // False while the counts are not yet drawn; the renderer clears a dropped job's counts.
+        bool rendered = true;
+    };
+    TripleSlot<Job> jobs;
+    // The writer's last render time, for the renderer's status.
+    std::atomic<double> renderMs{0};
     std::thread renderer;
     std::thread writer;
     std::mutex flowMu;
@@ -258,7 +271,6 @@ struct MediaIo::Impl
         std::string metricState;
         RendererView stats;
         std::string shownKey;
-        auto nextSnapshot = std::chrono::steady_clock::now();
         Labels const modeLabel{{"mode", "luma"}};
 
         // The reader goes; what was last seen on this route stays, so a flow that disappears
@@ -308,19 +320,26 @@ struct MediaIo::Impl
             }
             return text + "  |  " + rateLabel(s.updateRate);
         };
-        auto snapshot = [&](std::uint8_t const* picture) {
-            auto const now = std::chrono::steady_clock::now();
-            if (now < nextSnapshot)
+        // Hands a job to the writer: the counts of an update, or a state picture.
+        auto publishJob = [&](Job& job, std::string captionText, std::string stateText) {
+            job.params = engine.paintParams();
+            job.caption = std::move(captionText);
+            job.state = std::move(stateText);
+            job.update = stats.updates;
+            job.rendered = false;
+            jobs.publish();
+            firstFrame.store(true);
+        };
+        // The next job to fill; a job the writer skipped still holds counts.
+        auto nextJob = [&]() -> Job& {
+            auto& job = jobs.back();
+            if (!job.rendered)
             {
-                return;
+                std::fill(job.hist.counts.begin(), job.hist.counts.end(), std::uint16_t{0});
+                std::fill(job.hist.scratch.begin(), job.hist.scratch.end(), std::uint16_t{0});
+                job.rendered = true;
             }
-            nextSnapshot = now + kSnapshotEvery;
-            auto shot = std::make_shared<Snapshot>();
-            shot->width = config.outputWidth;
-            shot->height = config.outputHeight;
-            shot->update = stats.updates;
-            shot->v210.assign(picture, picture + buffers.size());
-            state.setSnapshot(std::move(shot));
+            return job;
         };
         // The picture of a state without a trace; drawn again only when something it shows changed.
         auto showState = [&](DisplaySettings const& s) {
@@ -330,10 +349,9 @@ struct MediaIo::Impl
             {
                 return;
             }
-            engine.render(caption(s), text, buffers.back());
-            snapshot(buffers.back());
-            buffers.publish();
-            firstFrame.store(true);
+            auto& job = nextJob();
+            std::fill(job.hist.counts.begin(), job.hist.counts.end(), std::uint16_t{0});
+            publishJob(job, caption(s), text);
             shownKey = key;
         };
         auto wait = [&](int ms) {
@@ -563,8 +581,9 @@ struct MediaIo::Impl
                 }
                 if (picture != nullptr && (analysed.flags & MXL_GRAIN_FLAG_INVALID) == 0)
                 {
+                    auto& job = nextJob();
                     auto const t0 = std::chrono::steady_clock::now();
-                    engine.analyse(picture);
+                    engine.analyse(picture, job.hist);
                     auto const t1 = std::chrono::steady_clock::now();
                     // §2.2: analysed in place, so check the writer did not reach this slot meanwhile.
                     mxlFlowRuntimeInfo runtime{};
@@ -574,23 +593,19 @@ struct MediaIo::Impl
                     {
                         ++stats.torn;
                         metrics.inc("updates_torn_total", {});
-                        engine.clear();
+                        std::fill(job.hist.counts.begin(), job.hist.counts.end(), std::uint16_t{0});
+                        std::fill(job.hist.scratch.begin(), job.hist.scratch.end(), std::uint16_t{0});
                     }
                     else
                     {
-                        engine.render(caption(settings), "", buffers.back());
-                        auto const t2 = std::chrono::steady_clock::now();
-                        snapshot(buffers.back());
-                        buffers.publish();
-                        firstFrame.store(true);
-                        shownKey.clear();
+                        // The writer draws the counts straight into its next output grain (§2.4).
                         ++stats.updates;
+                        publishJob(job, caption(settings), "");
+                        shownKey.clear();
                         stats.lastIndex = target;
                         stats.analyseMs = std::chrono::duration<double, std::milli>(t1 - t0).count();
-                        stats.renderMs = std::chrono::duration<double, std::milli>(t2 - t1).count();
                         metrics.inc("updates_total", modeLabel);
                         metrics.observe("analyse_seconds", modeLabel, std::chrono::duration<double>(t1 - t0).count());
-                        metrics.observe("render_seconds", modeLabel, std::chrono::duration<double>(t2 - t1).count());
                     }
                 }
             }
@@ -599,6 +614,7 @@ struct MediaIo::Impl
                 showState(settings);
             }
             stats.updateHz = scheduler.effectiveHz();
+            stats.renderMs = renderMs.load();
             metrics.set("update_rate_hz", {}, stats.updateHz);
             state.setRenderer(stats);
         }
@@ -638,6 +654,26 @@ struct MediaIo::Impl
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
         mxlFlowWriter writer = nullptr;
+        std::uint32_t grainCount = 0;
+        ScopePainter painter;
+        Labels const modeLabel{{"mode", "luma"}};
+        // The picture is the still picture plus the trace groups of the newest update. Each ring
+        // slot remembers which still picture and which trace groups it holds, so writing a grain
+        // touches only the groups that differ (§2.4: no render buffer, no full copy).
+        std::vector<TraceGroup> current;
+        std::vector<TraceGroup> next;
+        // Bumped whenever the trace groups change; equal traces (a still input) keep it.
+        std::uint64_t generation = 1;
+        struct SlotRecord
+        {
+            std::uint64_t still = 0;
+            std::uint64_t generation = 0;
+            std::vector<std::uint32_t> offsets;
+        };
+        std::vector<SlotRecord> slots;
+        std::uint8_t const* previous = nullptr;
+        std::uint64_t previousIndex = 0;
+        auto nextSnapshot = std::chrono::steady_clock::now();
         Rate rate = config.outputRate.value_or(Rate{50, 1});
         rate = desiredRate(rate);
         OutputView view;
@@ -654,11 +690,16 @@ struct MediaIo::Impl
             auto const flowId = ids.flow(token);
             auto const description = modeTitle(state.settings()->mode);
             auto const def = videoFlowDefinition(flowId, description, state.settings()->mode, config.outputWidth, config.outputHeight, rate);
-            if (mxlCreateFlowWriter(instance, def.c_str(), "{\"maxCommitBatchSizeHint\":1}", &writer, nullptr, nullptr) != MXL_STATUS_OK)
+            mxlFlowConfigInfo flowConfig{};
+            if (mxlCreateFlowWriter(instance, def.c_str(), "{\"maxCommitBatchSizeHint\":1}", &writer, &flowConfig, nullptr) != MXL_STATUS_OK)
             {
                 writer = nullptr;
                 logError("output_flow_failed", {{"flow", flowId}});
             }
+            grainCount = writer != nullptr ? flowConfig.discrete.grainCount : 0;
+            // A new flow: nothing is known about the contents of its slots.
+            slots.assign(grainCount, SlotRecord{});
+            previous = nullptr;
             view.flowId = flowId;
             view.rateNum = rate.num;
             view.rateDen = rate.den;
@@ -708,10 +749,91 @@ struct MediaIo::Impl
             {
                 mxlGrainInfo grain{};
                 std::uint8_t* payload = nullptr;
-                if (mxlFlowWriterOpenGrain(writer, index, &grain, &payload) == MXL_STATUS_OK && payload != nullptr)
+                auto const pictureBytes = v210RowBytes(config.outputWidth) * static_cast<std::size_t>(config.outputHeight);
+                if (mxlFlowWriterOpenGrain(writer, index, &grain, &payload) == MXL_STATUS_OK && payload != nullptr && grain.grainSize >= pictureBytes)
                 {
-                    auto const* picture = buffers.front();
-                    std::memcpy(payload, picture, std::min<std::size_t>(grain.grainSize, buffers.size()));
+                    auto const t0 = std::chrono::steady_clock::now();
+                    bool const update = [&] {
+                        auto* job = jobs.take();
+                        if (job == nullptr)
+                        {
+                            return false;
+                        }
+                        painter.configure(job->params);
+                        painter.trace(job->hist, job->caption, job->state, next);
+                        job->rendered = true;
+                        bool const same = next.size() == current.size() &&
+                                          (next.empty() || std::memcmp(next.data(), current.data(), next.size() * sizeof(TraceGroup)) == 0);
+                        if (!same)
+                        {
+                            current.swap(next);
+                            ++generation;
+                        }
+                        return job->state.empty();
+                    }();
+                    if (painter.configured())
+                    {
+                        SlotRecord fresh;
+                        auto& slot = grainCount > 0 ? slots[index % grainCount] : fresh;
+                        auto const* still = painter.stillPacked();
+                        auto const version = painter.stillVersion();
+                        auto const deltaBytes = (slot.offsets.size() + current.size()) * 16u;
+                        bool const previousCurrent = previous != nullptr && index > previousIndex && index - previousIndex < grainCount &&
+                                                     slots[previousIndex % grainCount].still == version &&
+                                                     slots[previousIndex % grainCount].generation == generation;
+                        if (slot.still == version && slot.generation == generation)
+                        {
+                            // The slot holds this very picture already (a still input, no signal).
+                        }
+                        else if (slot.still == version && deltaBytes * 4 < pictureBytes)
+                        {
+                            // Undo the trace this slot got last time, then draw the current one.
+                            for (auto const offset : slot.offsets)
+                            {
+                                std::memcpy(payload + offset, still + offset, 16);
+                            }
+                            applyTrace(current, payload);
+                        }
+                        else if (previousCurrent)
+                        {
+                            // A large trace (a noisy picture): one copy of the previous grain.
+                            std::memcpy(payload, previous, pictureBytes);
+                        }
+                        else
+                        {
+                            std::memcpy(payload, still, pictureBytes);
+                            applyTrace(current, payload);
+                        }
+                        slot.still = version;
+                        slot.generation = generation;
+                        slot.offsets.resize(current.size());
+                        for (std::size_t i = 0; i < current.size(); ++i)
+                        {
+                            slot.offsets[i] = current[i].offset;
+                        }
+                    }
+                    else
+                    {
+                        std::memset(payload, 0, pictureBytes);
+                    }
+                    previous = payload;
+                    previousIndex = index;
+                    auto const seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+                    if (update)
+                    {
+                        renderMs.store(seconds * 1000.0);
+                        metrics.observe("render_seconds", modeLabel, seconds);
+                    }
+                    auto const now = std::chrono::steady_clock::now();
+                    if (now >= nextSnapshot)
+                    {
+                        nextSnapshot = now + kSnapshotEvery;
+                        auto shot = std::make_shared<Snapshot>();
+                        shot->width = config.outputWidth;
+                        shot->height = config.outputHeight;
+                        shot->v210.assign(payload, payload + pictureBytes);
+                        state.setSnapshot(std::move(shot));
+                    }
                     grain.validSlices = grain.totalSlices;
                     grain.flags = 0;
                     mxlFlowWriterCommitGrain(writer, &grain);
@@ -761,7 +883,6 @@ MediaIo::~MediaIo()
 void MediaIo::start()
 {
     impl_->ensureDomain();
-    impl_->buffers.allocate(v210RowBytes(impl_->config.outputWidth) * static_cast<std::size_t>(impl_->config.outputHeight));
     impl_->run.store(true);
     impl_->renderer = std::thread([this] { impl_->rendererMain(); });
     impl_->writer = std::thread([this] { impl_->writerMain(); });

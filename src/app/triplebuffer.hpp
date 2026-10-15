@@ -52,4 +52,37 @@ private:
     std::atomic<unsigned> middle_{1};
     unsigned front_ = 2;
 };
+
+// The same exchange for any object: the producer fills back() and publishes it; the consumer
+// takes the newest published one with take(), which is nullptr when nothing new came.
+template <typename T>
+class TripleSlot
+{
+public:
+    [[nodiscard]] T& back()
+    {
+        return slots_[back_];
+    }
+    void publish()
+    {
+        back_ = middle_.exchange(back_ | kFresh, std::memory_order_acq_rel) & kIndex;
+    }
+    [[nodiscard]] T* take()
+    {
+        if ((middle_.load(std::memory_order_acquire) & kFresh) == 0)
+        {
+            return nullptr;
+        }
+        front_ = middle_.exchange(front_, std::memory_order_acq_rel) & kIndex;
+        return &slots_[front_];
+    }
+
+private:
+    static constexpr unsigned kFresh = 4;
+    static constexpr unsigned kIndex = 3;
+    T slots_[3];
+    unsigned back_ = 0;
+    std::atomic<unsigned> middle_{1};
+    unsigned front_ = 2;
+};
 } // namespace scopes

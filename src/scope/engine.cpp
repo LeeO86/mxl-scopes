@@ -5,6 +5,51 @@
 
 namespace scopes
 {
+bool ScopePainter::configure(PaintParams const& params)
+{
+    if (configured_ && params == params_)
+    {
+        return false;
+    }
+    render_ = makeRenderPlan(makeLayout(params.outputWidth, params.outputHeight), params.settings, params.columns, params.samples, params.maxCount);
+    params_ = params;
+    configured_ = true;
+    stillValid_ = false;
+    ++stillVersion_;
+    return true;
+}
+
+void ScopePainter::trace(Histogram& hist, std::string const& caption, std::string const& state, std::vector<TraceGroup>& out)
+{
+    if (!stillValid_ || caption != caption_ || state != state_)
+    {
+        // The parts that change only with the settings, the caption or the state.
+        still_ = render_.base;
+        renderEmptyPlot(render_, still_);
+        renderTexts(render_, still_, caption, state);
+        stillPacked_.resize(packedSize());
+        packV210(still_, stillPacked_.data(), v210RowBytes(still_.width));
+        caption_ = caption;
+        state_ = state;
+        stillValid_ = true;
+        ++stillVersion_;
+    }
+    if (!state.empty() || !params_.hasInput)
+    {
+        out.clear();
+        std::fill(hist.counts.begin(), hist.counts.end(), std::uint16_t{0});
+        return;
+    }
+    collectTrace(render_, hist, out);
+}
+
+void ScopePainter::render(Histogram& hist, std::string const& caption, std::string const& state, std::uint8_t* dst)
+{
+    trace(hist, caption, state, trace_);
+    std::memcpy(dst, stillPacked_.data(), stillPacked_.size());
+    applyTrace(trace_, dst);
+}
+
 ScopeEngine::ScopeEngine(SimdLevel level, int stripColumns)
     : level_(level)
     , stripColumns_(stripColumns)
@@ -30,34 +75,56 @@ bool ScopeEngine::configure(InputFormat const& input, DisplaySettings const& set
         analyse_ = AnalysePlan{};
         hist_ = Histogram{};
     }
-    render_ = makeRenderPlan(layout, settings, columns, analyse_.samples, analyse_.maxCellCount);
-    stillValid_ = false;
     input_ = input;
     settings_ = settings;
     outputWidth_ = outputWidth;
     outputHeight_ = outputHeight;
     configured_ = true;
+    painter_.configure(paintParams());
     return true;
 }
 
-void ScopeEngine::analyse(std::uint8_t const* v210)
+PaintParams ScopeEngine::paintParams() const
+{
+    auto const layout = makeLayout(outputWidth_, outputHeight_);
+    return PaintParams{settings_, outputWidth_, outputHeight_, histogramColumns(layout, input_.width), analyse_.samples, analyse_.maxCellCount,
+        input_.width > 0};
+}
+
+void ScopeEngine::fit(Histogram& hist) const
+{
+    bool const sized = hist.columns == analyse_.columns && hist.bins == analyse_.bins && hist.scratch.size() == (analyse_.twoSubs ? hist.counts.size() : 0) &&
+                       hist.counts.size() == static_cast<std::size_t>(analyse_.columns) * static_cast<std::size_t>(analyse_.bins);
+    if (!sized)
+    {
+        hist.reset(analyse_);
+    }
+}
+
+void ScopeEngine::analyse(std::uint8_t const* v210, Histogram& hist) const
 {
     if (input_.width <= 0)
     {
         return;
     }
+    fit(hist);
     if (level_ == SimdLevel::Avx512)
     {
-        analyseAvx512(analyse_, v210, hist_);
+        analyseAvx512(analyse_, v210, hist);
     }
     else if (level_ == SimdLevel::Avx2)
     {
-        analyseAvx2(analyse_, v210, hist_);
+        analyseAvx2(analyse_, v210, hist);
     }
     else
     {
-        analyseScalar(analyse_, v210, hist_);
+        analyseScalar(analyse_, v210, hist);
     }
+}
+
+void ScopeEngine::analyse(std::uint8_t const* v210)
+{
+    analyse(v210, hist_);
 }
 
 void ScopeEngine::clear()
@@ -68,24 +135,6 @@ void ScopeEngine::clear()
 
 void ScopeEngine::render(std::string const& caption, std::string const& state, std::uint8_t* dst)
 {
-    if (!stillValid_ || caption != caption_ || state != state_)
-    {
-        // The parts that change only with the settings, the caption or the state.
-        still_ = render_.base;
-        renderEmptyPlot(render_, still_);
-        renderTexts(render_, still_, caption, state);
-        stillPacked_.resize(packedSize());
-        packV210(still_, stillPacked_.data(), v210RowBytes(still_.width));
-        caption_ = caption;
-        state_ = state;
-        stillValid_ = true;
-    }
-    if (!state.empty() || input_.width <= 0)
-    {
-        std::memcpy(dst, stillPacked_.data(), stillPacked_.size());
-        std::fill(hist_.counts.begin(), hist_.counts.end(), std::uint16_t{0});
-        return;
-    }
-    renderPacked(render_, hist_, still_, stillPacked_.data(), dst);
+    painter_.render(hist_, caption, state, dst);
 }
 } // namespace scopes

@@ -94,10 +94,18 @@ std::vector<std::uint16_t> intensityTable(DisplaySettings const& settings, doubl
 void renderEmptyPlot(RenderPlan const& plan, Frame422& frame);
 // Caption line in the top margin and the state text in the middle of the plot (§5.2).
 void renderTexts(RenderPlan const& plan, Frame422& frame, std::string const& caption, std::string const& state);
-// Histogram -> packed v210, line by line: the rows outside the plot and the margins come from
-// `still` (the picture of renderEmptyPlot and renderTexts) and `stillPacked`, the plot from
-// the counts with the graticule over them. Clears the counts.
-void renderPacked(RenderPlan const& plan, Histogram& hist, Frame422 const& still, std::uint8_t const* stillPacked, std::uint8_t* dst);
+// One packed v210 group (6 pixels) of the plot that carries a trace, at its byte offset in the
+// packed picture. A picture is its still picture with these groups written over it.
+struct TraceGroup
+{
+    std::uint32_t offset = 0;
+    std::uint8_t bytes[16] = {};
+};
+
+// Histogram -> the plot groups with a trace (graticule blended over), row by row. Groups
+// without counts keep the still picture's bytes (background and graticule). Clears the counts.
+void collectTrace(RenderPlan const& plan, Histogram& hist, std::vector<TraceGroup>& trace);
+void applyTrace(std::vector<TraceGroup> const& trace, std::uint8_t* dst);
 
 // 8×8 bitmap text (ASCII), `scale` pixels per font pixel, neutral chroma.
 void drawText(Frame422& frame, int x, int y, int scale, std::string const& text, std::uint16_t luma);

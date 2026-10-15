@@ -73,7 +73,8 @@ Progress (2026-10-15):
 - [x] `mxl-scopes-bench`: analyse and render time per raster, SIMD level, strip width and step.
 - [x] Measured on the Skylake-SP class (lab) and an AVX2 server CPU (CI runner); strip width fixed at 64.
 - [ ] Measure on the desktop class (8-core AVX2 desktop CPU). Not available tonight.
-- [x] Open question 8 (AVX-512): stays out of v1 (see "M0 numbers").
+- [x] Open question 8 (AVX-512): first "not in v1"; the maintainer decided on 2026-10-15 to add it. AVX-512 analyse step with run-time dispatch AVX-512 → AVX2 → scalar, byte-exact in the tests (see "M0 rework").
+- [x] Maintainer's answers of 2026-10-15: softer intensity curve (§4.4), AVX-512, the copy-free writer before any M1 work, ports 8170/3322 confirmed.
 - [x] Vertical slice (deviation 1): config, MXL reader and writer, REST, probes, metrics, NMOS, web page, Dockerfile, CI, integration test.
 
 Left of M0: the desktop-class numbers; a lab run of the image (README "Lab run") with a real camera picture and the multiviewer tile; the process CPU targets of §13 on the lab class (see "M0 numbers").
@@ -104,11 +105,41 @@ Findings:
 
 - Exit criterion: AVX2 analyse + render is 3.5 ms (p99 3.8 ms) for a 1080p picture with flat areas on the lab class, below 4 ms already on the slower class; uniform noise takes 7.6 ms. The desktop class is still to be measured. The 2160p target of §13 (< 12 ms) holds for bars (11.0 ms) and not for noise (18.8 ms); line step 2 brings noise to 12.6 ms.
 - Scalar 1080p (p99 < 15 ms, §13): met (8.2 ms bars, 10.9 ms noise).
-- The hot loop is the scalar increment, as §4.9 expected; the AVX2 unpack, bin and index step makes analyse 2.5–3.5 times faster than scalar. AVX-512 would widen only that step, so open question 8 stays "not in v1".
+- The hot loop is the scalar increment, as §4.9 expected; the AVX2 unpack, bin and index step makes analyse 2.5–3.5 times faster than scalar. AVX-512 widens only that step (see "M0 rework" for its numbers).
 - The column strips of §4.3 read a few cache lines per row at a stride above 4 KiB, which the hardware prefetcher does not follow; the loops prefetch six rows ahead.
 - Render cost is independent of the input raster. It was 2.7–3 ms with a planar intermediate picture and a full pack; packing only the 6-pixel groups that carry a trace over the packed still picture brought it to 1.7 ms for typical pictures (4.2 ms for noise, where every group has a trace). An AVX2 pack is the next step if noise matters.
 - §4.9's estimate (1.5–2 ms per luma update on a 4.5 GHz desktop) looks reachable on that class; on the 3 GHz lab class it is 3.5 ms.
 - §13 process targets (< 0.15 core at 25 Hz, < 0.25 core every frame) are not met on the lab class (0.23 and 0.29). The next savings: render straight into the output grain when an update falls on it and skip the writer's 5.5 MB copy (§2.4 allows it; about 0.07 core), and an AVX2 pack for pictures with many trace groups. To be re-measured on the desktop class.
+
+### M0 rework (2026-10-15, after the maintainer's answers)
+
+**Intensity (§4.4).** `c_ref` is now the samples of a whole column (a flat field's cell) and the gain 20 (`kIntensityGain`, scaled by `SCOPES_INTENSITY`): one hit is dim (`SCOPES_TRACE_MIN`), ten hits about 15 %, 1/20 of a column 63 %, a flat field saturates. Golden picture `camera` (smooth, picture-like) added; the bars, ramp and flat pictures saturate as before, their hashes are unchanged.
+
+**AVX-512.** `src/scope/cpu/avx512.cpp` (AVX-512F only; the lab Xeon has no VBMI2): the AVX2 step on 512-bit registers, four groups per load; strips are now aligned to four groups. `SCOPES_SIMD=auto` takes it except on Skylake-SP and Cascade Lake (the colour corrector's rule), so the lab Xeon and the AVX2-only production nodes both run `avx2`. Byte-exact against scalar in the tests (widths 1–1280 incl. 23, 24, 95, 96, 97, every step, bins, strips, edge codes; whole pictures at 720p, 1080p, 2160p and 1998×50). Per-path timings, lab Skylake-SP, one core on socket 1, median ms of analyse (render is shared):
+
+| Input | Scalar | AVX2 | AVX-512 |
+| --- | --- | --- | --- |
+| 1080p bars | 4.5 | 1.76 | 1.85 |
+| 1080p camera | 5.3 | 2.57 | 2.65 |
+| 1080p noise | 6.7 | 3.55 | 3.64 |
+| 2160p bars | 25.1 | 9.40 | 9.57 |
+| 2160p camera | 26.7 | 12.9 | 13.5 |
+| 2160p noise | 31.2 | 14.4 | 16.7 |
+
+AVX-512 is 2–15 % slower than AVX2 here: the scalar increments dominate, and the wider load only moves work that was not the bottleneck. It stays selectable (`SCOPES_SIMD=avx512`) for later CPUs; to be re-measured on Ice Lake or Zen 4.
+
+**Copy-free writer (§2.4).** The renderer thread now only analyses and hands the histogram (with its render parameters) to the writer through a lock-free triple slot. The writer renders straight into the output grain: the picture is the still picture plus the trace groups, and each ring slot remembers what it holds, so a grain gets only the groups that differ; a large trace is one copy of the previous grain; a slot that already holds the picture is not written. Bytes equal to the full render (same golden hashes).
+
+Whole process, lab Skylake-SP, `mxl-scopes` pinned to CPU 41 (socket 1), `mxl-scopes-writer` 1080p50 on CPU 43, 1080p50 output, `avx2`, NMOS off, 20 s per point (`pidstat`); renderer and writer threads in brackets. Target §13: 25 Hz < 0.15 core, every frame < 0.25 core.
+
+| Input | 25 Hz | Every frame |
+| --- | --- | --- |
+| Before (render buffer + copy), bars | 0.23 (0.16 + 0.07) | 0.29 |
+| Bars | 0.16 (0.10 + 0.05) | 0.24 (0.14 + 0.09) |
+| Camera | 0.23 (0.13 + 0.10) | 0.35 (0.17 + 0.17) |
+| Noise | 0.34 (0.14 + 0.20) | 0.51 (0.20 + 0.30) |
+
+0 skipped (2 at a rate change), 0 torn; 2–4 late and 1–2 missed output grains per run, all at start-up. The every-frame target is met for bars; 25 Hz is 0.01 core above it. Inside the process the analyse step takes about 1.5–2 times its benchmark time (the grain comes from another core, and at 25 Hz the core sleeps between ticks); that, not the writer, is now the larger part.
 
 ### M1: luma waveform end to end
 
@@ -175,7 +206,7 @@ Exit: 1.0.0 released and deployable by the platform.
 2. No grain copy: analyse in the MXL ring, check for a torn read afterwards.
 3. Integer histograms and integer LUTs, so every backend is byte-identical.
 4. Column-strip cache blocking with two sub-histograms against store-forwarding stalls.
-5. No gathers in AVX2 code; AVX-512 deferred to the M0 numbers.
+5. No gathers or scatters in SIMD code; AVX-512 added on 2026-10-15 (dispatch AVX-512 → AVX2 → scalar, `auto` avoids it on Skylake-SP).
 6. The output runs at full rate; the update rate only changes how often the picture changes.
 7. Neutral mode names; the Y-against-chroma display is `luma-chroma`.
 
@@ -201,7 +232,7 @@ Exit: 1.0.0 released and deployable by the platform.
 ## Deviations
 
 1. **M0 scope.** The maintainer's brief of 2026-10-15 asked for a working vertical slice in M0: configuration, MXL reader and writer, REST, metrics, NMOS, a web page, Dockerfile and CI, besides the engine spike. Parts of M1 (config, MXL I/O, NMOS, probes, minimal REST, `scope.sh`) and of M3 (a web page, config export) are therefore in M0; their remaining parts stay in M1 and M3.
-2. **Reader and renderer are one thread** (SPECIFICATION §2.1 has two). The thread waits for the next grain with a timeout up to the next update tick, analyses the grain in place and renders; nothing else ever waits for it, and the grain is never copied. Strip workers (M2) can split the analyse step later.
+2. **Reader and analyser are one thread** (SPECIFICATION §2.1 has an input reader and a renderer). The thread waits for the next grain with a timeout up to the next update tick, analyses the grain in place and hands the histogram to the writer, which renders (§2.4, updated); nothing waits for it, and the grain is never copied. Strip workers (M2) can split the analyse step later.
 3. **Bin-major histogram** (§4.3 says column-major). The columns of one bin are contiguous: the renderer reads the counts line by line, and a strip touches two cache lines per bin instead of one per column. Counts are equal either way. Cell indices are 32-bit and absolute (§4.9 has 16-bit indices inside a strip); one or two sub-histograms, not four.
 4. **Flow keys apply at the restart in M0.** `SCOPES_OUTPUT_FORMAT`, `SCOPES_OUTPUT_RATE` and `SCOPES_OUTPUT_KEY` are saved and reported as `restart_required` (§8 has them live with a new flow id). `SCOPES_OUTPUT_RATE=input` does follow the routed flow live: a route to another rate mints a new output flow id and the NMOS flow and sender follow.
 5. **Values not built yet exit 78:** modes other than `luma` (M2), `SCOPES_ACCUMULATE=all` (M1), `SCOPES_OUTPUT_KEY=true` (M2), `SCOPES_THREADS` above 1 (M2). A PATCH with them answers 400.
@@ -211,10 +242,10 @@ Exit: 1.0.0 released and deployable by the platform.
 9. **Measurements** (§4.7), their metrics and `GET /api/v1/measurements` are M2 as planned; not in M0.
 10. **PATCH of an environment key.** A `PATCH /api/v1/scope` of a key the environment sets applies live until the restart and is listed as `not_persisted` (§9.2 says the PATCH is saved to the file; the file cannot beat the environment, and the platform sets `SCOPES_MODE` and `SCOPES_UPDATE_RATE` in the environment).
 11. **A running flow that disappears** (a writer that stops and deletes its flow) holds for `SCOPES_HOLD_MS` and then shows `NO SIGNAL`, like a flow that stops; `waiting` stays for a flow that has not run on this route (§11 lists only the missing flow).
-12. **Plot geometry.** The plot starts and ends on 6-pixel v210 group boundaries and has a 2 % right margin (§5.2 gives only the left, top and bottom margins); the renderer packs only the groups with a trace over the packed still picture.
+12. **Plot geometry.** The plot starts and ends on 6-pixel v210 group boundaries and has a 2 % right margin (§5.2 gives only the left, top and bottom margins); a picture is the packed still picture plus the groups with a trace.
 
 ## Questions for the maintainer
 
-1. **Intensity curve (§4.4).** With `g = SCOPES_INTENSITY / 100 × 4` and `c_ref` the count of an evenly spread column, a single sample per cell already gives about 96 % brightness at 1080p (c_ref is about 1.2): the default trace is nearly binary. Keep it, or use `g = intensity / 100 × 0.5` (or `c_ref` per column of a flat field) so density shows? A lab look decides it; it changes only the table.
-2. **AVX-512 (open question 8)** stays out of v1 on the M0 numbers. Confirm.
-3. **M0 merge:** the slice is in one PR; review per commit if that is easier.
+Answered 2026-10-15: softer intensity curve (done, §4.4); AVX-512 added (done; slower than AVX2 on Skylake-SP, `auto` keeps AVX2 there); copy-free writer first (done, numbers above); ports 8170 and 3322 confirmed.
+
+Open: the analyse step inside the process on Skylake-SP keeps 25 Hz at 0.16 core for bars and above target for busy pictures. Next options, in M1 unless decided otherwise: keep the renderer core awake between ticks (a short spin before a tick), and 2 strip workers (M2 plan) for 2160p.

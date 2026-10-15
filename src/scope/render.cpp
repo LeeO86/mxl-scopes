@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <bit>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 
@@ -334,20 +335,16 @@ inline std::uint32_t word3(std::uint32_t a, std::uint32_t b, std::uint32_t c)
 }
 } // namespace
 
-void renderPacked(RenderPlan const& plan, Histogram& hist, Frame422 const& still, std::uint8_t const* stillPacked, std::uint8_t* dst)
+void collectTrace(RenderPlan const& plan, Histogram& hist, std::vector<TraceGroup>& trace)
 {
+    trace.clear();
     auto const& layout = plan.layout;
-    auto const rowBytes = v210RowBytes(still.width);
     bool const hasCounts = !hist.counts.empty() && hist.columns == plan.columns && hist.bins == plan.bins;
     if (!hasCounts)
     {
-        std::memcpy(dst, stillPacked, rowBytes * static_cast<std::size_t>(still.height));
         return;
     }
-    // Rows outside the plot are the still picture's.
-    std::memcpy(dst, stillPacked, rowBytes * static_cast<std::size_t>(layout.plotY));
-    auto const below = static_cast<std::size_t>(layout.plotY + layout.plotH);
-    std::memcpy(dst + rowBytes * below, stillPacked + rowBytes * below, rowBytes * (static_cast<std::size_t>(still.height) - below));
+    auto const rowBytes = v210RowBytes(layout.width);
     std::vector<std::uint16_t> sampled(plan.identityColumns ? 0 : static_cast<std::size_t>(layout.plotW));
     auto const* lut = plan.intensity.data();
     auto const maxCount = plan.maxCount;
@@ -355,9 +352,6 @@ void renderPacked(RenderPlan const& plan, Histogram& hist, Frame422 const& still
     for (int r = 0; r < layout.plotH; ++r)
     {
         auto const row = static_cast<std::size_t>(layout.plotY + r);
-        auto* out = dst + rowBytes * row;
-        // The still row: margins, background and graticule. Groups with a trace are packed over it.
-        std::memcpy(out, stillPacked + rowBytes * row, rowBytes);
         auto const bin = plan.binOfRow[static_cast<std::size_t>(r)];
         auto* counts = hist.counts.data() + static_cast<std::size_t>(bin) * static_cast<std::size_t>(plan.columns);
         std::uint16_t const* line = counts;
@@ -415,17 +409,27 @@ void renderPacked(RenderPlan const& plan, Histogram& hist, Frame422 const& still
                     cr[at / 2] = blend(cr[at / 2], kBackgroundC, gp.alpha);
                 }
             }
-            auto* group = out + 16 * static_cast<std::size_t>(x0 / 6);
-            put32(group, word3(cb[0], y[0], cr[0]));
-            put32(group + 4, word3(y[1], cb[1], y[2]));
-            put32(group + 8, word3(cr[1], y[3], cb[2]));
-            put32(group + 12, word3(y[4], cr[2], y[5]));
+            TraceGroup group;
+            group.offset = static_cast<std::uint32_t>(rowBytes * row + 16 * static_cast<std::size_t>(x0 / 6));
+            put32(group.bytes, word3(cb[0], y[0], cr[0]));
+            put32(group.bytes + 4, word3(y[1], cb[1], y[2]));
+            put32(group.bytes + 8, word3(cr[1], y[3], cb[2]));
+            put32(group.bytes + 12, word3(y[4], cr[2], y[5]));
+            trace.push_back(group);
         }
         // Clear the bin once the last plot row that shows it is drawn.
         if (r + 1 == layout.plotH || plan.binOfRow[static_cast<std::size_t>(r) + 1] != bin)
         {
             std::memset(counts, 0, sizeof(std::uint16_t) * static_cast<std::size_t>(plan.columns));
         }
+    }
+}
+
+void applyTrace(std::vector<TraceGroup> const& trace, std::uint8_t* dst)
+{
+    for (auto const& group : trace)
+    {
+        std::memcpy(dst + group.offset, group.bytes, sizeof(group.bytes));
     }
 }
 
