@@ -16,7 +16,7 @@ Ycbcr10 rgbToYcbcr709(double r, double g, double b)
 
 bool knownPattern(std::string const& name)
 {
-    return name == "bars75" || name == "bars100" || name == "ramp" || name == "flat" || name == "random";
+    return name == "bars75" || name == "bars100" || name == "ramp" || name == "flat" || name == "random" || name == "camera";
 }
 
 Frame422 makePattern(std::string const& name, int width, int height, int level, std::uint32_t seed)
@@ -52,6 +52,21 @@ Frame422 makePattern(std::string const& name, int width, int height, int level, 
             for (int row = 0; row < height; ++row)
             {
                 frame.y[static_cast<std::size_t>(row) * width + x] = v;
+            }
+        }
+    }
+    else if (name == "camera")
+    {
+        // Smooth picture-like luma: a sine across, a quadratic down. Each column spreads over a
+        // range of codes with an uneven density, which shows the intensity curve (§4.4).
+        for (int row = 0; row < height; ++row)
+        {
+            double const v = static_cast<double>(row) / std::max(1, height - 1);
+            for (int x = 0; x < width; ++x)
+            {
+                double const u = static_cast<double>(x) / std::max(1, width - 1);
+                double const level = 0.35 + 0.25 * std::sin(u * 6.283185307179586 * 3.0) + 0.3 * v * v;
+                frame.y[static_cast<std::size_t>(row) * width + x] = static_cast<std::uint16_t>(std::lround(64.0 + 876.0 * std::clamp(level, 0.0, 1.0)));
             }
         }
     }

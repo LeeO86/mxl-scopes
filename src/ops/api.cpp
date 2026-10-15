@@ -171,7 +171,7 @@ std::string Api::infoJson() const
     out << "{\"name\":\"mxl-scopes\",\"version\":" << quote(SCOPES_VERSION) << ",\"mxl_revision\":" << quote(SCOPES_MXL_REVISION)
         << ",\"label\":" << quote(config_.nmosLabel.empty() ? config_.hostId : config_.nmosLabel) << ",\"backend\":\"cpu\""
         << ",\"simd\":{\"level\":" << quote(simdName(build_.simd.level)) << ",\"requested\":" << quote(build_.simd.requested)
-        << ",\"cpu\":" << quote(build_.simd.cpu) << "}"
+        << ",\"cpu\":" << quote(build_.simd.cpu) << ",\"cpu_family\":" << quote(build_.simd.family) << "}"
         << ",\"modes\":[\"luma\"],\"node_id\":" << quote(ids.node) << ",\"device_id\":" << quote(ids.device)
         << ",\"receiver_id\":" << quote(ids.receiver) << ",\"sender_id\":" << quote(ids.sender) << ",\"domain_id\":" << quote(config_.outputDomainId)
         << ",\"output\":{\"format\":" << quote(std::to_string(config_.outputWidth) + "x" + std::to_string(config_.outputHeight))

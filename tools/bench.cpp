@@ -74,7 +74,7 @@ int main(int argc, char** argv)
     {
         if (std::strcmp(argv[i], "--help") == 0)
         {
-            std::cout << "mxl-scopes-bench [--rasters 1920x1080,3840x2160] [--output 1920x1080] [--simd scalar,avx2]\n"
+            std::cout << "mxl-scopes-bench [--rasters 1920x1080,3840x2160] [--output 1920x1080] [--simd scalar,avx2,avx512]\n"
                          "                 [--strips 32,64,128] [--steps 1/1,2/1,2/2] [--pattern random|bars75|ramp|flat]\n"
                          "                 [--iterations 200]\n"
                          "mxl-scopes-bench --golden DIR   (writes the golden pictures as PNG)\n";
@@ -84,7 +84,7 @@ int main(int argc, char** argv)
     if (auto const dir = arg(argc, argv, "--golden", ""); !dir.empty())
     {
         // The golden pictures of the unit tests as PNGs for review (SPECIFICATION §14.1).
-        for (auto const* pattern : {"ramp", "bars75", "bars100", "flat"})
+        for (auto const* pattern : {"ramp", "bars75", "bars100", "flat", "camera"})
         {
             ScopeEngine engine(SimdLevel::Scalar);
             engine.configure({1920, 1080, v210RowBytes(1920)}, DisplaySettings{}, 1920, 1080);
@@ -102,7 +102,7 @@ int main(int argc, char** argv)
     }
     auto const rasters = split(arg(argc, argv, "--rasters", "1920x1080,3840x2160"));
     auto const output = arg(argc, argv, "--output", "1920x1080");
-    auto simds = split(arg(argc, argv, "--simd", "scalar,avx2"));
+    auto simds = split(arg(argc, argv, "--simd", "scalar,avx2,avx512"));
     auto const strips = split(arg(argc, argv, "--strips", "32,64,128"));
     auto const steps = split(arg(argc, argv, "--steps", "1/1,2/1,2/2"));
     auto const pattern = arg(argc, argv, "--pattern", "random");
@@ -110,7 +110,9 @@ int main(int argc, char** argv)
     int const outW = std::stoi(output.substr(0, output.find('x')));
     int const outH = std::stoi(output.substr(output.find('x') + 1));
     bool const avx2 = cpuHasAvx2() && avx2Compiled();
-    std::printf("# cpu avx2=%s pattern=%s output=%dx%d iterations=%d\n", avx2 ? "yes" : "no", pattern.c_str(), outW, outH, iterations);
+    bool const avx512 = cpuHasAvx512() && avx512Compiled();
+    std::printf("# cpu avx512=%s%s ", avx512 ? "yes" : "no", cpuIsSkylakeServer() ? " (skylake-sp)" : "");
+    std::printf("avx2=%s pattern=%s output=%dx%d iterations=%d\n", avx2 ? "yes" : "no", pattern.c_str(), outW, outH, iterations);
     std::printf("%-10s %-7s %-6s %-6s %10s %10s %10s %10s %10s %10s\n", "raster", "simd", "strip", "step", "analyse", "an_p99", "render", "-", "total",
         "total_p99");
     for (auto const& raster : rasters)
@@ -120,9 +122,9 @@ int main(int argc, char** argv)
         auto const frame = packPattern(makePattern(pattern, w, h, 512, 7));
         for (auto const& simd : simds)
         {
-            if (simd == "avx2" && !avx2)
+            if ((simd == "avx2" && !avx2) || (simd == "avx512" && !avx512))
             {
-                std::printf("%-10s %-7s (no AVX2 on this CPU)\n", raster.c_str(), simd.c_str());
+                std::printf("%-10s %-7s (not on this CPU)\n", raster.c_str(), simd.c_str());
                 continue;
             }
             for (auto const& strip : strips)
@@ -132,7 +134,7 @@ int main(int argc, char** argv)
                     DisplaySettings settings;
                     settings.lineStep = std::stoi(step.substr(0, step.find('/')));
                     settings.pixelStep = std::stoi(step.substr(step.find('/') + 1));
-                    ScopeEngine engine(simd == "avx2" ? SimdLevel::Avx2 : SimdLevel::Scalar, std::stoi(strip));
+                    ScopeEngine engine(simd == "avx512" ? SimdLevel::Avx512 : simd == "avx2" ? SimdLevel::Avx2 : SimdLevel::Scalar, std::stoi(strip));
                     engine.configure({w, h, v210RowBytes(w)}, settings, outW, outH);
                     std::vector<std::uint8_t> out(engine.packedSize());
                     std::vector<double> analyse;

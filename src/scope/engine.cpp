@@ -46,7 +46,11 @@ void ScopeEngine::analyse(std::uint8_t const* v210)
     {
         return;
     }
-    if (level_ == SimdLevel::Avx2)
+    if (level_ == SimdLevel::Avx512)
+    {
+        analyseAvx512(analyse_, v210, hist_);
+    }
+    else if (level_ == SimdLevel::Avx2)
     {
         analyseAvx2(analyse_, v210, hist_);
     }

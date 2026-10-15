@@ -44,7 +44,8 @@ struct AnalysePlan
     std::vector<Strip> strips;
     // v210 groups whose six samples all lie inside the width.
     int fullGroups = 0;
-    // AVX2 order of the columns: per group, lanes {0, 1, 3, 4} and {-, 2, -, 5}.
+    // SIMD order of the columns: per group, lanes {0, 1, 3, 4} and {-, 2, -, 5} (AVX2 loads two
+    // groups, AVX-512 four).
     std::vector<std::uint32_t> simdOffA;
     std::vector<std::uint32_t> simdOffB;
     // Samples analysed per frame and the largest possible count of one cell.
@@ -80,4 +81,7 @@ void analyseScalar(AnalysePlan const& plan, std::uint8_t const* v210, Histogram&
 // AVX2 version, byte-identical counts. Only call it when the CPU has AVX2 (cpu/dispatch.hpp).
 void analyseAvx2(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist);
 bool avx2Compiled();
+// AVX-512 (F) version, four groups per load, byte-identical counts. Only with AVX-512.
+void analyseAvx512(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist);
+bool avx512Compiled();
 } // namespace scopes

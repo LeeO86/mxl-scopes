@@ -16,6 +16,18 @@ using namespace scopes;
 
 namespace
 {
+bool haveAvx512()
+{
+    static bool const have = avx512Compiled() && cpuHasAvx512();
+    static bool said = false;
+    if (!have && !said)
+    {
+        said = true;
+        std::fprintf(stderr, "note: this CPU or build has no AVX-512; the AVX-512 engine tests are skipped\n");
+    }
+    return have;
+}
+
 bool haveAvx2()
 {
     static bool const have = avx2Compiled() && cpuHasAvx2();
@@ -64,6 +76,14 @@ void compareCounts(AnalysePlan const& plan, std::vector<std::uint8_t> const& fra
         REQUIRE(simd.counts == scalar.counts);
         CHECK(std::all_of(simd.scratch.begin(), simd.scratch.end(), [](std::uint16_t c) { return c == 0; }));
     }
+    if (haveAvx512())
+    {
+        Histogram wide;
+        wide.reset(plan);
+        analyseAvx512(plan, frame.data(), wide);
+        REQUIRE(wide.counts == scalar.counts);
+        CHECK(std::all_of(wide.scratch.begin(), wide.scratch.end(), [](std::uint16_t c) { return c == 0; }));
+    }
 }
 } // namespace
 
@@ -89,7 +109,7 @@ TEST_CASE("analyse plan: columns cover the width, bins cover the codes")
     }
 }
 
-TEST_CASE("AVX2 equals scalar: random frames, every step")
+TEST_CASE("SIMD equals scalar: random frames, every step")
 {
     for (int lineStep : {1, 2, 3, 8})
     {
@@ -103,9 +123,9 @@ TEST_CASE("AVX2 equals scalar: random frames, every step")
     }
 }
 
-TEST_CASE("AVX2 equals scalar: odd widths, column counts, bins and strips")
+TEST_CASE("SIMD equals scalar: odd widths, column counts, bins and strips")
 {
-    for (int width : {1, 5, 6, 7, 12, 13, 47, 48, 49, 720, 1001, 1280})
+    for (int width : {1, 5, 6, 7, 12, 13, 23, 24, 30, 47, 48, 49, 95, 96, 97, 720, 1001, 1280})
     {
         auto const frame = randomFrame(width, 9, static_cast<std::uint32_t>(width));
         for (int columns : {1, 3, 64, width})
@@ -130,7 +150,7 @@ TEST_CASE("AVX2 equals scalar: odd widths, column counts, bins and strips")
     }
 }
 
-TEST_CASE("AVX2 equals scalar: edge frames")
+TEST_CASE("SIMD equals scalar: edge frames")
 {
     for (int level : {0, 4, 64, 512, 940, 1019, 1023})
     {
@@ -162,33 +182,55 @@ TEST_CASE("a padded stride is read like a tight one")
     CHECK(ha.counts == hb.counts);
 }
 
-TEST_CASE("engine output: AVX2 picture equals scalar picture byte for byte")
+TEST_CASE("engine output: AVX2 and AVX-512 pictures equal the scalar picture byte for byte")
 {
-    if (!haveAvx2())
+    for (auto const* pattern : {"random", "bars75", "ramp", "flat"})
     {
-        return;
-    }
-    for (auto const* pattern : {"random", "bars75", "ramp"})
-    {
-        for (auto [w, h] : {std::pair{1920, 1080}, std::pair{1280, 720}, std::pair{3840, 2160}})
+        for (auto [w, h] : {std::pair{1920, 1080}, std::pair{1280, 720}, std::pair{3840, 2160}, std::pair{1998, 50}})
         {
             CAPTURE(pattern);
             CAPTURE(w);
-            auto const frame = packPattern(makePattern(pattern, w, h, 512, 11));
+            auto const frame = packPattern(makePattern(pattern, w, h, 1023, 11));
             DisplaySettings settings;
             ScopeEngine scalar(SimdLevel::Scalar);
-            ScopeEngine simd(SimdLevel::Avx2);
             scalar.configure({w, h, v210RowBytes(w)}, settings, 1920, 1080);
-            simd.configure({w, h, v210RowBytes(w)}, settings, 1920, 1080);
-            std::vector<std::uint8_t> a(scalar.packedSize());
-            std::vector<std::uint8_t> b(simd.packedSize());
+            std::vector<std::uint8_t> reference(scalar.packedSize());
             scalar.analyse(frame.data());
-            simd.analyse(frame.data());
-            scalar.render("Luma waveform", "", a.data());
-            simd.render("Luma waveform", "", b.data());
-            CHECK(a == b);
+            scalar.render("Luma waveform", "", reference.data());
+            for (auto level : {SimdLevel::Avx2, SimdLevel::Avx512})
+            {
+                if ((level == SimdLevel::Avx2 && !haveAvx2()) || (level == SimdLevel::Avx512 && !haveAvx512()))
+                {
+                    continue;
+                }
+                CAPTURE(simdName(level));
+                ScopeEngine simd(level);
+                simd.configure({w, h, v210RowBytes(w)}, settings, 1920, 1080);
+                std::vector<std::uint8_t> out(simd.packedSize());
+                simd.analyse(frame.data());
+                simd.render("Luma waveform", "", out.data());
+                CHECK(out == reference);
+            }
         }
     }
+}
+
+TEST_CASE("dispatch: auto never picks a level the CPU lacks; scalar is always available")
+{
+    auto const autoChoice = chooseSimd("auto");
+    if (autoChoice.level == SimdLevel::Avx512)
+    {
+        CHECK(cpuHasAvx512());
+        CHECK(autoChoice.family != "skylake-sp");
+    }
+    if (autoChoice.level == SimdLevel::Avx2)
+    {
+        CHECK(cpuHasAvx2());
+    }
+    CHECK(chooseSimd("scalar").level == SimdLevel::Scalar);
+    auto const wide = chooseSimd("avx512");
+    CHECK((wide.level == SimdLevel::Avx512) == (avx512Compiled() && cpuHasAvx512()));
+    CHECK(wide.fellBack == (wide.level != SimdLevel::Avx512));
 }
 
 namespace
@@ -302,7 +344,7 @@ TEST_CASE("golden hashes of the default picture")
         char const* pattern;
         std::uint64_t hash;
     };
-    for (auto const& golden : {Golden{"ramp", 7384256726905344186ull}, Golden{"bars75", 2826592181012396248ull}, Golden{"bars100", 9629069767906594335ull}, Golden{"flat", 14827436196761363586ull}})
+    for (auto const& golden : {Golden{"ramp", 7384256726905344186ull}, Golden{"bars75", 2826592181012396248ull}, Golden{"bars100", 9629069767906594335ull}, Golden{"flat", 14827436196761363586ull}, Golden{"camera", 5305815829015520611ull}})
     {
         auto const frame = packPattern(makePattern(golden.pattern, 1920, 1080, 512));
         ScopeEngine engine(SimdLevel::Scalar);

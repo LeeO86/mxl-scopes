@@ -50,7 +50,7 @@ int main(int argc, char** argv)
     auto const label = arg(argc, argv, "--label", "Pattern " + pattern);
     if (domain.empty() || flow.empty() || !rate || !scopes::knownPattern(pattern) || width < 1 || height < 1)
     {
-        std::cerr << "usage: mxl-scopes-writer --domain DIR --flow UUID [--pattern bars75|bars100|ramp|flat|random] [--level CODE]\n"
+        std::cerr << "usage: mxl-scopes-writer --domain DIR --flow UUID [--pattern bars75|bars100|ramp|flat|random|camera] [--level CODE]\n"
                      "                         [--width 1920 --height 1080 --rate 50|5994|N/D] [--label TEXT]\n";
         return 2;
     }

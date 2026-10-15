@@ -105,7 +105,7 @@ int main(int argc, char** argv)
             scopes::logWarn("simd_fallback", {{"requested", config.simd}, {"level", scopes::simdName(simd.level)}});
         }
         scopes::logInfo("start", {{"version", SCOPES_VERSION}, {"mxl", SCOPES_MXL_REVISION}, {"simd", scopes::simdName(simd.level)},
-                                     {"cpu", simd.cpu}, {"state_dir", config.stateDir}, {"output_domain", config.outputDomainDir}});
+                                     {"cpu", simd.cpu + (simd.family.empty() ? "" : " (" + simd.family + ")")}, {"state_dir", config.stateDir}, {"output_domain", config.outputDomainDir}});
 
         scopes::Metrics metrics;
         metrics.set("info", {{"version", SCOPES_VERSION}, {"mxl_revision", SCOPES_MXL_REVISION}, {"backend", "cpu"}, {"simd", scopes::simdName(simd.level)}}, 1);

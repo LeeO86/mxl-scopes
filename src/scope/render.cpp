@@ -179,7 +179,7 @@ int rowOfCode(RenderPlan const& plan, int code)
 std::vector<std::uint16_t> intensityTable(DisplaySettings const& settings, double cRef, std::uint32_t maxCount)
 {
     std::vector<std::uint16_t> table{0};
-    double const g = settings.intensity / 100.0 * 4.0;
+    double const g = settings.intensity / 100.0 * kIntensityGain;
     cRef = std::max(cRef, 1e-9);
     for (std::uint32_t c = 1; c <= std::max<std::uint32_t>(1, maxCount); ++c)
     {
@@ -212,8 +212,8 @@ RenderPlan makeRenderPlan(Layout const& layout, DisplaySettings const& settings,
         plan.binOfRow[static_cast<std::size_t>(r)] =
             static_cast<std::uint16_t>((static_cast<std::int64_t>(layout.plotH - 1 - r) * plan.bins) / layout.plotH);
     }
-    // §4.4: c_ref is the count of a column whose samples spread evenly over the bins.
-    double const cRef = columns > 0 && samples > 0 ? static_cast<double>(samples) / columns / plan.bins : 1.0;
+    // §4.4: c_ref is the count of a cell that holds all samples of its column (a flat field).
+    double const cRef = columns > 0 && samples > 0 ? static_cast<double>(samples) / columns : 1.0;
     plan.intensity = intensityTable(settings, cRef, maxCount);
     plan.maxCount = static_cast<std::uint32_t>(plan.intensity.size() - 1);
     auto const trace = traceColor(settings.traceColor);

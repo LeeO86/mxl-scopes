@@ -45,13 +45,15 @@ target_include_directories(scopes-core PUBLIC src third_party ${CMAKE_CURRENT_BI
 target_link_libraries(scopes-core PUBLIC Threads::Threads)
 target_compile_options(scopes-core PRIVATE ${SCOPES_WARNINGS})
 
-# The AVX2 engine is one translation unit with -mavx2 -mfma; the rest of the binary stays
-# baseline x86-64, so the image starts on any x86-64 CPU (SPECIFICATION §3.1, §3.2).
+# The AVX2 and AVX-512 engines are one translation unit each with their own flags; the rest
+# of the binary stays baseline x86-64, so the image starts on any x86-64 CPU (§3.1, §3.2).
 include(CheckCXXCompilerFlag)
 check_cxx_compiler_flag("-mavx2 -mfma" SCOPES_HAVE_AVX2_FLAG)
-if(SCOPES_HAVE_AVX2_FLAG AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|amd64")
-    target_sources(scopes-core PRIVATE src/scope/cpu/avx2.cpp)
+check_cxx_compiler_flag("-mavx512f" SCOPES_HAVE_AVX512_FLAG)
+if(SCOPES_HAVE_AVX2_FLAG AND SCOPES_HAVE_AVX512_FLAG AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|amd64")
+    target_sources(scopes-core PRIVATE src/scope/cpu/avx2.cpp src/scope/cpu/avx512.cpp)
     set_source_files_properties(src/scope/cpu/avx2.cpp PROPERTIES COMPILE_OPTIONS "-mavx2;-mfma")
+    set_source_files_properties(src/scope/cpu/avx512.cpp PROPERTIES COMPILE_OPTIONS "-mavx512f")
 else()
     target_sources(scopes-core PRIVATE src/scope/cpu/noavx2.cpp)
 endif()

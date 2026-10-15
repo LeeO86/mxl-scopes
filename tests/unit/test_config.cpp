@@ -77,7 +77,7 @@ TEST_CASE("invalid values are configuration errors (exit 78)")
         {"SCOPES_OUTPUT_FORMAT", "7680x4320"},
         {"SCOPES_OUTPUT_RATE", "120"},
         {"SCOPES_BACKEND", "cuda"},
-        {"SCOPES_SIMD", "avx512"},
+        {"SCOPES_SIMD", "avx512vl"},
         {"SCOPES_THREADS", "9"},
         {"SCOPES_PREVIEW_HEIGHT", "541"},
         {"WEB_PORT", "0"},

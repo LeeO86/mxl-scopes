@@ -53,20 +53,21 @@ AnalysePlan makeAnalysePlan(int width, int height, std::size_t stride, int lineS
         AnalysePlan::Strip strip;
         strip.g0 = g;
         strip.col0 = col[static_cast<std::size_t>(6 * g)];
-        // Whole pairs of groups, so the AVX2 engine takes every strip in 32-byte loads.
-        int end = std::min(groups, g + 2);
+        // Whole quads of groups, so the AVX2 engine (pairs) and the AVX-512 engine (quads) take
+        // every strip in full loads.
+        int end = std::min(groups, g + 4);
         auto lastCol = [&](int group) { return col[static_cast<std::size_t>(std::min(width - 1, 6 * group + 5))]; };
-        while (end < groups && lastCol(std::min(groups, end + 2) - 1) < strip.col0 + stripColumns)
+        while (end < groups && lastCol(std::min(groups, end + 4) - 1) < strip.col0 + stripColumns)
         {
-            end = std::min(groups, end + 2);
+            end = std::min(groups, end + 4);
         }
         strip.g1 = end;
         strip.col1 = lastCol(end - 1);
         plan.strips.push_back(strip);
         g = end;
     }
-    plan.simdOffA.assign(static_cast<std::size_t>(groups) * 4u + 8u, 0);
-    plan.simdOffB.assign(static_cast<std::size_t>(groups) * 4u + 8u, 0);
+    plan.simdOffA.assign(static_cast<std::size_t>(groups) * 4u + 16u, 0);
+    plan.simdOffB.assign(static_cast<std::size_t>(groups) * 4u + 16u, 0);
     for (int g = 0; g < plan.fullGroups; ++g)
     {
         auto const off = [&](int i) { return plan.columnOf[static_cast<std::size_t>(6 * g + i)]; };

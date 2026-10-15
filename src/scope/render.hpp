@@ -82,7 +82,12 @@ int rowOfCode(RenderPlan const& plan, int code);
 // `samples` and `maxCount` come from the analyse plan; zero without an input.
 RenderPlan makeRenderPlan(Layout const& layout, DisplaySettings const& settings, int columns, std::uint64_t samples, std::uint32_t maxCount);
 
-// Intensity table of §4.4: c = 0 is the background, c >= 1 at least traceMin.
+// Gain of the intensity curve at SCOPES_INTENSITY 100 % (§4.4): a cell with 1/20 of its
+// column's samples is at 63 %, a few hits are dim, a flat field saturates.
+inline constexpr double kIntensityGain = 20.0;
+
+// Intensity table of §4.4: I = 1023 × (1 − exp(−g × c / c_ref)), g = intensity / 100 × gain;
+// c = 0 is the background, c >= 1 at least traceMin.
 std::vector<std::uint16_t> intensityTable(DisplaySettings const& settings, double cRef, std::uint32_t maxCount);
 
 // The plot without a trace (background and graticule) into `frame`, a copy of plan.base.

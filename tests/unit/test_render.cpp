@@ -243,3 +243,22 @@ TEST_CASE("snapshot scaling keeps one-pixel lines")
     CHECK(half.size() > 8);
     CHECK(half.size() < full.size());
 }
+
+TEST_CASE("intensity: brightness grows with the hits per cell (§4.4)")
+{
+    // 1080p: about 1200 samples per column; a few hits are dim, many bright.
+    DisplaySettings settings;
+    double const cRef = 1920.0 * 1080.0 / 1722.0;
+    auto const table = intensityTable(settings, cRef, 65535);
+    auto at = [&](std::size_t c) { return static_cast<int>(table[std::min(c, table.size() - 1)]); };
+    CHECK(at(1) == settings.traceMin);
+    CHECK(at(10) > at(1));
+    CHECK(at(10) < 300);
+    CHECK(at(60) > 550);
+    CHECK(at(60) < 750);
+    CHECK(at(300) > 980);
+    CHECK(at(static_cast<std::size_t>(cRef)) == 1023);
+    // SCOPES_INTENSITY scales the gain: 200 % is brighter at the same count.
+    settings.intensity = 200;
+    CHECK(static_cast<int>(intensityTable(settings, cRef, 65535)[30]) > at(30));
+}

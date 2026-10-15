@@ -532,7 +532,7 @@ Config loadConfig(std::map<std::string, std::string> const& env, std::map<std::s
     {
         throw ConfigError("cuda_backend_not_built: SCOPES_BACKEND=cuda is reserved");
     }
-    cfg.simd = requireEnum("SCOPES_SIMD", raw("SCOPES_SIMD"), {"auto", "avx2", "scalar"});
+    cfg.simd = requireEnum("SCOPES_SIMD", raw("SCOPES_SIMD"), {"auto", "avx512", "avx2", "scalar"});
     cfg.previewMode = requireEnum("SCOPES_PREVIEW_MODE", raw("SCOPES_PREVIEW_MODE"), {"webrtc", "off"});
     cfg.previewHeight = requireInt("SCOPES_PREVIEW_HEIGHT", raw("SCOPES_PREVIEW_HEIGHT"), 270, 1080);
     if (cfg.previewHeight % 2 != 0)
