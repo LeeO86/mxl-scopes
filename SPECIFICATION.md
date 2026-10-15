@@ -71,9 +71,9 @@ Out of scope for every stage here: audio scopes (the audio mixer and the multivi
 | Thread | Job | Never waits for |
 | --- | --- | --- |
 | Input reader | Follows the routed flow. Holds the index of the newest complete grain. Handles `waiting`, `no_signal`, resync, flow re-creation, format change (as mxl-multiviewer §5.3) | renderer, writer |
-| Scope renderer | At each update tick (§4.6): analyse the newest grain, render, publish | writer, preview |
+| Scope renderer | At each update tick (§4.6): analyse the newest grain, hand the histogram to the writer | writer, preview |
 | Strip workers | `SCOPES_THREADS` − 1 helpers for the renderer; each owns a set of column strips (§4.3) | — |
-| Output writer | One grain per output index from TAI. Copies the latest finished scope frame. Never renders | renderer |
+| Output writer | One grain per output index from TAI. Renders the newest histogram straight into the grain, else repeats the picture (§2.4) | renderer |
 | Preview | At `SCOPES_PREVIEW_FPS`: scale, encode, publish | renderer, writer |
 | MediaMTX supervisor | Own mode only (preview contract) | — |
 | HTTP, WebSocket, NMOS | nmos-cpp and the web server threads | media threads |
@@ -94,10 +94,11 @@ Out of scope for every stage here: audio scopes (the audio mixer and the multivi
 
 ### 2.4 Output writer
 
-- TAI paced like the multiviewer composer (§5.4 there): for each output index `N`, sleep until `indexToTimestamp(rate, N)`, open the grain, copy the latest finished scope frame (v210, and the key plane for v210a), commit with `validSlices = totalSlices`.
+- TAI paced like the multiviewer composer (§5.4 there): for each output index `N`, sleep until `indexToTimestamp(rate, N)`, open the grain, write the latest scope picture into it (v210, and the key plane for v210a), commit with `validSlices = totalSlices`.
+- No render buffer and no full copy per grain (decided 2026-10-15): the writer renders the newest analysed histogram straight into the output grain. A picture is the still picture (background, graticule, texts) plus the packed 6-pixel groups that carry a trace. Each ring slot remembers which still picture and which trace groups it holds; a grain gets only the groups that differ (old trace groups back to the still bytes, new ones written). A large trace is one copy of the previous grain; a slot that already holds the picture (a still input, `NO SIGNAL`) is not written at all.
 - Skipped indexes count as missed; a commit after the next index's time counts as late.
 - Before the first scope frame exists, the writer writes the empty graticule (with `NO SIGNAL` while the input is not running).
-- The copy costs about 0.3–0.5 ms per 1080p grain. Rendering straight into the output grain when an update falls on that index is an allowed optimisation if the bytes are equal.
+- The bytes of a grain are those of the full render (the unit tests compare them).
 
 ### 2.5 Preview
 
@@ -137,8 +138,8 @@ struct ScopeEngine {
 
 - Histograms are integer counts. Integer sums do not depend on order, so a CUDA backend with shared-memory atomics gives the same counts as the CPU. The render step uses the same integer lookup tables. The output MUST be byte-identical on every backend.
 - `SCOPES_BACKEND`: `auto` and `cpu` in v1. `cuda` is reserved: in v1 it exits 78 with `cuda_backend_not_built`.
-- CPU code level `SCOPES_SIMD`: `auto`, `avx2`, `scalar` in v1. Chosen at start from cpuid and XGETBV, as mxl-color-corrector. A level the CPU does not have falls back to the next one below, with a warning. Any other value exits 78. `auto` picks `avx2` whenever the CPU has it.
-- AVX-512 is not in v1 (open question 8). The hot loop is the scalar histogram increment (§4.3); 512-bit registers help only the unpack, and on Skylake-SP they slow the other hyperthread of the core (the color corrector measured 3.4–4 %).
+- CPU code level `SCOPES_SIMD`: `auto`, `avx512`, `avx2`, `scalar` in v1. Chosen at start from cpuid and XGETBV, as mxl-color-corrector. A level the CPU does not have falls back to the next one below (AVX-512 → AVX2 → scalar), with a warning. Any other value exits 78. `auto` picks `avx2` whenever the CPU has it (decided by the maintainer 2026-10-15): the AVX-512 step measured slower than AVX2 on Skylake-SP and on Zen 4 (IMPLEMENTATION_PLAN.md "M0 rework"). AVX-512 stays in the build, tested, and is used only with `SCOPES_SIMD=avx512`. AVX2 stays first-class: the platform's small nodes have no AVX-512.
+- AVX-512 is in v1 (open question 8, decided by the maintainer 2026-10-15): the AVX2 analyse step on 512-bit registers, four v210 groups per load, AVX-512F only (the lab Xeon has no VBMI2). The hot loop stays the scalar histogram increment (§4.3), so the gain is small; on Skylake-SP 512-bit code also slows the other hyperthread of the core (the color corrector measured 3.4–4 %), hence the `auto` rule.
 - The AVX2 code MUST NOT use gather instructions (slow with the Downfall microcode on the platform's CPUs; see mxl-webrtc-monitor).
 - The choice is logged at start, shown in `/api/v1/info` (`simd: {level, requested, cpu}`) and exported as `mxl_scopes_simd_level{level}`.
 
@@ -149,7 +150,7 @@ struct ScopeEngine {
 ### 4.1 Input samples
 
 - Input is `video/v210` (or `video/v210a`; the key plane is ignored), 4:2:2, 10 bits, any raster up to 3840×2160 that MXL allows. Row stride is `ceil(width/48) × 128` bytes. One v210 group of 16 bytes carries 6 Y, 3 Cb and 3 Cr samples.
-- Interlaced grains are analysed as the whole frame (both fields). Field select is a later stage.
+- Interlaced grains are analysed as the whole frame (both fields). In MXL an interlaced grain is one field (height / 2 lines) at twice the flow_def `grain_rate`: an update analyses the newest field and the one before it, and grains are timed at the field rate (`mxlFlowInfo.config`). Field select is a later stage.
 - Codes 0–3 and 1020–1023 are measured like any other code. They are counted as out of range (§4.7).
 - v1 assumes BT.709. The flow's colorimetry in `flow_def.json` is read; anything other than BT.709 shows a warning in the UI and in `/api/v1/input` (`colorimetry_warning`). It is not an error.
 - `SCOPES_RANGE=limited` (default) uses BT.709 narrow range: Y 64–940, Cb/Cr 64–960 centred on 512. `full` uses 0–1023 for every component (§4.5).
@@ -178,7 +179,7 @@ The plot area has `C` columns and `B` bins (rows). Defaults: the plot's width an
 
 - Each cell's count `c` maps to a trace intensity `I` (0–1023) through a lookup table `I = LUT[min(c, c_max)]`.
 - The table is built once per settings change in double precision and rounded to integers. Every backend uses the same table, so the mapping is exact.
-- Default curve: `I = 1023 × (1 − exp(−g × c / c_ref))`, where `c_ref` = samples taken per column / `B` (the count of a flat, evenly spread column) and `g` = `SCOPES_INTENSITY` / 100 × 4. It brightens sparse traces and saturates dense ones, like an analogue CRT. `SCOPES_INTENSITY` is 1–400 %, default 100.
+- Default curve: `I = 1023 × (1 − exp(−g × c / c_ref))`, where `c_ref` = samples taken per column (the count of a cell that holds a whole flat column) and `g` = `SCOPES_INTENSITY` / 100 × 20. Brightness grows with the hits per cell, as on broadcast waveform monitors: a cell with 1/20 of its column's samples is at 63 %, one with a few hits is dim (about 1–2 % at 1080 lines, so `SCOPES_TRACE_MIN` keeps it visible), a flat field saturates. `SCOPES_INTENSITY` is 1–400 %, default 100. (Changed 2026-10-15 by the maintainer: the first draft used `c_ref` / `B` and gain 4, which lit almost every cell at full brightness.)
 - `c = 0` always maps to the background. Any `c ≥ 1` maps to at least `SCOPES_TRACE_MIN` (default 96 of 1023), so a single sample stays visible.
 - Trace colour: `I` scales a colour in Y′CbCr. Luma waveform: `SCOPES_TRACE_COLOR` (`green` default, `white`, `amber`). Parades and overlay: each component in its own colour (Y white, Cb blue, Cr red; R red, G green, B blue). In the RGB overlay, colours of the three components in one cell add in R′G′B′ and are clamped, so a neutral grey trace is white.
 - Persistence (decay over updates) is a stage 2 option.
@@ -372,7 +373,7 @@ Precedence: environment > `SCOPES_CONFIG_FILE` (flat JSON, keys are the variable
 | `SCOPES_HOLD_MS` | 1000 | live | `no_signal` after this long without a new grain |
 | `SCOPES_THREADS` | 1 | restart | renderer threads, 1–8 (§4.3) |
 | `SCOPES_BACKEND` | `auto` | restart | `auto`, `cpu`; `cuda` reserved (§3.2) |
-| `SCOPES_SIMD` | `auto` | restart | `auto`, `avx2`, `scalar` |
+| `SCOPES_SIMD` | `auto` | restart | `auto`, `avx512`, `avx2`, `scalar` |
 | `SCOPES_PREVIEW_MODE` | `webrtc` | restart | `webrtc` or `off` |
 | `SCOPES_PREVIEW_FPS` | 25 | live | 1–30, capped at the update rate |
 | `SCOPES_PREVIEW_HEIGHT` | 540 | restart | 270–1080, even |
@@ -426,7 +427,7 @@ The family look of the siblings: header with label, state and registration pills
 
 - **Scope** (`#scope`): the live preview (WHEP, HLS fallback) and the live controls: mode, update rate, sampling preset, intensity, graticule units and level, trace colour, range. The measurements (§4.7) under the picture. Changes are sent at most 10 times per second.
 - **Input** (`#input`): state, routed sender and flow, format, colorimetry warning, grains, resyncs, update counters.
-- **NMOS** (`#nmos`): node, registration, receiver and sender, IS-05 activation and disable (the NMOS APIs also answer on `WEB_PORT`).
+- **NMOS** (`#nmos`): node, registration, receiver and sender, IS-05 activation and disable (the NMOS Node and Connection APIs answer on `NMOS_PORT` only; the tab shows their state and ids, and IS-05 activation goes to `NMOS_PORT`).
 - **Status** (`#status`): probes, SIMD level, backend, preview state, the counters of `/metrics`.
 - **Settings** (`#settings`): every setting with its origin; env-set keys read-only; export and import.
 
@@ -485,6 +486,7 @@ Prefix `mxl_scopes_`.
 | `updates_torn_total` | counter | |
 | `update_rate_hz` | gauge | effective rate |
 | `analyse_seconds` | histogram | `mode` |
+| `analyse_cpu_seconds` | histogram | `mode` (thread CPU time of the analyse step; below `analyse_seconds` when the thread waited for its core) |
 | `render_seconds` | histogram | `mode` |
 | `output_frames_total` | counter | |
 | `output_frames_late_total` | counter | |
@@ -551,14 +553,16 @@ Measured on hardware, not in CI; recorded in `docs/performance.md`. Hosts: the p
 
 | Case | Target |
 | --- | --- |
-| Luma, 1080p50 in, 1080p50 out, update every frame, AVX2 | analyse + render p99 < 4 ms; process < 0.25 core (preview off); 0 late output grains in 1 h |
-| Luma, same, update 25 Hz | process < 0.15 core |
+| Luma, 1080p50 in, 1080p50 out, update every frame, AVX2 | analyse + render p99 < 4 ms (bars); process about 0.45 core for a real picture, about 0.2 core for bars (preview off); 0 late output grains in 1 h |
+| Luma, same, update 25 Hz | process about 0.25 core for a real picture, about 0.1–0.15 core for bars |
 | RGB parade, 1080p50, every frame, AVX2 | analyse + render p99 < 8 ms; process < 0.4 core |
 | Luma, 2160p50 in, 1080p50 out, every frame, AVX2 | analyse + render p99 < 12 ms (line step 1) |
 | Scalar reference, luma 1080p50, every frame | still real time (p99 < 15 ms) |
 | Preview on (x264, 540p25) | adds < 0.25 core |
 | Scope latency | input grain origin → first output grain that shows it ≤ one update interval + 2 output frames |
 | Memory | < 300 MB RSS at 1080p (`TODO_` confirm in M0) |
+
+The process figures are the M0 measurements on the lab class (Skylake-SP, 3 GHz; accepted by the maintainer 2026-10-15; IMPLEMENTATION_PLAN.md "Analyse in the process"). They include an idle-clock effect: the process is idle most of the time, so the host's power management runs its core at about two thirds of the clock (2.2 against 3.3 GHz measured), and the same work takes up to twice as long as in the busy benchmark. A performance power profile on the host lowers the figures; the desktop class is expected lower as well.
 
 The Kubernetes default for the catalog (§15) comes from these numbers.
 
@@ -665,7 +669,7 @@ The open questions of the draft, now decided: question 7 is **MIT** (not Apache-
 5. **One input per instance.** *Recommendation:* yes for v1 (§6); revisit `SCOPES_INPUTS` only if productions need more than about 8 scopes per node.
 6. **Name of the combined Y-against-chroma display.** *Recommendation:* `luma-chroma` ("Luma/Chroma"). Alternatives: `yc-split`, `component-xy`.
 7. **Repository and licence.** *Recommendation:* `LeeO86/mxl-scopes` (decided: **MIT**, like mxl-browser-source and mxl-audio-mixer); check Blend2D (Zlib), MediaMTX (MIT) and FFmpeg (LGPL, dynamically linked) against it.
-8. **AVX-512.** *Recommendation:* not in v1. The histogram increment is scalar, so the gain is small, and on Skylake-SP 512-bit code slows the core's other hyperthread. Re-check after M0 on the lab host.
+8. **AVX-512.** *Recommendation:* not in v1. The histogram increment is scalar, so the gain is small, and on Skylake-SP 512-bit code slows the core's other hyperthread. Re-check after M0 on the lab host. **Decided 2026-10-15: in v1** with run-time dispatch AVX-512 → AVX2 → scalar (§3.2).
 9. **Graticule units default.** *Recommendation:* `mv`, with `percent` one click away in the UI.
 10. **Trace colour default for luma.** *Recommendation:* `green`; `white` for operators who prefer it.
 11. **Preview quality.** H.264 4:2:0 at 540p softens thin coloured traces. A browser-drawn scope (histogram over the WebSocket, drawn on a canvas) would be sharper and cheaper, but it is a second renderer. *Recommendation:* WebRTC for v1 as decided; judge it in the lab (M3); keep the canvas as a stage-2 option.
