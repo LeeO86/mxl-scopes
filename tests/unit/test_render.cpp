@@ -8,6 +8,7 @@
 #include "scope/render.hpp"
 
 #include <algorithm>
+#include <cstring>
 
 using namespace scopes;
 
@@ -261,4 +262,37 @@ TEST_CASE("intensity: brightness grows with the hits per cell (§4.4)")
     // SCOPES_INTENSITY scales the gain: 200 % is brighter at the same count.
     settings.intensity = 200;
     CHECK(static_cast<int>(intensityTable(settings, cRef, 65535)[30]) > at(30));
+}
+
+TEST_CASE("writer delta: still + old trace, undone and redrawn, equals the full render")
+{
+    // What the output writer does per ring slot (§2.4): restore the old trace groups to the
+    // still bytes and write the new ones; the grain must equal a full render of the new picture.
+    ScopeEngine engine(SimdLevel::Scalar);
+    engine.configure({1920, 1080, v210RowBytes(1920)}, DisplaySettings{}, 1920, 1080);
+    ScopePainter painter;
+    painter.configure(engine.paintParams());
+    auto traceOf = [&](char const* pattern) {
+        Histogram hist;
+        engine.analyse(packPattern(makePattern(pattern, 1920, 1080, 300, 3)).data(), hist);
+        std::vector<TraceGroup> trace;
+        painter.trace(hist, "Luma waveform", "", trace);
+        return trace;
+    };
+    auto const first = traceOf("camera");
+    auto const second = traceOf("bars75");
+    std::vector<std::uint8_t> slot(engine.packedSize());
+    std::memcpy(slot.data(), painter.stillPacked(), slot.size());
+    applyTrace(first, slot.data());
+    for (auto const& group : first)
+    {
+        std::memcpy(slot.data() + group.offset, painter.stillPacked() + group.offset, 16);
+    }
+    applyTrace(second, slot.data());
+    Histogram hist;
+    engine.analyse(packPattern(makePattern("bars75", 1920, 1080, 300, 3)).data(), hist);
+    std::vector<std::uint8_t> full(engine.packedSize());
+    painter.render(hist, "Luma waveform", "", full.data());
+    CHECK(slot == full);
+    CHECK(!second.empty());
 }
