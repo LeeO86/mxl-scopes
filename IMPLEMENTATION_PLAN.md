@@ -141,6 +141,27 @@ Whole process, lab Skylake-SP, `mxl-scopes` pinned to CPU 41 (socket 1), `mxl-sc
 
 0 skipped (2 at a rate change), 0 torn; 2–4 late and 1–2 missed output grains per run, all at start-up. The every-frame target is met for bars; 25 Hz is 0.01 core above it. Inside the process the analyse step takes about 1.5–2 times its benchmark time (the grain comes from another core, and at 25 Hz the core sleeps between ticks); that, not the writer, is now the larger part.
 
+### Analyse in the process (2026-10-15, maintainer's request before M1)
+
+Why the analyse step took 1.5–2 times its benchmark time inside the process, measured with own timers (`perf` is blocked: `perf_event_paranoid` 4, no root):
+
+- **Core clock (main cause).** The benchmark loops busily; the process is idle 80–90 % of the time, and the power management lowers the clock of a lightly loaded core. Sampled clock of CPU 41: median 2.2 GHz during a 25 Hz run, 3.3 GHz under the busy benchmark. The benchmark reproduces it: 1080p bars AVX2 analyse 1.9 ms busy, 4.7 ms with a 38 ms sleep before each update (`--interval-ms 38`), 1.9 ms when the same 38 ms are spun (`--spin 1`); short naps (`--nap-ms 1` or 4) do not help, so it is the clock, not the C-state. No software fix short of spinning a core; it needs a performance power profile on the host.
+- **Thread placement.** The new `analyse_cpu_seconds` metric (thread CPU time of the step) equals the wall time for bars: no preemption. With camera and noise every frame, on one core, the writer's render delays the analyse step (wall 7.9 ms, CPU 4.2 ms for noise); two cores (41,45) lower the latency but not the CPU share, which rose (19.8 % against 15.2 % for bars at 25 Hz), since both cores clock down.
+- **Cache.** A ring of 12 distinct frames (`--frames 12`) costs only 3–5 % in the benchmark: reading the ring in place is not the problem; no strip copy is needed.
+- **Torn-read check:** one runtime-info read per update, not measurable.
+
+Fixed: the render step skips empty stretches eight groups at a time and does not clear rows without a trace (1080p bars 2.0 → 1.6 ms, camera 2.85 → 2.75 ms, noise 5.4 → 5.8 ms; A/B, interleaved runs).
+
+Process CPU after the fix, two runs each (the host's load average was 6–9 during the second), `mxl-scopes` on CPU 41, writer on CPU 43, AVX2, 1080p50 in and out. Targets §13: 25 Hz < 0.15 core, every frame < 0.25 core.
+
+| Input | 25 Hz | Every frame |
+| --- | --- | --- |
+| Bars | 0.09 / 0.14 | 0.22 / 0.20 |
+| Camera | 0.23 / 0.21 | 0.40 / 0.33 |
+| Noise | 0.28 / 0.36 | 0.49 / 0.54 |
+
+Bars meet both targets; camera and noise do not on this host. The work per update is about the benchmark's; the CPU share grows because the idle core runs at two thirds of its clock.
+
 ### M1: luma waveform end to end
 
 - Config (env > file > defaults, exit 78), state directory, exit codes.
@@ -244,7 +265,7 @@ Exit: 1.0.0 released and deployable by the platform.
 11. **A running flow that disappears** (a writer that stops and deletes its flow) holds for `SCOPES_HOLD_MS` and then shows `NO SIGNAL`, like a flow that stops; `waiting` stays for a flow that has not run on this route (§11 lists only the missing flow).
 12. **Plot geometry.** The plot starts and ends on 6-pixel v210 group boundaries and has a 2 % right margin (§5.2 gives only the left, top and bottom margins); a picture is the packed still picture plus the groups with a trace.
 
-13. **`SCOPES_SIMD=auto` does not pick AVX-512.** The maintainer asked for the dispatch AVX-512 → AVX2 → scalar; the fallback order is so, but `auto` takes AVX2 because the AVX-512 step is slower on both CPUs measured (Skylake-SP, Zen 4). One line in `chooseSimd` changes it.
+13. **`SCOPES_SIMD=auto` does not pick AVX-512** (confirmed by the maintainer 2026-10-15). The fallback order is AVX-512 → AVX2 → scalar; `auto` takes AVX2 because the AVX-512 step is slower on both CPUs measured (Skylake-SP, Zen 4). AVX-512 stays selectable with `SCOPES_SIMD=avx512`.
 
 ## Questions for the maintainer
 

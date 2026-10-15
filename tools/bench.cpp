@@ -14,6 +14,7 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 using namespace scopes;
@@ -107,6 +108,16 @@ int main(int argc, char** argv)
     auto const steps = split(arg(argc, argv, "--steps", "1/1,2/1,2/2"));
     auto const pattern = arg(argc, argv, "--pattern", "random");
     int const iterations = std::max(5, std::stoi(arg(argc, argv, "--iterations", "200")));
+    // --frames N cycles through N copies of the picture (N × 5.5 MB at 1080p beats the caches,
+    // as a ring of MXL grains does); --interval-ms M sleeps between updates (a 25 Hz renderer).
+    int const copies = std::max(1, std::stoi(arg(argc, argv, "--frames", "1")));
+    int const intervalMs = std::max(0, std::stoi(arg(argc, argv, "--interval-ms", "0")));
+    // --spin waits the interval busy instead of sleeping (the core stays awake and clocked up).
+    bool const spin = arg(argc, argv, "--spin", "0") == "1";
+    // --nap-ms K sleeps the interval in K ms pieces (short idles, shallow C-states).
+    int const napMs = std::max(0, std::stoi(arg(argc, argv, "--nap-ms", "0")));
+    // --warm-us U spins U µs after the sleep, before the timed update (clock ramp-up test).
+    int const warmUs = std::max(0, std::stoi(arg(argc, argv, "--warm-us", "0")));
     int const outW = std::stoi(output.substr(0, output.find('x')));
     int const outH = std::stoi(output.substr(output.find('x') + 1));
     bool const avx2 = cpuHasAvx2() && avx2Compiled();
@@ -119,7 +130,7 @@ int main(int argc, char** argv)
     {
         int const w = std::stoi(raster.substr(0, raster.find('x')));
         int const h = std::stoi(raster.substr(raster.find('x') + 1));
-        auto const frame = packPattern(makePattern(pattern, w, h, 512, 7));
+        std::vector<std::vector<std::uint8_t>> frames(static_cast<std::size_t>(copies), packPattern(makePattern(pattern, w, h, 512, 7)));
         for (auto const& simd : simds)
         {
             if ((simd == "avx2" && !avx2) || (simd == "avx512" && !avx512))
@@ -143,6 +154,32 @@ int main(int argc, char** argv)
                     std::vector<double> total;
                     for (int i = 0; i < iterations + 3; ++i)
                     {
+                        if (intervalMs > 0 && spin)
+                        {
+                            auto const until = std::chrono::steady_clock::now() + std::chrono::milliseconds(intervalMs);
+                            while (std::chrono::steady_clock::now() < until)
+                            {
+                            }
+                        }
+                        else if (intervalMs > 0 && napMs > 0)
+                        {
+                            for (int slept = 0; slept < intervalMs; slept += napMs)
+                            {
+                                std::this_thread::sleep_for(std::chrono::milliseconds(std::min(napMs, intervalMs - slept)));
+                            }
+                        }
+                        else if (intervalMs > 0)
+                        {
+                            std::this_thread::sleep_for(std::chrono::milliseconds(intervalMs));
+                        }
+                        if (warmUs > 0)
+                        {
+                            auto const until = std::chrono::steady_clock::now() + std::chrono::microseconds(warmUs);
+                            while (std::chrono::steady_clock::now() < until)
+                            {
+                            }
+                        }
+                        auto const& frame = frames[static_cast<std::size_t>(i) % frames.size()];
                         auto const t0 = std::chrono::steady_clock::now();
                         engine.analyse(frame.data());
                         auto const t1 = std::chrono::steady_clock::now();

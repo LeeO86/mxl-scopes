@@ -18,6 +18,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <thread>
@@ -105,6 +106,13 @@ std::string formatProblem(FlowMeta const& meta)
         return "grain_rate";
     }
     return {};
+}
+
+std::uint64_t threadCpuNs()
+{
+    timespec ts{};
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
+    return static_cast<std::uint64_t>(ts.tv_sec) * 1'000'000'000ull + static_cast<std::uint64_t>(ts.tv_nsec);
 }
 
 std::string formatText(InputView const& view)
@@ -582,9 +590,11 @@ struct MediaIo::Impl
                 if (picture != nullptr && (analysed.flags & MXL_GRAIN_FLAG_INVALID) == 0)
                 {
                     auto& job = nextJob();
+                    auto const c0 = threadCpuNs();
                     auto const t0 = std::chrono::steady_clock::now();
                     engine.analyse(picture, job.hist);
                     auto const t1 = std::chrono::steady_clock::now();
+                    auto const c1 = threadCpuNs();
                     // §2.2: analysed in place, so check the writer did not reach this slot meanwhile.
                     mxlFlowRuntimeInfo runtime{};
                     bool const torn = grainCount > 0 && mxlFlowReaderGetRuntimeInfo(reader, &runtime) == MXL_STATUS_OK &&
@@ -604,8 +614,10 @@ struct MediaIo::Impl
                         shownKey.clear();
                         stats.lastIndex = target;
                         stats.analyseMs = std::chrono::duration<double, std::milli>(t1 - t0).count();
+                        stats.analyseCpuMs = static_cast<double>(c1 - c0) / 1e6;
                         metrics.inc("updates_total", modeLabel);
                         metrics.observe("analyse_seconds", modeLabel, std::chrono::duration<double>(t1 - t0).count());
+                        metrics.observe("analyse_cpu_seconds", modeLabel, static_cast<double>(c1 - c0) / 1e9);
                     }
                 }
             }

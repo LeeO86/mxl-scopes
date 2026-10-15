@@ -349,6 +349,9 @@ void collectTrace(RenderPlan const& plan, Histogram& hist, std::vector<TraceGrou
     auto const* lut = plan.intensity.data();
     auto const maxCount = plan.maxCount;
     int const groups = layout.plotW / 6;
+    // Every plot row shows its own bin and column (the usual case up to 1080 lines): a row whose
+    // cells are all zero need not be cleared.
+    bool const inlineClear = plan.identityColumns && plan.bins == layout.plotH;
     for (int r = 0; r < layout.plotH; ++r)
     {
         auto const row = static_cast<std::size_t>(layout.plotY + r);
@@ -365,15 +368,43 @@ void collectTrace(RenderPlan const& plan, Histogram& hist, std::vector<TraceGrou
         }
         auto gi = plan.graticuleStart[static_cast<std::size_t>(r)];
         auto const gend = plan.graticuleStart[static_cast<std::size_t>(r) + 1];
+        auto const traceBefore = trace.size();
+        bool lastEmpty = true;
         for (int g = 0; g < groups; ++g)
         {
+            // In an empty stretch, skip eight empty groups (48 cells, 96 bytes) at a time; inside
+            // a trace (a noisy picture) the check would only cost.
+            while (lastEmpty && g + 8 <= groups)
+            {
+                std::uint64_t words[12];
+                std::memcpy(words, line + 6 * g, sizeof(words));
+                std::uint64_t any = 0;
+                for (auto const word : words)
+                {
+                    any |= word;
+                }
+                if (any != 0)
+                {
+                    break;
+                }
+                g += 8;
+                while (gi < gend && plan.plotGraticule[gi].x < layout.plotX + 6 * g)
+                {
+                    ++gi;
+                }
+            }
+            if (g >= groups)
+            {
+                break;
+            }
             auto const* c = line + 6 * g;
             int const x0 = layout.plotX + 6 * g;
             std::uint64_t head = 0;
             std::uint32_t tail = 0;
             std::memcpy(&head, c, sizeof(head));
             std::memcpy(&tail, c + 4, sizeof(tail));
-            if ((head | tail) == 0)
+            lastEmpty = (head | tail) == 0;
+            if (lastEmpty)
             {
                 // No trace: the still bytes are right, graticule included.
                 while (gi < gend && plan.plotGraticule[gi].x < x0 + 6)
@@ -417,8 +448,10 @@ void collectTrace(RenderPlan const& plan, Histogram& hist, std::vector<TraceGrou
             put32(group.bytes + 12, word3(y[4], cr[2], y[5]));
             trace.push_back(group);
         }
-        // Clear the bin once the last plot row that shows it is drawn.
-        if (r + 1 == layout.plotH || plan.binOfRow[static_cast<std::size_t>(r) + 1] != bin)
+        bool const rowHadTrace = trace.size() != traceBefore;
+        // Clear the bin once the last plot row that shows it is drawn; a row without a trace has
+        // only zeros and is not written.
+        if ((!inlineClear || rowHadTrace) && (r + 1 == layout.plotH || plan.binOfRow[static_cast<std::size_t>(r) + 1] != bin))
         {
             std::memset(counts, 0, sizeof(std::uint16_t) * static_cast<std::size_t>(plan.columns));
         }

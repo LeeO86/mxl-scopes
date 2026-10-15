@@ -138,7 +138,7 @@ struct ScopeEngine {
 
 - Histograms are integer counts. Integer sums do not depend on order, so a CUDA backend with shared-memory atomics gives the same counts as the CPU. The render step uses the same integer lookup tables. The output MUST be byte-identical on every backend.
 - `SCOPES_BACKEND`: `auto` and `cpu` in v1. `cuda` is reserved: in v1 it exits 78 with `cuda_backend_not_built`.
-- CPU code level `SCOPES_SIMD`: `auto`, `avx512`, `avx2`, `scalar` in v1. Chosen at start from cpuid and XGETBV, as mxl-color-corrector. A level the CPU does not have falls back to the next one below (AVX-512 → AVX2 → scalar), with a warning. Any other value exits 78. `auto` picks `avx2` whenever the CPU has it: the AVX-512 step measured slower than AVX2 on Skylake-SP and on Zen 4 (IMPLEMENTATION_PLAN.md "M0 rework"), so `avx512` is chosen explicitly until a CPU shows a gain; then `auto` follows the colour corrector's rule (not on Skylake-SP and Cascade Lake). AVX2 stays first-class: the platform's small nodes have no AVX-512.
+- CPU code level `SCOPES_SIMD`: `auto`, `avx512`, `avx2`, `scalar` in v1. Chosen at start from cpuid and XGETBV, as mxl-color-corrector. A level the CPU does not have falls back to the next one below (AVX-512 → AVX2 → scalar), with a warning. Any other value exits 78. `auto` picks `avx2` whenever the CPU has it (decided by the maintainer 2026-10-15): the AVX-512 step measured slower than AVX2 on Skylake-SP and on Zen 4 (IMPLEMENTATION_PLAN.md "M0 rework"). AVX-512 stays in the build, tested, and is used only with `SCOPES_SIMD=avx512`. AVX2 stays first-class: the platform's small nodes have no AVX-512.
 - AVX-512 is in v1 (open question 8, decided by the maintainer 2026-10-15): the AVX2 analyse step on 512-bit registers, four v210 groups per load, AVX-512F only (the lab Xeon has no VBMI2). The hot loop stays the scalar histogram increment (§4.3), so the gain is small; on Skylake-SP 512-bit code also slows the other hyperthread of the core (the color corrector measured 3.4–4 %), hence the `auto` rule.
 - The AVX2 code MUST NOT use gather instructions (slow with the Downfall microcode on the platform's CPUs; see mxl-webrtc-monitor).
 - The choice is logged at start, shown in `/api/v1/info` (`simd: {level, requested, cpu}`) and exported as `mxl_scopes_simd_level{level}`.
@@ -486,6 +486,7 @@ Prefix `mxl_scopes_`.
 | `updates_torn_total` | counter | |
 | `update_rate_hz` | gauge | effective rate |
 | `analyse_seconds` | histogram | `mode` |
+| `analyse_cpu_seconds` | histogram | `mode` (thread CPU time of the analyse step; below `analyse_seconds` when the thread waited for its core) |
 | `render_seconds` | histogram | `mode` |
 | `output_frames_total` | counter | |
 | `output_frames_late_total` | counter | |

@@ -64,6 +64,9 @@ struct RendererView
     std::uint64_t torn = 0;
     double updateHz = 0;
     double analyseMs = 0;
+    // Thread CPU time of the same analyse step: far below analyseMs means the thread waited for
+    // the core (another thread on it), equal means the core itself was slow.
+    double analyseCpuMs = 0;
     double renderMs = 0;
     std::uint64_t lastIndex = 0;
 };
