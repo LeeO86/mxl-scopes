@@ -557,6 +557,21 @@ void NmosNode::start()
         stop();
         throw std::runtime_error(message);
     }
+    readyLock.unlock();
+    // The listeners may open even where another process holds the port (address reuse): only
+    // our own Node API answering with our node id proves the port is ours (G6: else exit 75).
+    auto const self = "http://127.0.0.1:" + std::to_string(impl_->config.nmosPort) + "/x-nmos/node/v1.3/self";
+    for (int attempt = 0; attempt < 30; ++attempt)
+    {
+        auto const answer = httpGet(self, 500);
+        if (answer.status == 200 && answer.body.find(impl_->ids.node) != std::string::npos)
+        {
+            return;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    stop();
+    throw std::runtime_error("the NMOS Node API on port " + std::to_string(impl_->config.nmosPort) + " does not answer as this node (port taken?)");
 }
 
 void NmosNode::stop()
