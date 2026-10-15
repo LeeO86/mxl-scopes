@@ -205,3 +205,41 @@ TEST_CASE("triple buffer: the writer gets the newest published frame, never the 
     buffers.publish();
     CHECK(buffers.front()[0] == 3);
 }
+
+TEST_CASE("a narrow input fills the whole plot width without gaps")
+{
+    auto const frame = packPattern(makePattern("flat", 320, 180, 512));
+    DisplaySettings settings;
+    settings.graticuleLevel = 0;
+    ScopeEngine engine(SimdLevel::Scalar);
+    engine.configure({320, 180, v210RowBytes(320)}, settings, 1920, 1080);
+    CHECK(engine.analysePlan().columns == 320);
+    std::vector<std::uint8_t> out(engine.packedSize());
+    engine.analyse(frame.data());
+    engine.render("", "", out.data());
+    Frame422 picture;
+    picture.allocate(1920, 1080);
+    unpackV210(out.data(), v210RowBytes(1920), picture);
+    auto const& plan = engine.renderPlan();
+    int const row = rowOfCode(plan, 512);
+    int dark = 0;
+    for (int px = 0; px < plan.layout.plotW; ++px)
+    {
+        dark += picture.y[static_cast<std::size_t>(row) * 1920 + plan.layout.plotX + px] == kBackgroundY ? 1 : 0;
+    }
+    CHECK(dark == 0);
+}
+
+TEST_CASE("snapshot scaling keeps one-pixel lines")
+{
+    Frame422 frame;
+    frame.allocate(64, 36);
+    for (int x = 0; x < 64; ++x)
+    {
+        frame.y[static_cast<std::size_t>(7) * 64 + x] = 940; // an odd row
+    }
+    auto const full = encodePng(frame, 1);
+    auto const half = encodePng(frame, 2);
+    CHECK(half.size() > 8);
+    CHECK(half.size() < full.size());
+}

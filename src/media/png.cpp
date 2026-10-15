@@ -35,10 +35,28 @@ std::string encodePng(Frame422 const& frame, int scaleDown)
     int const cw = frame.chromaWidth();
     for (int row = 0; row < h; ++row)
     {
-        int const sy = row * scaleDown;
         for (int col = 0; col < w; ++col)
         {
-            int const sx = col * scaleDown;
+            // Smaller pictures keep the brightest pixel of each block, so one-pixel traces and
+            // graticule lines stay visible.
+            int sx = col * scaleDown;
+            int sy = row * scaleDown;
+            int best = -1;
+            for (int dy = 0; dy < scaleDown; ++dy)
+            {
+                for (int dx = 0; dx < scaleDown; ++dx)
+                {
+                    int const x = col * scaleDown + dx;
+                    int const y = row * scaleDown + dy;
+                    int const luma = frame.y[static_cast<std::size_t>(y) * frame.width + x];
+                    if (luma > best)
+                    {
+                        best = luma;
+                        sx = x;
+                        sy = y;
+                    }
+                }
+            }
             // BT.709 narrow range, in 1/1024ths: R = Y' + 1.5748 Cr, G = Y' - 0.1873 Cb - 0.4681 Cr, B = Y' + 1.8556 Cb.
             int const y = (frame.y[static_cast<std::size_t>(sy) * frame.width + sx] - 64) * 1024 / 876;
             int const cb = (frame.cb[static_cast<std::size_t>(sy) * cw + sx / 2] - 512) * 1024 / 896;
@@ -53,6 +71,10 @@ std::string encodePng(Frame422 const& frame, int scaleDown)
         }
     }
     std::string out;
+    // Fast deflate: the picture is mostly flat background; level 1 is several times quicker
+    // than the default and the file only a little larger.
+    stbi_write_png_compression_level = 1;
+    stbi_write_force_png_filter = 0;
     stbi_write_png_to_func(append, &out, w, h, 3, rgb.data(), w * 3);
     return out;
 }

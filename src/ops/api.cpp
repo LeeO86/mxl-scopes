@@ -9,6 +9,7 @@
 #include "version.hpp"
 
 #include <cmath>
+#include <cstdlib>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -442,20 +443,37 @@ HttpResponse Api::importConfig(HttpRequest const& request)
                                  boolean(routesRestart) + "}");
 }
 
-HttpResponse Api::snapshotPng() const
+HttpResponse Api::snapshotPng(std::string const& query) const
 {
     auto const snapshot = state_.snapshot();
     if (!snapshot || snapshot->v210.empty())
     {
         return error(503, "no scope picture yet");
     }
-    Frame422 frame;
-    frame.allocate(snapshot->width, snapshot->height);
-    unpackV210(snapshot->v210.data(), v210RowBytes(snapshot->width), frame);
+    // ?scale=2 halves the raster (the web page); the default is the full raster (§9.2).
+    int scale = 1;
+    if (auto const at = query.find("scale="); at != std::string::npos)
+    {
+        scale = std::atoi(query.c_str() + at + 6);
+        if (scale < 1 || scale > 4)
+        {
+            return error(400, "scale must be 1 to 4");
+        }
+    }
     HttpResponse response;
     response.contentType = "image/png";
-    response.body = encodePng(frame, 1);
     response.headers.emplace_back("Cache-Control", "no-store");
+    std::lock_guard lock{pngMu_};
+    if (pngSource_ != snapshot || pngScale_ != scale)
+    {
+        Frame422 frame;
+        frame.allocate(snapshot->width, snapshot->height);
+        unpackV210(snapshot->v210.data(), v210RowBytes(snapshot->width), frame);
+        png_ = encodePng(frame, scale);
+        pngSource_ = snapshot;
+        pngScale_ = scale;
+    }
+    response.body = png_;
     return response;
 }
 
@@ -529,7 +547,7 @@ HttpResponse Api::handle(HttpRequest const& request)
     }
     if (path == "/api/v1/snapshot.png" && method == "GET")
     {
-        return snapshotPng();
+        return snapshotPng(request.query);
     }
     if (path == "/api/v1/config")
     {

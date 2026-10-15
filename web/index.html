@@ -274,7 +274,7 @@ function refreshPicture() {
   if (!document.hidden && !$("tab-scope").classList.contains("hidden")) {
     const next = new Image();
     next.onload = () => { $("picture").src = next.src; };
-    next.src = "/api/v1/snapshot.png?t=" + Date.now();
+    next.src = "/api/v1/snapshot.png?scale=2&t=" + Date.now();
   }
   setTimeout(refreshPicture, 500);
 }

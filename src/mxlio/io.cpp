@@ -405,26 +405,30 @@ struct MediaIo::Impl
                 wait(backoff);
                 backoff = std::min(5000, backoff * 2);
             };
-            auto const domain = resolveDomain(config.scanPath, route.domainId);
-            if (!domain)
+            // The domain scan reads every domain_def.json: only while no reader is open.
+            if (reader == nullptr)
             {
-                closeAll();
-                toWaiting("domain_not_found");
-                continue;
-            }
-            if (instance != nullptr && openDomainPath != domain->path)
-            {
-                closeAll();
-            }
-            if (instance == nullptr)
-            {
-                instance = mxlCreateInstance(domain->path.c_str(), nullptr);
-                if (instance == nullptr)
+                auto const domain = resolveDomain(config.scanPath, route.domainId);
+                if (!domain)
                 {
+                    closeAll();
                     toWaiting("domain_not_found");
                     continue;
                 }
-                openDomainPath = domain->path;
+                if (instance != nullptr && openDomainPath != domain->path)
+                {
+                    closeAll();
+                }
+                if (instance == nullptr)
+                {
+                    instance = mxlCreateInstance(domain->path.c_str(), nullptr);
+                    if (instance == nullptr)
+                    {
+                        toWaiting("domain_not_found");
+                        continue;
+                    }
+                    openDomainPath = domain->path;
+                }
             }
             if (reader == nullptr)
             {
@@ -458,7 +462,9 @@ struct MediaIo::Impl
                 publishView();
                 engine.configure({}, settings, config.outputWidth, config.outputHeight);
                 showState(settings);
-                wait(200);
+                // Open the flow again in a second: a writer may re-create it in a format that fits.
+                closeReader();
+                wait(1000);
                 continue;
             }
             engine.configure({meta.width, meta.height, v210RowBytes(meta.width)}, settings, config.outputWidth, config.outputHeight);

@@ -1,6 +1,8 @@
 #pragma once
 
 #include <functional>
+#include <memory>
+#include <mutex>
 #include <string>
 
 #include "app/state.hpp"
@@ -44,7 +46,7 @@ private:
     HttpResponse putConfig(HttpRequest const& request);
     HttpResponse exportConfig() const;
     HttpResponse importConfig(HttpRequest const& request);
-    HttpResponse snapshotPng() const;
+    HttpResponse snapshotPng(std::string const& query) const;
     void applied(Config const& config);
 
     Config config_;
@@ -54,5 +56,10 @@ private:
     BuildInfo build_;
     std::string indexPage_;
     std::function<void(DisplaySettings const&)> onSettings_;
+    // The last encoded snapshot: PNG encoding of a 1080p picture takes about 100 ms.
+    mutable std::mutex pngMu_;
+    mutable std::shared_ptr<Snapshot const> pngSource_;
+    mutable int pngScale_ = 0;
+    mutable std::string png_;
 };
 } // namespace scopes
