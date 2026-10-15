@@ -31,8 +31,8 @@ bool cpuHasAvx2();
 bool cpuHasAvx512();
 // Skylake-SP and Cascade Lake: 512-bit code lowers the core clock for the other hyperthread too.
 bool cpuIsSkylakeServer();
-// SCOPES_SIMD (§3.2): auto, avx512, avx2, scalar. `auto` takes AVX-512 where it costs nothing
-// (not on Skylake-SP and Cascade Lake, as the sibling functions), else AVX2, else scalar.
-// A missing level falls back to the next one below with fellBack set.
+// SCOPES_SIMD (§3.2): auto, avx512, avx2, scalar. A missing level falls back to the next one
+// below (AVX-512 -> AVX2 -> scalar) with fellBack set. `auto` takes AVX2, else scalar: the
+// AVX-512 step measured slower than AVX2 on Skylake-SP and on Zen 4 (IMPLEMENTATION_PLAN.md).
 SimdChoice chooseSimd(std::string const& requested);
 } // namespace scopes

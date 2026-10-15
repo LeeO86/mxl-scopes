@@ -127,10 +127,6 @@ SimdChoice chooseSimd(std::string const& requested)
     {
         choice.level = SimdLevel::Avx512;
     }
-    else if (requested == "auto" && avx512 && choice.family != "skylake-sp")
-    {
-        choice.level = SimdLevel::Avx512;
-    }
     else if (avx2)
     {
         choice.level = SimdLevel::Avx2;

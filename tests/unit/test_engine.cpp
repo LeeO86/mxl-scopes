@@ -218,11 +218,7 @@ TEST_CASE("engine output: AVX2 and AVX-512 pictures equal the scalar picture byt
 TEST_CASE("dispatch: auto never picks a level the CPU lacks; scalar is always available")
 {
     auto const autoChoice = chooseSimd("auto");
-    if (autoChoice.level == SimdLevel::Avx512)
-    {
-        CHECK(cpuHasAvx512());
-        CHECK(autoChoice.family != "skylake-sp");
-    }
+    CHECK(autoChoice.level != SimdLevel::Avx512); // measured slower than AVX2 so far
     if (autoChoice.level == SimdLevel::Avx2)
     {
         CHECK(cpuHasAvx2());

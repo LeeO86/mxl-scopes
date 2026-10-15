@@ -115,7 +115,7 @@ Findings:
 
 **Intensity (§4.4).** `c_ref` is now the samples of a whole column (a flat field's cell) and the gain 20 (`kIntensityGain`, scaled by `SCOPES_INTENSITY`): one hit is dim (`SCOPES_TRACE_MIN`), ten hits about 15 %, 1/20 of a column 63 %, a flat field saturates. Golden picture `camera` (smooth, picture-like) added; the bars, ramp and flat pictures saturate as before, their hashes are unchanged.
 
-**AVX-512.** `src/scope/cpu/avx512.cpp` (AVX-512F only; the lab Xeon has no VBMI2): the AVX2 step on 512-bit registers, four groups per load; strips are now aligned to four groups. `SCOPES_SIMD=auto` takes it except on Skylake-SP and Cascade Lake (the colour corrector's rule), so the lab Xeon and the AVX2-only production nodes both run `avx2`. Byte-exact against scalar in the tests (widths 1–1280 incl. 23, 24, 95, 96, 97, every step, bins, strips, edge codes; whole pictures at 720p, 1080p, 2160p and 1998×50). Per-path timings, lab Skylake-SP, one core on socket 1, median ms of analyse (render is shared):
+**AVX-512.** `src/scope/cpu/avx512.cpp` (AVX-512F only; the lab Xeon has no VBMI2): the AVX2 step on 512-bit registers, four groups per load; strips are now aligned to four groups. `SCOPES_SIMD=avx512` selects it; `auto` stays on `avx2` (below). Byte-exact against scalar in the tests (widths 1–1280 incl. 23, 24, 95, 96, 97, every step, bins, strips, edge codes; whole pictures at 720p, 1080p, 2160p and 1998×50). Per-path timings, lab Skylake-SP, one core on socket 1, median ms of analyse (render is shared):
 
 | Input | Scalar | AVX2 | AVX-512 |
 | --- | --- | --- | --- |
@@ -126,7 +126,7 @@ Findings:
 | 2160p camera | 26.7 | 12.9 | 13.5 |
 | 2160p noise | 31.2 | 14.4 | 16.7 |
 
-AVX-512 is 2–15 % slower than AVX2 here: the scalar increments dominate, and the wider load only moves work that was not the bottleneck. It stays selectable (`SCOPES_SIMD=avx512`) for later CPUs; to be re-measured on Ice Lake or Zen 4.
+AVX-512 is 2–15 % slower than AVX2 here: the scalar increments dominate, and the wider load only moves work that was not the bottleneck. The CI runner of 2026-10-15 (AMD EPYC 9V74, Zen 4) shows the same: 1080p bars analyse AVX2 0.88 ms, AVX-512 1.02 ms, scalar 3.58 ms; 2160p bars 4.85 / 6.26 / 14.4 ms. So `auto` picks AVX2 (deviation 13); AVX-512 stays selectable and tested.
 
 **Copy-free writer (§2.4).** The renderer thread now only analyses and hands the histogram (with its render parameters) to the writer through a lock-free triple slot. The writer renders straight into the output grain: the picture is the still picture plus the trace groups, and each ring slot remembers what it holds, so a grain gets only the groups that differ; a large trace is one copy of the previous grain; a slot that already holds the picture is not written. Bytes equal to the full render (same golden hashes).
 
@@ -206,7 +206,7 @@ Exit: 1.0.0 released and deployable by the platform.
 2. No grain copy: analyse in the MXL ring, check for a torn read afterwards.
 3. Integer histograms and integer LUTs, so every backend is byte-identical.
 4. Column-strip cache blocking with two sub-histograms against store-forwarding stalls.
-5. No gathers or scatters in SIMD code; AVX-512 added on 2026-10-15 (dispatch AVX-512 → AVX2 → scalar, `auto` avoids it on Skylake-SP).
+5. No gathers or scatters in SIMD code; AVX-512 added on 2026-10-15 (fallback AVX-512 → AVX2 → scalar; `auto` = AVX2, deviation 13).
 6. The output runs at full rate; the update rate only changes how often the picture changes.
 7. Neutral mode names; the Y-against-chroma display is `luma-chroma`.
 
@@ -244,8 +244,10 @@ Exit: 1.0.0 released and deployable by the platform.
 11. **A running flow that disappears** (a writer that stops and deletes its flow) holds for `SCOPES_HOLD_MS` and then shows `NO SIGNAL`, like a flow that stops; `waiting` stays for a flow that has not run on this route (§11 lists only the missing flow).
 12. **Plot geometry.** The plot starts and ends on 6-pixel v210 group boundaries and has a 2 % right margin (§5.2 gives only the left, top and bottom margins); a picture is the packed still picture plus the groups with a trace.
 
+13. **`SCOPES_SIMD=auto` does not pick AVX-512.** The maintainer asked for the dispatch AVX-512 → AVX2 → scalar; the fallback order is so, but `auto` takes AVX2 because the AVX-512 step is slower on both CPUs measured (Skylake-SP, Zen 4). One line in `chooseSimd` changes it.
+
 ## Questions for the maintainer
 
-Answered 2026-10-15: softer intensity curve (done, §4.4); AVX-512 added (done; slower than AVX2 on Skylake-SP, `auto` keeps AVX2 there); copy-free writer first (done, numbers above); ports 8170 and 3322 confirmed.
+Answered 2026-10-15: softer intensity curve (done, §4.4); AVX-512 added (done; slower than AVX2 on Skylake-SP and Zen 4, so `auto` keeps AVX2, deviation 13); copy-free writer first (done, numbers above); ports 8170 and 3322 confirmed.
 
 Open: the analyse step inside the process on Skylake-SP keeps 25 Hz at 0.16 core for bars and above target for busy pictures. Next options, in M1 unless decided otherwise: keep the renderer core awake between ticks (a short spin before a tick), and 2 strip workers (M2 plan) for 2160p.
