@@ -4,7 +4,7 @@ This plan comes before any code. It is updated as the work goes on: every decisi
 
 ## Status (2026-10-15)
 
-M0 in review: PR #1 (`feat/m0`). The open questions of SPECIFICATION §16 are decided (§16 there).
+M0 done (2026-10-15), PR #1 (`feat/m0`) in review before the merge; M1 next. The open questions of SPECIFICATION §16 are decided (§16 there). Process CPU on the lab class, 1080p50 in and out, AVX2: real picture (camera) about 0.25 core at 25 Hz and about 0.45 core every frame, bars 0.09–0.14 and 0.20–0.22 core; accepted by the maintainer as the §13 figures (§13 updated).
 
 M0 was widened by the maintainer's brief of 2026-10-15 to a working vertical slice (deviation 1): environment config, MXL video in, luma waveform, MXL video out, REST with a snapshot picture, metrics, NMOS, the web page, the image and CI. The spike part of M0 (engine, bit-exact tests, benchmark, numbers) is done; what is left is listed under M0 below.
 
@@ -77,7 +77,7 @@ Progress (2026-10-15):
 - [x] Maintainer's answers of 2026-10-15: softer intensity curve (§4.4), AVX-512, the copy-free writer before any M1 work, ports 8170/3322 confirmed.
 - [x] Vertical slice (deviation 1): config, MXL reader and writer, REST, probes, metrics, NMOS, web page, Dockerfile, CI, integration test.
 
-Left of M0: the desktop-class numbers; a lab run of the image (README "Lab run") with a real camera picture and the multiviewer tile; the process CPU targets of §13 on the lab class (see "M0 numbers").
+M0 is done. Carried to M1: the desktop-class numbers; a lab run of the image (README "Lab run") with a real camera picture and the multiviewer tile.
 
 ### M0 numbers
 
@@ -160,7 +160,7 @@ Process CPU after the fix, two runs each (the host's load average was 6–9 duri
 | Camera | 0.23 / 0.21 | 0.40 / 0.33 |
 | Noise | 0.28 / 0.36 | 0.49 / 0.54 |
 
-Bars meet both targets; camera and noise do not on this host. The work per update is about the benchmark's; the CPU share grows because the idle core runs at two thirds of its clock.
+Bars meet both first targets; camera and noise did not on this host. The maintainer accepted the result (2026-10-15): §13 now gives about 0.25 core at 25 Hz and about 0.45 core every frame for real pictures, bars lower. The work per update is about the benchmark's; the CPU share grows because the idle core runs at two thirds of its clock.
 
 ### M1: luma waveform end to end
 

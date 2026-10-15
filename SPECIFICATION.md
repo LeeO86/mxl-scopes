@@ -553,14 +553,16 @@ Measured on hardware, not in CI; recorded in `docs/performance.md`. Hosts: the p
 
 | Case | Target |
 | --- | --- |
-| Luma, 1080p50 in, 1080p50 out, update every frame, AVX2 | analyse + render p99 < 4 ms; process < 0.25 core (preview off); 0 late output grains in 1 h |
-| Luma, same, update 25 Hz | process < 0.15 core |
+| Luma, 1080p50 in, 1080p50 out, update every frame, AVX2 | analyse + render p99 < 4 ms (bars); process about 0.45 core for a real picture, about 0.2 core for bars (preview off); 0 late output grains in 1 h |
+| Luma, same, update 25 Hz | process about 0.25 core for a real picture, about 0.1–0.15 core for bars |
 | RGB parade, 1080p50, every frame, AVX2 | analyse + render p99 < 8 ms; process < 0.4 core |
 | Luma, 2160p50 in, 1080p50 out, every frame, AVX2 | analyse + render p99 < 12 ms (line step 1) |
 | Scalar reference, luma 1080p50, every frame | still real time (p99 < 15 ms) |
 | Preview on (x264, 540p25) | adds < 0.25 core |
 | Scope latency | input grain origin → first output grain that shows it ≤ one update interval + 2 output frames |
 | Memory | < 300 MB RSS at 1080p (`TODO_` confirm in M0) |
+
+The process figures are the M0 measurements on the lab class (Skylake-SP, 3 GHz; accepted by the maintainer 2026-10-15; IMPLEMENTATION_PLAN.md "Analyse in the process"). They include an idle-clock effect: the process is idle most of the time, so the host's power management runs its core at about two thirds of the clock (2.2 against 3.3 GHz measured), and the same work takes up to twice as long as in the busy benchmark. A performance power profile on the host lowers the figures; the desktop class is expected lower as well.
 
 The Kubernetes default for the catalog (§15) comes from these numbers.
 
