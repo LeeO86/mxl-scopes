@@ -162,8 +162,54 @@ U1="$(curl -sf "$API/api/v1/status" | json 'd["renderer"]["updates"]')"
 echo "updates in 4 s at 10 Hz: $((U1 - U0))"
 (( U1 - U0 >= 34 && U1 - U0 <= 46 )) || fail "update count $((U1 - U0)) does not match 10 Hz"
 
+# SCOPES_ACCUMULATE=all: every input frame goes into the update; the update rate stays.
+curl -sf -X PATCH -H 'Content-Type: application/json' -d '{"accumulate":"all"}' "$API/api/v1/scope" >/dev/null || fail "PATCH accumulate"
+sleep 0.5
+U0="$(curl -sf "$API/api/v1/status" | json 'd["renderer"]["updates"]')"
+sleep 4
+U1="$(curl -sf "$API/api/v1/status" | json 'd["renderer"]["updates"]')"
+echo "accumulate all: $((U1 - U0)) updates in 4 s at 10 Hz"
+(( U1 - U0 >= 34 && U1 - U0 <= 46 )) || fail "accumulate all made $((U1 - U0)) updates in 4 s"
+TRACE="$("$SAMPLE" --domain "$WORK/scopes" --flow "$FLOW_OUT" --width 640 --at "$COL,$ROW")"
+(( TRACE > 400 )) || fail "no trace with accumulate all ($TRACE)"
+curl -sf -X PATCH -H 'Content-Type: application/json' -d '{"accumulate":"latest"}' "$API/api/v1/scope" >/dev/null
+
+# At 1 Hz a mode change must show at once, not at the next tick (the picture is redrawn when
+# the settings change, also while the input holds).
+curl -sf -X PATCH -H 'Content-Type: application/json' -d '{"update_rate":1}' "$API/api/v1/scope" >/dev/null || fail "PATCH 1 Hz"
+# Live mode changes keep the flow id; NMOS describes the new mode. A flat grey is R′ = G′ =
+# B′ = Cb = Cr = 512: one trace row in every panel of the parades.
+for mode in rgb-parade ycbcr-parade rgb-overlay; do
+  curl -sf -X PATCH -H 'Content-Type: application/json' -d "{\"mode\":\"$mode\"}" "$API/api/v1/scope" >/dev/null || fail "PATCH mode $mode"
+  sleep 0.6
+  OUTM="$(curl -sf "$API/api/v1/output")"
+  [[ "$(echo "$OUTM" | json 'd["flow_id"]')" == "$FLOW_OUT" ]] || fail "mode $mode minted a new flow id"
+  [[ "$(echo "$OUTM" | json 'd["mode"]')" == "$mode" ]] || fail "/api/v1/output does not show $mode"
+  read -r PY PH <<<"$(echo "$OUTM" | json '"%d %d" % (d["plot"]["y"], d["plot"]["height"])')"
+  ROWM=$(( PY + PH - 1 - (512 * PH >> 10) ))
+  AT=()
+  for x in $(echo "$OUTM" | json '" ".join(str(p["x"] + p["width"] // 3) for p in d["plot"]["panels"])'); do
+    AT+=(--at "$x,$ROWM" --at "$x,$((ROWM - 12))")
+  done
+  mapfile -t PIXM < <("$SAMPLE" --domain "$WORK/scopes" --flow "$FLOW_OUT" --width 640 "${AT[@]}")
+  echo "$mode: ${PIXM[*]}"
+  for ((i = 0; i < ${#PIXM[@]}; i += 2)); do
+    (( PIXM[i] > 200 )) || fail "$mode: no trace in panel $((i / 2)) (${PIXM[*]})"
+    (( PIXM[i + 1] == 64 )) || fail "$mode: panel $((i / 2)) not black off the trace (${PIXM[*]})"
+  done
+  DESC="$(curl -sf "http://127.0.0.1:${NMOS_PORT}/x-nmos/node/v1.3/flows/${FLOW_OUT}" | json 'd["description"]')"
+  echo "$mode: NMOS flow description $DESC"
+  [[ "$DESC" == "$(curl -sf "$API/api/v1/scope" | json 'd["title"]')" ]] || fail "NMOS flow description $DESC does not follow $mode"
+done
+curl -sf -X PATCH -H 'Content-Type: application/json' -d '{"update_rate":10}' "$API/api/v1/scope" >/dev/null || fail "PATCH 10 Hz"
+grep -q 'mxl_scopes_updates_total{mode="rgb-parade"}' <<<"$(curl -sf "$API/metrics")" || fail "no updates_total for rgb-parade"
+curl -sf -X PATCH -H 'Content-Type: application/json' -d '{"mode":"luma"}' "$API/api/v1/scope" >/dev/null || fail "PATCH mode luma"
+curl -s -X PATCH -H 'Content-Type: application/json' -d '{"mode":"vectorscope"}' -o /dev/null -w '%{http_code}' "$API/api/v1/scope" | grep -q 400 \
+  || fail "a mode that is not built was accepted"
+echo "modes ok"
+
 METRICS="$(curl -sf "$API/metrics")"
-for name in mxl_scopes_updates_total mxl_scopes_analyse_seconds_bucket mxl_scopes_output_frames_total 'mxl_scopes_input_state{state="running"} 1' mxl_scopes_simd_level; do
+for name in mxl_scopes_accumulate_dropped_total mxl_scopes_updates_total mxl_scopes_analyse_seconds_bucket mxl_scopes_output_frames_total 'mxl_scopes_input_state{state="running"} 1' mxl_scopes_simd_level; do
   grep -q "$name" <<<"$METRICS" || fail "metric $name missing"
 done
 

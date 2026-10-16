@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased (M1, 2026-10-16)
+
+- Modes `ycbcr-parade`, `rgb-parade` and `rgb-overlay`: scalar reference, AVX2 and AVX-512 analyse steps, byte-exact; R′G′B′ in Q13 (§4.8); three-panel parade layout with a Cb/Cr graticule; the overlay adds R′, G′ and B′; a live mode change keeps the output flow id and updates the NMOS flow description and mode tag; metrics per mode.
+- `SCOPES_ACCUMULATE=all`: every frame (or field) between two updates goes into the update.
+- The trace is computed on the analysing thread; the writer only patches the groups that differ, so a slow update skips ticks and never delays an output grain.
+- The AVX2 analyse step multiplies with `vpmaddwd`: luma 15 % faster, same bytes.
+- No cell overflow can end the process: the line step is raised when the counts would not fit 16 bits (a UHD input on a small output, a parade, `all`), shown as `renderer.line_step`; other table errors show `FORMAT`. A settings change is drawn at once. `all` takes every grain in turn, counts what it cannot add (`mxl_scopes_accumulate_dropped_total`) and normalises to the grains of each update.
+- `mxl-scopes-bench --modes`, the `scene` pattern, golden pictures of every mode, `docs/performance.md` with the CPU per mode.
+
 ## Unreleased (M0, done 2026-10-15)
 
 - Review fixes (2026-10-16): interlaced input (MXL field grains, 1080i50 tff and bff) with grain-size checks; the reader no longer spins on invalid or partial head grains; non-blocking HTTP server that drops a stalled WebSocket client; a taken NMOS port exits 75; counters print as integers; a stricter torn-read check; cleanup removes only our own domain; config import needs JSON and validates routes.

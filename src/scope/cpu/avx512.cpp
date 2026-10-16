@@ -3,6 +3,7 @@
 // Compiled with -mavx512f; it is only called after the run-time check (cpu/dispatch.hpp).
 #include "scope/analyse.hpp"
 #include "scope/cpu/group.hpp"
+#include "scope/cpu/multi.hpp"
 
 #include <immintrin.h>
 
@@ -117,6 +118,125 @@ void analyseRows(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& h
     }
 }
 
+// Vector traits of the three-plane kernels (cpu/multi.hpp): four groups per load.
+struct Avx512V
+{
+    using Reg = __m512i;
+    static constexpr int kGroups = 4;
+    static constexpr int kChunk = 16;
+    static Reg set1(int v)
+    {
+        return _mm512_set1_epi32(v);
+    }
+    static Reg loadu(void const* p)
+    {
+        return _mm512_loadu_si512(p);
+    }
+    static void store(std::uint32_t* p, Reg v)
+    {
+        _mm512_store_si512(p, v);
+    }
+    static Reg and_(Reg a, Reg b)
+    {
+        return _mm512_and_si512(a, b);
+    }
+    static Reg add(Reg a, Reg b)
+    {
+        return _mm512_add_epi32(a, b);
+    }
+    static Reg sub(Reg a, Reg b)
+    {
+        return _mm512_sub_epi32(a, b);
+    }
+    static Reg mullo(Reg a, Reg b)
+    {
+        return _mm512_mullo_epi32(a, b);
+    }
+    // AVX-512F has no vpmaddwd (that is AVX-512BW): the 32-bit multiply, same products.
+    static Reg mulU16(Reg a, Reg b)
+    {
+        return _mm512_mullo_epi32(a, b);
+    }
+    static Reg mulSmall(Reg a, Reg b)
+    {
+        return _mm512_mullo_epi32(a, b);
+    }
+    static Reg dot2(Reg a, Reg b, int ca, int cb)
+    {
+        return _mm512_add_epi32(_mm512_mullo_epi32(a, _mm512_set1_epi32(ca)), _mm512_mullo_epi32(b, _mm512_set1_epi32(cb)));
+    }
+    static Reg srli(Reg a, unsigned n)
+    {
+        return _mm512_srli_epi32(a, n);
+    }
+    static Reg slli(Reg a, unsigned n)
+    {
+        return _mm512_slli_epi32(a, n);
+    }
+    static Reg srai(Reg a, unsigned n)
+    {
+        return _mm512_srai_epi32(a, n);
+    }
+    static Reg srlv(Reg a, Reg n)
+    {
+        return _mm512_srlv_epi32(a, n);
+    }
+    static Reg min(Reg a, Reg b)
+    {
+        return _mm512_min_epi32(a, b);
+    }
+    static Reg max(Reg a, Reg b)
+    {
+        return _mm512_max_epi32(a, b);
+    }
+    static Reg permute(Reg words, Reg index)
+    {
+        return _mm512_permutexvar_epi32(index, words);
+    }
+    // The AVX2 patterns (Avx2V in avx2.cpp) for four groups: word w of group j is lane 4j + w.
+    static Reg pattern(int a, int b, int c, int d, bool perGroup)
+    {
+        int const o = perGroup ? 4 : 0;
+        return _mm512_setr_epi32(a, b, c, d, a + o, b + o, c + o, d + o, a + 2 * o, b + 2 * o, c + 2 * o, d + 2 * o, a + 3 * o, b + 3 * o, c + 3 * o, d + 3 * o);
+    }
+    static Reg shiftYA()
+    {
+        return pattern(10, 0, 10, 0, false);
+    }
+    static Reg permCbA()
+    {
+        return pattern(0, 0, 1, 2, true);
+    }
+    static Reg shiftCbA()
+    {
+        return pattern(0, 0, 10, 20, false);
+    }
+    static Reg permCrA()
+    {
+        return pattern(0, 0, 2, 3, true);
+    }
+    static Reg shiftCrA()
+    {
+        return pattern(20, 20, 0, 10, false);
+    }
+    static Reg permCbB()
+    {
+        return pattern(0, 1, 0, 2, true);
+    }
+    static Reg shiftCbB()
+    {
+        return pattern(0, 10, 0, 20, false);
+    }
+    static Reg permCrB()
+    {
+        return pattern(0, 2, 0, 3, true);
+    }
+    static Reg shiftCrB()
+    {
+        return pattern(0, 0, 0, 10, false);
+    }
+};
+
 template <int PS>
 void analyseStep(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist)
 {
@@ -138,6 +258,10 @@ bool avx512Compiled()
 
 void analyseAvx512(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist)
 {
+    if (cpu::analyseMulti<Avx512V>(plan, v210, hist))
+    {
+        return;
+    }
     switch (plan.pixelStep)
     {
     case 1:
