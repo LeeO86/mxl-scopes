@@ -63,7 +63,8 @@ TEST_CASE("invalid values are configuration errors (exit 78)")
     std::vector<std::pair<std::string, std::string>> bad = {
         {"SCOPES_MODE", "waveform"},
         {"SCOPES_MODE", "vectorscope"},
-        {"SCOPES_MODE", "rgb-parade"},
+        {"SCOPES_MODE", "ycbcr-overlay"},
+        {"SCOPES_MODE", "vectorscope"},
         {"SCOPES_UPDATE_RATE", "0.5"},
         {"SCOPES_UPDATE_RATE", "61"},
         {"SCOPES_UPDATE_RATE", "fast"},

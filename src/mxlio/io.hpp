@@ -19,6 +19,8 @@ struct OutputFlow
     int height = 0;
     Rate rate;
     std::string description;
+    // The scope mode: the flow's description and tag follow a live mode change (same flow id).
+    std::string mode;
 };
 
 // The media threads (SPECIFICATION §2.1): the renderer, which follows the routed flow and
@@ -38,7 +40,8 @@ public:
     // Deletes the output domain directory. Refuses the scan root and mirror domains.
     void removeOwnDomain();
     [[nodiscard]] std::string domainId() const;
-    // Called from the writer thread whenever it (re)creates the output flow.
+    // Called from the writer thread whenever it (re)creates the output flow, and when the mode
+    // changes (same flow id, new description).
     void setFlowCallback(std::function<void(OutputFlow const&)> callback);
 
 private:

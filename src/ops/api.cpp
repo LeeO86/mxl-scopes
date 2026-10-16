@@ -173,7 +173,7 @@ std::string Api::infoJson() const
         << ",\"label\":" << quote(config_.nmosLabel.empty() ? config_.hostId : config_.nmosLabel) << ",\"backend\":\"cpu\""
         << ",\"simd\":{\"level\":" << quote(simdName(build_.simd.level)) << ",\"requested\":" << quote(build_.simd.requested)
         << ",\"cpu\":" << quote(build_.simd.cpu) << ",\"cpu_family\":" << quote(build_.simd.family) << "}"
-        << ",\"modes\":[\"luma\"],\"node_id\":" << quote(ids.node) << ",\"device_id\":" << quote(ids.device)
+        << ",\"modes\":[\"luma\",\"ycbcr-parade\",\"rgb-parade\",\"rgb-overlay\"],\"node_id\":" << quote(ids.node) << ",\"device_id\":" << quote(ids.device)
         << ",\"receiver_id\":" << quote(ids.receiver) << ",\"sender_id\":" << quote(ids.sender) << ",\"domain_id\":" << quote(config_.outputDomainId)
         << ",\"output\":{\"format\":" << quote(std::to_string(config_.outputWidth) + "x" + std::to_string(config_.outputHeight))
         << ",\"rate\":" << quote(config_.outputRate ? rateToken(*config_.outputRate) : "input") << ",\"key\":" << boolean(config_.outputKey) << "}"
@@ -206,9 +206,14 @@ std::string Api::outputJson() const
         << quote(o.key ? "video/v210a" : "video/v210") << ",\"key\":" << boolean(o.key) << ",\"writing\":" << boolean(o.writing)
         << ",\"frames\":" << o.frames << ",\"late\":" << o.late << ",\"missed\":" << o.missed;
     // Where the plot sits in the raster (§5.2), for tests and tools that sample the output.
-    auto const layout = makeLayout(config_.outputWidth, config_.outputHeight);
+    auto const layout = makeLayout(config_.outputWidth, config_.outputHeight, panelCount(state_.settings()->mode));
     out << ",\"plot\":{\"x\":" << layout.plotX << ",\"y\":" << layout.plotY << ",\"width\":" << layout.plotW << ",\"height\":" << layout.plotH
-        << ",\"bins\":" << histogramBins(layout) << "}}";
+        << ",\"bins\":" << histogramBins(layout) << ",\"panels\":[";
+    for (int k = 0; k < layout.panels; ++k)
+    {
+        out << (k > 0 ? "," : "") << "{\"x\":" << layout.panelX[static_cast<std::size_t>(k)] << ",\"width\":" << layout.panelW << "}";
+    }
+    out << "]}}";
     return out.str();
 }
 

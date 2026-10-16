@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -21,6 +22,9 @@ struct InputFormat
     std::size_t stride = 0;
     // Grains analysed into one update: 2 for interlaced (both fields of a frame), else 1.
     int fields = 1;
+    // Frames added into one update: SCOPES_ACCUMULATE=all takes every frame between two updates
+    // (input rate / update rate, rounded); `latest` 1. Capped so that no cell can pass 16 bits.
+    int frames = 1;
     [[nodiscard]] bool operator==(InputFormat const&) const = default;
 };
 
@@ -32,8 +36,7 @@ struct PaintParams
     int outputWidth = 0;
     int outputHeight = 0;
     int columns = 0;
-    std::uint64_t samples = 0;
-    std::uint32_t maxCount = 0;
+    PlaneCounts counts;
     bool hasInput = false;
     [[nodiscard]] bool operator==(PaintParams const&) const = default;
 };
@@ -52,7 +55,13 @@ public:
     void trace(Histogram& hist, std::string const& caption, std::string const& state, std::vector<TraceGroup>& trace);
     [[nodiscard]] std::uint8_t const* stillPacked() const
     {
-        return stillPacked_.data();
+        return stillPacked_->data();
+    }
+    // The packed still picture as a shared, never changed buffer: a new picture is a new buffer,
+    // so another thread can keep using the one it has (the output writer, §2.4).
+    [[nodiscard]] std::shared_ptr<std::vector<std::uint8_t> const> stillShared() const
+    {
+        return stillPacked_;
     }
     // Changes whenever the still picture changes (settings, caption, state).
     [[nodiscard]] std::uint64_t stillVersion() const
@@ -82,7 +91,7 @@ private:
     bool configured_ = false;
     RenderPlan render_;
     Frame422 still_;
-    std::vector<std::uint8_t> stillPacked_;
+    std::shared_ptr<std::vector<std::uint8_t>> stillPacked_ = std::make_shared<std::vector<std::uint8_t>>();
     std::string caption_;
     std::string state_;
     bool stillValid_ = false;
@@ -109,6 +118,17 @@ public:
     // Histograms -> packed v210 picture in `dst` (packedSize() bytes); the histograms are clear
     // afterwards. With a state text (NOT ROUTED, NO SIGNAL, ...) the plot shows no trace.
     void render(std::string const& caption, std::string const& state, std::uint8_t* dst);
+    // The same picture as the still picture (stillShared(), stillVersion()) plus trace groups;
+    // the histograms are clear afterwards.
+    void trace(std::string const& caption, std::string const& state, std::vector<TraceGroup>& out);
+    [[nodiscard]] std::shared_ptr<std::vector<std::uint8_t> const> stillShared() const
+    {
+        return painter_.stillShared();
+    }
+    [[nodiscard]] std::uint64_t stillVersion() const
+    {
+        return painter_.stillVersion();
+    }
     // Drops the counts of an analysed frame (a torn read, §2.2).
     void clear();
 
@@ -133,6 +153,11 @@ public:
     {
         return level_;
     }
+    // Frames per update after the 16-bit cap (InputFormat::frames).
+    [[nodiscard]] int framesPerUpdate() const
+    {
+        return frames_;
+    }
     [[nodiscard]] std::size_t packedSize() const
     {
         return v210RowBytes(outputWidth_) * static_cast<std::size_t>(outputHeight_);
@@ -143,6 +168,7 @@ private:
     int stripColumns_;
     bool configured_ = false;
     InputFormat input_;
+    int frames_ = 1;
     DisplaySettings settings_;
     int outputWidth_ = 0;
     int outputHeight_ = 0;
