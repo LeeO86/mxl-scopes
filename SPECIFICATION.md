@@ -150,7 +150,7 @@ struct ScopeEngine {
 ### 4.1 Input samples
 
 - Input is `video/v210` (or `video/v210a`; the key plane is ignored), 4:2:2, 10 bits, any raster up to 3840×2160 that MXL allows. Row stride is `ceil(width/48) × 128` bytes. One v210 group of 16 bytes carries 6 Y, 3 Cb and 3 Cr samples.
-- Interlaced grains are analysed as the whole frame (both fields). In MXL an interlaced grain is one field (height / 2 lines) at twice the flow_def `grain_rate`: an update analyses the newest field and the one before it, and grains are timed at the field rate (`mxlFlowInfo.config`). Field select is a later stage.
+- Interlaced grains are analysed as the whole frame (both fields). In MXL an interlaced grain is one field (height / 2 lines) at twice the flow_def `grain_rate`: an update analyses the newest field and the one before it, and grains are timed at the field rate (`mxlFlowInfo.config`). Field select is a later stage. Interlaced video and its ANC follow the shared MXL interlaced convention: https://github.com/LeeO86/mxl-multiviewer/blob/main/docs/mxl-interlaced.md
 - Codes 0–3 and 1020–1023 are measured like any other code. They are counted as out of range (§4.7).
 - v1 assumes BT.709. The flow's colorimetry in `flow_def.json` is read; anything other than BT.709 shows a warning in the UI and in `/api/v1/input` (`colorimetry_warning`). It is not an error.
 - `SCOPES_RANGE=limited` (default) uses BT.709 narrow range: Y 64–940, Cb/Cr 64–960 centred on 512. `full` uses 0–1023 for every component (§4.5).
