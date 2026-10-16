@@ -12,7 +12,7 @@ bool ScopePainter::configure(PaintParams const& params)
     {
         return false;
     }
-    render_ = makeRenderPlan(makeLayout(params.outputWidth, params.outputHeight), params.settings, params.columns, params.samples, params.maxCount);
+    render_ = makeRenderPlan(makeLayout(params.outputWidth, params.outputHeight, panelCount(params.settings.mode)), params.settings, params.columns, params.counts);
     params_ = params;
     configured_ = true;
     stillValid_ = false;
@@ -28,8 +28,10 @@ void ScopePainter::trace(Histogram& hist, std::string const& caption, std::strin
         still_ = render_.base;
         renderEmptyPlot(render_, still_);
         renderTexts(render_, still_, caption, state);
-        stillPacked_.resize(packedSize());
-        packV210(still_, stillPacked_.data(), v210RowBytes(still_.width));
+        // A new buffer: the old one may still be in use by the output writer.
+        auto packed = std::make_shared<std::vector<std::uint8_t>>(packedSize());
+        packV210(still_, packed->data(), v210RowBytes(still_.width));
+        stillPacked_ = std::move(packed);
         caption_ = caption;
         state_ = state;
         stillValid_ = true;
@@ -47,7 +49,7 @@ void ScopePainter::trace(Histogram& hist, std::string const& caption, std::strin
 void ScopePainter::render(Histogram& hist, std::string const& caption, std::string const& state, std::uint8_t* dst)
 {
     trace(hist, caption, state, trace_);
-    std::memcpy(dst, stillPacked_.data(), stillPacked_.size());
+    std::memcpy(dst, stillPacked_->data(), stillPacked_->size());
     applyTrace(trace_, dst);
 }
 
@@ -63,16 +65,21 @@ bool ScopeEngine::configure(InputFormat const& input, DisplaySettings const& set
     {
         return false;
     }
-    auto const layout = makeLayout(outputWidth, outputHeight);
+    auto const layout = makeLayout(outputWidth, outputHeight, panelCount(settings.mode));
     int const columns = histogramColumns(layout, input.width);
     int const bins = histogramBins(layout);
+    frames_ = 1;
     if (input.width > 0)
     {
-        analyse_ = makeAnalysePlan(input.width, input.height, input.stride, settings.lineStep, settings.pixelStep, columns, bins, stripColumns_);
-        if (static_cast<std::uint64_t>(analyse_.maxCellCount) * static_cast<std::uint64_t>(std::max(1, input.fields)) > 65535)
+        analyse_ = makeAnalysePlan(input.width, input.height, input.stride, settings.lineStep, settings.pixelStep, columns, bins, stripColumns_,
+            scopeKindOf(settings.mode));
+        auto const perUpdate = static_cast<std::uint64_t>(analyse_.maxCellCount) * static_cast<std::uint64_t>(std::max(1, input.fields));
+        if (perUpdate > 65535)
         {
             throw std::invalid_argument("a histogram cell could exceed 16 bits");
         }
+        // SCOPES_ACCUMULATE=all: as many frames as fit into 16-bit cells.
+        frames_ = static_cast<int>(std::clamp<std::uint64_t>(static_cast<std::uint64_t>(std::max(1, input.frames)), 1, 65535 / std::max<std::uint64_t>(1, perUpdate)));
         hist_.reset(analyse_);
     }
     else
@@ -91,17 +98,24 @@ bool ScopeEngine::configure(InputFormat const& input, DisplaySettings const& set
 
 PaintParams ScopeEngine::paintParams() const
 {
-    auto const layout = makeLayout(outputWidth_, outputHeight_);
-    // Both fields of an interlaced frame go into one update: twice the samples per update.
-    auto const fields = static_cast<std::uint32_t>(std::max(1, input_.fields));
-    return PaintParams{settings_, outputWidth_, outputHeight_, histogramColumns(layout, input_.width), analyse_.samples * fields,
-        analyse_.maxCellCount * fields, input_.width > 0};
+    auto const layout = makeLayout(outputWidth_, outputHeight_, panelCount(settings_.mode));
+    // Both fields of an interlaced frame (and every accumulated frame) go into one update.
+    auto const grains = static_cast<std::uint32_t>(std::max(1, input_.fields)) * static_cast<std::uint32_t>(frames_);
+    PlaneCounts counts;
+    for (std::size_t p = 0; p < 3; ++p)
+    {
+        auto const plane = static_cast<int>(p) < analyse_.planes ? p : 0;
+        counts.samples[p] = analyse_.planeSamples[plane] * grains;
+        counts.maxCount[p] = analyse_.planeMaxCell[plane] * grains;
+    }
+    return PaintParams{settings_, outputWidth_, outputHeight_, histogramColumns(layout, input_.width), counts, input_.width > 0};
 }
 
 void ScopeEngine::fit(Histogram& hist) const
 {
-    bool const sized = hist.columns == analyse_.columns && hist.bins == analyse_.bins && hist.scratch.size() == (analyse_.twoSubs ? hist.counts.size() : 0) &&
-                       hist.counts.size() == static_cast<std::size_t>(analyse_.columns) * static_cast<std::size_t>(analyse_.bins);
+    bool const sized = hist.columns == analyse_.columns && hist.bins == analyse_.bins && hist.planes == analyse_.planes &&
+                       hist.scratch.size() == (analyse_.twoSubs ? hist.counts.size() : 0) &&
+                       hist.counts.size() == analyse_.planeCells * static_cast<std::size_t>(analyse_.planes);
     if (!sized)
     {
         hist.reset(analyse_);
@@ -143,5 +157,10 @@ void ScopeEngine::clear()
 void ScopeEngine::render(std::string const& caption, std::string const& state, std::uint8_t* dst)
 {
     painter_.render(hist_, caption, state, dst);
+}
+
+void ScopeEngine::trace(std::string const& caption, std::string const& state, std::vector<TraceGroup>& out)
+{
+    painter_.trace(hist_, caption, state, out);
 }
 } // namespace scopes

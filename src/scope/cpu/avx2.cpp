@@ -4,6 +4,7 @@
 // This file is compiled with -mavx2 -mfma; it is only called after the run-time check.
 #include "scope/analyse.hpp"
 #include "scope/cpu/group.hpp"
+#include "scope/cpu/multi.hpp"
 
 #include <immintrin.h>
 
@@ -76,8 +77,9 @@ void analyseRows(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& h
                     __m256i const a = _mm256_and_si256(_mm256_srlv_epi32(words, shiftA), mask);
                     __m256i const b = _mm256_and_si256(_mm256_srli_epi32(words, 20), mask);
                     // Cell = ((code × bins) >> 10) × columns + column, as AnalysePlan::rowOffset.
-                    __m256i const binA = _mm256_mullo_epi32(_mm256_srli_epi32(_mm256_mullo_epi32(a, bins), 10), columns);
-                    __m256i const binB = _mm256_mullo_epi32(_mm256_srli_epi32(_mm256_mullo_epi32(b, bins), 10), columns);
+                    // Every factor fits 16 bits: vpmaddwd (one uop) gives the exact products.
+                    __m256i const binA = _mm256_madd_epi16(_mm256_srli_epi32(_mm256_madd_epi16(a, bins), 10), columns);
+                    __m256i const binB = _mm256_madd_epi16(_mm256_srli_epi32(_mm256_madd_epi16(b, bins), 10), columns);
                     __m256i const idxA = _mm256_add_epi32(binA, _mm256_loadu_si256(reinterpret_cast<__m256i const*>(offA + 4 * static_cast<std::size_t>(g))));
                     __m256i const idxB = _mm256_add_epi32(binB, _mm256_loadu_si256(reinterpret_cast<__m256i const*>(offB + 4 * static_cast<std::size_t>(g))));
                     _mm256_store_si256(reinterpret_cast<__m256i*>(buffer + 16 * p), idxA);
@@ -118,6 +120,127 @@ void analyseRows(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& h
     }
 }
 
+// Vector traits of the three-plane kernels (cpu/multi.hpp): two groups per load.
+struct Avx2V
+{
+    using Reg = __m256i;
+    static constexpr int kGroups = 2;
+    static constexpr int kChunk = 32;
+    static Reg set1(int v)
+    {
+        return _mm256_set1_epi32(v);
+    }
+    static Reg loadu(void const* p)
+    {
+        return _mm256_loadu_si256(static_cast<__m256i const*>(p));
+    }
+    static void store(std::uint32_t* p, Reg v)
+    {
+        _mm256_store_si256(reinterpret_cast<__m256i*>(p), v);
+    }
+    static Reg and_(Reg a, Reg b)
+    {
+        return _mm256_and_si256(a, b);
+    }
+    static Reg add(Reg a, Reg b)
+    {
+        return _mm256_add_epi32(a, b);
+    }
+    static Reg sub(Reg a, Reg b)
+    {
+        return _mm256_sub_epi32(a, b);
+    }
+    static Reg mullo(Reg a, Reg b)
+    {
+        return _mm256_mullo_epi32(a, b);
+    }
+    // a × b for lanes whose values fit signed 16 bits (high halves 0 or sign only in `a`'s low
+    // half): one vpmaddwd instead of the two-uop vpmulld. `b` must be a non-negative constant
+    // below 32768 with its high half zero; `a` may be negative (−512..511), its high half is
+    // cleared first.
+    // a × b for lanes that hold values 0..32767 (high halves zero): one vpmaddwd.
+    static Reg mulU16(Reg a, Reg b)
+    {
+        return _mm256_madd_epi16(a, b);
+    }
+    static Reg mulSmall(Reg a, Reg b)
+    {
+        return _mm256_madd_epi16(_mm256_and_si256(a, _mm256_set1_epi32(0xffff)), b);
+    }
+    // a × ca + b × cb for 16-bit signed a, b, ca, cb: one vpmaddwd on (a, b) pairs.
+    static Reg dot2(Reg a, Reg b, int ca, int cb)
+    {
+        Reg const pairs = _mm256_blend_epi16(a, _mm256_slli_epi32(b, 16), 0xaa);
+        return _mm256_madd_epi16(pairs, _mm256_set1_epi32(static_cast<int>((static_cast<std::uint32_t>(cb) << 16) | (static_cast<std::uint32_t>(ca) & 0xffffu))));
+    }
+    static Reg srli(Reg a, int n)
+    {
+        return _mm256_srli_epi32(a, n);
+    }
+    static Reg slli(Reg a, int n)
+    {
+        return _mm256_slli_epi32(a, n);
+    }
+    static Reg srai(Reg a, int n)
+    {
+        return _mm256_srai_epi32(a, n);
+    }
+    static Reg srlv(Reg a, Reg n)
+    {
+        return _mm256_srlv_epi32(a, n);
+    }
+    static Reg min(Reg a, Reg b)
+    {
+        return _mm256_min_epi32(a, b);
+    }
+    static Reg max(Reg a, Reg b)
+    {
+        return _mm256_max_epi32(a, b);
+    }
+    static Reg permute(Reg words, Reg index)
+    {
+        return _mm256_permutevar8x32_epi32(words, index);
+    }
+    // Per group: Y0 Y1 Y3 Y4 (A), the chroma pair of each (k = 0, 0, 1, 2), and for B (lanes 1
+    // and 3: Y2, Y5) the pairs k = 1 and 2.
+    static Reg shiftYA()
+    {
+        return _mm256_setr_epi32(10, 0, 10, 0, 10, 0, 10, 0);
+    }
+    static Reg permCbA()
+    {
+        return _mm256_setr_epi32(0, 0, 1, 2, 4, 4, 5, 6);
+    }
+    static Reg shiftCbA()
+    {
+        return _mm256_setr_epi32(0, 0, 10, 20, 0, 0, 10, 20);
+    }
+    static Reg permCrA()
+    {
+        return _mm256_setr_epi32(0, 0, 2, 3, 4, 4, 6, 7);
+    }
+    static Reg shiftCrA()
+    {
+        return _mm256_setr_epi32(20, 20, 0, 10, 20, 20, 0, 10);
+    }
+    static Reg permCbB()
+    {
+        return _mm256_setr_epi32(0, 1, 0, 2, 4, 5, 4, 6);
+    }
+    static Reg shiftCbB()
+    {
+        return _mm256_setr_epi32(0, 10, 0, 20, 0, 10, 0, 20);
+    }
+    static Reg permCrB()
+    {
+        return _mm256_setr_epi32(0, 2, 0, 3, 4, 6, 4, 7);
+    }
+    static Reg shiftCrB()
+    {
+        return _mm256_setr_epi32(0, 0, 0, 10, 0, 0, 0, 10);
+    }
+};
+
 template <int PS>
 void analyseStep(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist)
 {
@@ -139,6 +262,10 @@ bool avx2Compiled()
 
 void analyseAvx2(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist)
 {
+    if (cpu::analyseMulti<Avx2V>(plan, v210, hist))
+    {
+        return;
+    }
     switch (plan.pixelStep)
     {
     case 1:

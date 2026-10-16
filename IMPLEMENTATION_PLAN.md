@@ -2,9 +2,11 @@
 
 This plan comes before any code. It is updated as the work goes on: every decision and every deviation from `SPECIFICATION.md` is recorded here, as in the sibling repos.
 
-## Status (2026-10-15)
+## Status (2026-10-16)
 
-M0 done (2026-10-15), PR #1 (`feat/m0`) in review before the merge; M1 next. The open questions of SPECIFICATION §16 are decided (§16 there). Process CPU on the lab class, 1080p50 in and out, AVX2: real picture (camera) about 0.25 core at 25 Hz and about 0.45 core every frame, bars 0.09–0.14 and 0.20–0.22 core; accepted by the maintainer as the §13 figures (§13 updated).
+M1 done on `feat/m1` (PR in review): the stage-1 modes `ycbcr-parade`, `rgb-parade`, `rgb-overlay` end to end (pulled forward from M2, deviation 15), `SCOPES_ACCUMULATE=all`, the trace computed on the analysing thread (deviation 16), and the lab run with a camera picture and the multiviewer tiles; numbers in `docs/performance.md`. What M1 leaves open is listed under M1 below.
+
+M0 done (2026-10-15), PR #1 merged. The open questions of SPECIFICATION §16 are decided (§16 there). Process CPU on the lab class, 1080p50 in and out, AVX2: real picture (camera) about 0.25 core at 25 Hz and about 0.45 core every frame, bars 0.09–0.14 and 0.20–0.22 core; accepted by the maintainer as the §13 figures (§13 updated).
 
 M0 was widened by the maintainer's brief of 2026-10-15 to a working vertical slice (deviation 1): environment config, MXL video in, luma waveform, MXL video out, REST with a snapshot picture, metrics, NMOS, the web page, the image and CI. The spike part of M0 (engine, bit-exact tests, benchmark, numbers) is done; what is left is listed under M0 below.
 
@@ -45,6 +47,8 @@ docker/ deploy/ docs/
 `scopes-core` (config, scope, media) links neither libmxl nor nmos-cpp, so the bit-exact tests run anywhere.
 
 M0 as built: `src/config` (schema, store), `src/scope` (`analyse`, `render`, `engine`, `scheduler`, `settings`), `src/scope/cpu` (`avx2.cpp` with `-mavx2 -mfma`, `dispatch`, `group.hpp` the shared reference step), `src/media` (`v210`, `patterns`, `png`, `timebase`), `src/app` (`state`, `triplebuffer`), `src/mxlio/io.cpp` (renderer and writer threads), `src/nmos` (`ids`, `node`), `src/ops` (`api`, `httpserver`, `metrics`), `web/index.html`, `tools/bench.cpp`, `tests/unit`, `tests/tools`, `tests/integration/scope.sh`, `docs/golden`.
+
+M1 adds `src/scope/cpu/multi.hpp` (the three-plane analyse kernels over a vector traits type) and `lanes.hpp` (their increment lists), `tests/unit/test_modes.cpp` and `docs/performance.md`.
 
 ## Milestones
 
@@ -162,7 +166,7 @@ Process CPU after the fix, two runs each (the host's load average was 6–9 duri
 
 Bars meet both first targets; camera and noise did not on this host. The maintainer accepted the result (2026-10-15): §13 now gives about 0.25 core at 25 Hz and about 0.45 core every frame for real pictures, bars lower. The work per update is about the benchmark's; the CPU share grows because the idle core runs at two thirds of its clock.
 
-### M1: luma waveform end to end
+### M1: luma waveform end to end (and the stage-1 modes)
 
 - Config (env > file > defaults, exit 78), state directory, exit codes.
 - MXL: domain scan, own output domain (G2), reader thread (no copy, torn-grain check), renderer thread with update-rate scheduler (`frame` and Hz, `latest` and `all`), writer thread (TAI paced, triple buffer).
@@ -175,9 +179,31 @@ Bars meet both first targets; camera and noise did not on this host. The maintai
 
 Exit: a routed 1080p50 bars flow gives a correct luma waveform flow; the multiviewer shows it as a tile; integration test green in CI.
 
+Most of this list was built in M0 (deviation 1). Progress (2026-10-16), with the brief of 2026-10-16 (more modes, CPU per mode against §13, a lab run with a real picture and a multiviewer tile):
+
+- [x] Modes `ycbcr-parade`, `rgb-parade`, `rgb-overlay` (M2 items pulled forward, deviation 15): analyse kinds `Luma`, `Ycbcr` (Y′, Cb, Cr planes) and `Rgb` (R′, G′, B′ planes, Q13 matrix of §4.8); scalar reference, AVX2 and AVX-512 steps written once over a vector traits type (`src/scope/cpu/multi.hpp`, `lanes.hpp`); byte-exact against scalar in the unit tests (random and edge frames incl. chroma at the extremes, widths 1–1280, every line and pixel step, column counts, bins, strips; whole pictures at 720p, 1080p, 2160p and 1998×50); R′G′B′ within one code of the double formula. Golden pictures (bars and a colour scene) for each mode, by hash and as PNGs in `docs/golden`.
+- [x] Layout: three panels with a 4 % gap for the parades (chroma labels in the gaps, panel names under the panels), one panel for the overlay; Cb/Cr graticule (centre and ∓350 mV) in mV, % or code; per-plane intensity normalisation (a chroma plane has half the samples); the overlay adds pure R′, G′, B′ in R′G′B′, so a neutral trace is white.
+- [x] Live mode change (`PATCH /api/v1/scope`, the web page): same output flow id; the NMOS flow description and the `scope-mode` tag of flow and sender follow (deviation 18); `updates_total`, `analyse_seconds`, `render_seconds` per `mode`; `/api/v1/output` lists the panels.
+- [x] `SCOPES_ACCUMULATE=all` (§4.3): every grain (every field) between two updates goes into the counts as it arrives, checked for a torn read each; the intensity is normalised to round(input rate / update rate) frames; capped at what fits 16-bit cells (deviation 19).
+- [x] The trace groups are computed on the analysing thread; the writer only writes the groups that differ into each grain (deviation 16). A slow update now skips ticks instead of delaying output grains.
+- [x] `vpmaddwd` for the bin and cell multiplies (AVX2): luma analyse 15 % faster, bytes unchanged.
+- [x] `mxl-scopes-bench --modes`; `scene` test pattern (camera luma with colour) for the writer and the benchmark.
+- [x] `scope.sh`: `accumulate=all` at 10 Hz, each mode live on a grey input with the trace row checked in every panel, the flow id kept, the NMOS description followed, a stage-2 mode refused (400).
+- [x] Lab run (2026-10-16): the test player 1.2.1 playing a camera clip as 1080p50 and as 1080i50; scopes on both (luma, YCbCr parade, RGB parade); a multiviewer 1.4.3 with the 1080p50 picture and the three scope outputs as tiles (screenshot kept outside the repo). Process CPU per mode in `docs/performance.md`.
+- [ ] Desktop-class numbers (no desktop-class host in the lab).
+- [ ] The 1080i50 picture as a multiviewer tile: the multiviewer 1.4.3 exits with SIGSEGV (139) when the test player's 1080i50 flow is routed to it (CPU and CUDA backends); the scopes read that flow fine. Reported to the maintainer.
+- [ ] RGB parade every frame on camera content is above §13 (0.67–0.74 core against < 0.4; analyse + render p99 11.8 ms against < 8 ms) on the lab class; next steps under "M1 numbers".
+- [ ] Blend2D graticule labels (deviation 6) and `ycbcr-overlay` (a SHOULD).
+
+### M1 numbers
+
+See `docs/performance.md` (engine per mode and SIMD level, process CPU per mode and update rate against §13, the A/B of the thread change). In short, lab class, camera picture, 1080p50, AVX2: luma 0.25–0.33 core at 25 Hz and 0.40–0.47 every frame (§13: about 0.25 and 0.45); YCbCr parade 0.34 and 0.44–0.51; RGB parade 0.39–0.46 and 0.67–0.74 (§13 every frame: < 0.4); RGB overlay 0.58–0.63 at 25 Hz, every frame not real time (ticks skipped). Bars: luma 0.08 / 0.18, RGB parade 0.20 / 0.40.
+
+Next for the RGB modes: strip workers (`SCOPES_THREADS`, M2); pack the half-empty B vector of the RGB step (two loads per iteration, about 10 % of the analyse); for the overlay, fewer histogram columns or a vector render step.
+
 ### M2: parades, overlays, key, measurements
 
-- Modes `ycbcr-parade`, `rgb-parade`, `rgb-overlay` (and `ycbcr-overlay` if cheap), scalar first, then AVX2; R′G′B′ in Q13 with the double-reference test.
+- ~~Modes `ycbcr-parade`, `rgb-parade`, `rgb-overlay`~~ (done in M1, deviation 15); `ycbcr-overlay` if cheap.
 - `uint32` counters when the bound needs them.
 - `SCOPES_OUTPUT_KEY` (v210a key plane), `SCOPES_BG_ALPHA`; output format and rate changes mint a new flow id.
 - Measurements (§4.7) and their metrics; `GET /api/v1/measurements`.
@@ -256,7 +282,7 @@ Exit: 1.0.0 released and deployable by the platform.
 2. **Reader and analyser are one thread** (SPECIFICATION §2.1 has an input reader and a renderer). The thread waits for the next grain with a timeout up to the next update tick, analyses the grain in place and hands the histogram to the writer, which renders (§2.4, updated); nothing waits for it, and the grain is never copied. Strip workers (M2) can split the analyse step later.
 3. **Bin-major histogram** (§4.3 says column-major). The columns of one bin are contiguous: the renderer reads the counts line by line, and a strip touches two cache lines per bin instead of one per column. Counts are equal either way. Cell indices are 32-bit and absolute (§4.9 has 16-bit indices inside a strip); one or two sub-histograms, not four.
 4. **Flow keys apply at the restart in M0.** `SCOPES_OUTPUT_FORMAT`, `SCOPES_OUTPUT_RATE` and `SCOPES_OUTPUT_KEY` are saved and reported as `restart_required` (§8 has them live with a new flow id). `SCOPES_OUTPUT_RATE=input` does follow the routed flow live: a route to another rate mints a new output flow id and the NMOS flow and sender follow.
-5. **Values not built yet exit 78:** modes other than `luma` (M2), `SCOPES_ACCUMULATE=all` (M1), `SCOPES_OUTPUT_KEY=true` (M2), `SCOPES_THREADS` above 1 (M2). A PATCH with them answers 400.
+5. **Values not built yet exit 78:** `SCOPES_MODE=ycbcr-overlay` (a SHOULD of stage 1), `SCOPES_OUTPUT_KEY=true` (M2), `SCOPES_THREADS` above 1 (M2). A PATCH with them answers 400. (M1 built the other stage-1 modes and `SCOPES_ACCUMULATE=all`.)
 6. **Graticule text** uses the 8×8 public-domain bitmap font scaled to 16 px at 1080 lines, not Blend2D with DejaVu Sans (§3.1). Blend2D comes with the label polish in M1.
 7. **Preview.** No WebRTC preview yet (M3). The web page shows `GET /api/v1/snapshot.png` twice a second; the renderer copies the picture for it every 500 ms. `PREVIEW_*`, `MEDIAMTX_*` and `SCOPES_PREVIEW_*` are validated but unused; `/api/v1/info` reports the preview state `not_implemented`. The image has neither MediaMTX nor FFmpeg yet.
 8. **Web page.** One static HTML page in the family look without Vue or a build step; the Vue 3 UI and the `scope` widget (`/widgets`, `/widget/scope`) are M3.
@@ -268,6 +294,15 @@ Exit: 1.0.0 released and deployable by the platform.
 13. **`SCOPES_SIMD=auto` does not pick AVX-512** (confirmed by the maintainer 2026-10-15). The fallback order is AVX-512 → AVX2 → scalar; `auto` takes AVX2 because the AVX-512 step is slower on both CPUs measured (Skylake-SP, Zen 4). AVX-512 stays selectable with `SCOPES_SIMD=avx512`.
 
 14. **NMOS APIs only on `NMOS_PORT`.** §9.1 said they also answer on `WEB_PORT`; they do not (the spec text is corrected). The web page's NMOS tab shows state and ids; IS-05 activation from the page is M3.
+
+15. **Stage-1 modes in M1** (the plan had them in M2): the brief of 2026-10-16 asked for more modes in M1. `ycbcr-parade`, `rgb-parade` and `rgb-overlay` are built; the key output, measurements, strip workers and `ycbcr-overlay` stay in M2.
+16. **The analysing thread computes the trace** (§2.1 and §2.4 have the writer render the histogram into the grain). It now turns the counts into the packed trace groups right after the analyse step and hands them to the writer with the still picture (a shared, never changed buffer); the writer only writes the groups that differ into each grain, still without a render buffer or a full copy. Reason: the RGB overlay's render (10 ms in the process) made the writer late (412 late and 48 missed grains in 20 s every frame); now a slow update skips ticks (§4.6) and the output keeps its time. CPU is the same (A/B in `docs/performance.md`).
+17. **Parade layout** (§5.2 says the label margin is "shared at three"): three equal panels with 4 % gaps; the Y′ or R′ labels sit in the left margin, the Cb and Cr labels in the gap left of their panel, the R′G′B′ panels 2 and 3 have none; each parade panel has its name (Y, Cb, Cr or R, G, B) under it when the bottom margin has room. `GET /api/v1/output` lists the panels.
+18. **Mode change and the MXL flow definition.** §7.1 has the flow's `description` follow the mode. The NMOS flow's description and the `scope-mode` tag of flow and sender follow a live mode change (same flow id); the MXL `flow_def.json` keeps what it was created with (MXL has no update of a flow definition), until the next new flow id.
+19. **`SCOPES_ACCUMULATE=all` details** (§4.3 says only "every input grain between two updates"): grains are analysed as they arrive (each field of an interlaced flow), each checked for a torn read; a torn grain drops the counts of that update. The intensity is normalised to round(input frame rate / update rate) frames, so an update with fewer or more grains than that (start, jitter) is a little dimmer or brighter. The frames per update are capped so that no 16-bit cell can overflow (luma 1080p: 30 frames); grains beyond the cap wait for the next update. `SCOPES_INPUT_OFFSET_GRAINS` does not apply; with `frame` (or a rate at or above the input's), `all` is `latest`.
+20. **Chroma with pixel steps** (§4.2 "chroma samples follow their co-sited luma sample"): a Cb/Cr sample (x = 6g + 2k) is counted when its co-sited luma sample is; pixel step 3 or 6 therefore takes one chroma pair per group. R′G′B′ uses each taken luma sample with the pair at k = i / 2 (§4.8).
+21. **RGB overlay colours** (§4.4): the three traces add as pure R′, G′, B′ primaries (so a neutral trace is white at full intensity); per pixel the Y′ of the three contributions is summed, the chroma of a pixel pair is the sum over both pixels. The parade panels use lighter tints (red, green, blue; Y′ white, Cb blue, Cr red) so a full-intensity trace stays readable on black. `SCOPES_TRACE_COLOR` applies to `luma` only.
+22. **AVX-512 steps of the new modes use `vpmulld`** where AVX2 uses `vpmaddwd` (AVX-512F has no 16-bit multiply-add without AVX-512BW); same bytes, slower. AVX-512 stays selectable only (deviation 13).
 
 ## M0 review fixes (2026-10-16)
 
@@ -286,4 +321,11 @@ Exit: 1.0.0 released and deployable by the platform.
 
 Answered 2026-10-15: softer intensity curve (done, §4.4); AVX-512 added (done; slower than AVX2 on Skylake-SP and Zen 4, so `auto` keeps AVX2, deviation 13); copy-free writer first (done, numbers above); ports 8170 and 3322 confirmed.
 
-Open: the analyse step inside the process on Skylake-SP keeps 25 Hz at 0.16 core for bars and above target for busy pictures. Next options, in M1 unless decided otherwise: keep the renderer core awake between ticks (a short spin before a tick), and 2 strip workers (M2 plan) for 2160p.
+Answered (accepted 2026-10-15): the M0 process figures became §13.
+
+Open (2026-10-16):
+
+1. RGB parade every frame on camera content is 0.67–0.74 core on the lab class (§13: < 0.4). Accept for now (the default 25 Hz is 0.39–0.46), or make strip workers (`SCOPES_THREADS`, two cores) the next step before M2's other items?
+2. RGB overlay every frame is not real time at 1080p on the lab class (ticks skipped, output on time). Acceptable as a 25 Hz mode, or should its histogram use fewer columns (half the horizontal resolution, about half the render)?
+3. Deviation 16 (the analysing thread computes the trace) changes §2.4 as decided on 2026-10-15: fold it into the specification?
+4. The multiviewer 1.4.3 crashes (exit 139) when the test player's 1080i50 flow is routed to it. A ticket for the multiviewer?

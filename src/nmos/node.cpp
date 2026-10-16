@@ -214,7 +214,22 @@ void applyFlow(nmos::node_model& model, NmosIds const& ids, OutputFlow const& fl
     {
         nmos::erase_resource(model.node_resources, us(currentFlow), false);
     }
-    if (currentFlow != flow.flowId)
+    if (currentFlow == flow.flowId)
+    {
+        // A live mode change: the flow keeps its id; its description and mode tag follow (§7.1).
+        nmos::modify_resource(model.node_resources, us(flow.flowId), [&](nmos::resource& resource) {
+            resource.data[U("description")] = value::string(us(flow.description));
+            tagMode(resource, flow.mode);
+            resource.data[U("version")] = value::string(nmos::make_version());
+        });
+        nmos::modify_resource(model.node_resources, us(ids.sender), [&](nmos::resource& sender) {
+            tagMode(sender, flow.mode);
+            sender.data[U("version")] = value::string(nmos::make_version());
+        });
+        model.notify();
+        logInfo("nmos_output_mode", {{"flow", flow.flowId}, {"mode", flow.mode}});
+        return;
+    }
     {
         auto resource = nmos::make_coded_video_flow(us(flow.flowId), us(ids.source), us(ids.device), rate, static_cast<unsigned>(flow.width),
             static_cast<unsigned>(flow.height), nmos::interlace_modes::progressive, nmos::colorspaces::BT709, nmos::transfer_characteristics::SDR,
@@ -222,7 +237,7 @@ void applyFlow(nmos::node_model& model, NmosIds const& ids, OutputFlow const& fl
         resource.data[U("label")] = value::string(U("Scopes Out Video"));
         resource.data[U("description")] = value::string(us(flow.description));
         tagGroup(resource, "Scopes Out", "Video");
-        tagMode(resource, "luma");
+        tagMode(resource, flow.mode);
         nmos::insert_resource(model.node_resources, std::move(resource));
     }
     auto const domain = us(domainId);
@@ -232,7 +247,7 @@ void applyFlow(nmos::node_model& model, NmosIds const& ids, OutputFlow const& fl
         sender.data[U("label")] = value::string(U("Scopes Out Video"));
         sender.data[U("subscription")][U("active")] = value::boolean(true);
         tagGroup(sender, "Scopes Out", "Video");
-        tagMode(sender, "luma");
+        tagMode(sender, flow.mode);
         nmos::insert_resource(model.node_resources, std::move(sender));
         auto connection = nmos::make_connection_mxl_sender(us(ids.sender), domain, us(flow.flowId));
         for (auto const* key : {U("active"), U("staged")})
@@ -243,9 +258,10 @@ void applyFlow(nmos::node_model& model, NmosIds const& ids, OutputFlow const& fl
         }
         nmos::insert_resource(model.connection_resources, std::move(connection));
     }
-    else if (currentFlow != flow.flowId)
+    else
     {
         nmos::modify_resource(model.node_resources, us(ids.sender), [&](nmos::resource& sender) {
+            tagMode(sender, flow.mode);
             sender.data[U("flow_id")] = value::string(us(flow.flowId));
             sender.data[U("version")] = value::string(nmos::make_version());
         });

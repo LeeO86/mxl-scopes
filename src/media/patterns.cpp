@@ -16,7 +16,7 @@ Ycbcr10 rgbToYcbcr709(double r, double g, double b)
 
 bool knownPattern(std::string const& name)
 {
-    return name == "bars75" || name == "bars100" || name == "ramp" || name == "flat" || name == "random" || name == "camera";
+    return name == "bars75" || name == "bars100" || name == "ramp" || name == "flat" || name == "random" || name == "camera" || name == "scene";
 }
 
 Frame422 makePattern(std::string const& name, int width, int height, int level, std::uint32_t seed)
@@ -67,6 +67,28 @@ Frame422 makePattern(std::string const& name, int width, int height, int level, 
                 double const u = static_cast<double>(x) / std::max(1, width - 1);
                 double const level = 0.35 + 0.25 * std::sin(u * 6.283185307179586 * 3.0) + 0.3 * v * v;
                 frame.y[static_cast<std::size_t>(row) * width + x] = static_cast<std::uint16_t>(std::lround(64.0 + 876.0 * std::clamp(level, 0.0, 1.0)));
+            }
+        }
+    }
+    else if (name == "scene")
+    {
+        // The `camera` luma with smooth colour: hue turns across, saturation grows down. Inside
+        // the BT.709 gamut, so the parades and the overlay show picture-like traces.
+        for (int row = 0; row < height; ++row)
+        {
+            double const v = static_cast<double>(row) / std::max(1, height - 1);
+            for (int x = 0; x < width; ++x)
+            {
+                double const u = static_cast<double>(x) / std::max(1, width - 1);
+                double const level = std::clamp(0.35 + 0.25 * std::sin(u * 6.283185307179586 * 3.0) + 0.3 * v * v, 0.0, 1.0);
+                frame.y[static_cast<std::size_t>(row) * width + x] = static_cast<std::uint16_t>(std::lround(64.0 + 876.0 * level));
+                if (x % 2 == 0 && x / 2 < cw)
+                {
+                    double const hue = u * 6.283185307179586 * 1.5 + v;
+                    double const sat = 0.05 + 0.2 * v * std::min(level, 1.0 - level) * 2.0;
+                    frame.cb[static_cast<std::size_t>(row) * cw + x / 2] = static_cast<std::uint16_t>(std::lround(512.0 + 896.0 * sat * std::cos(hue)));
+                    frame.cr[static_cast<std::size_t>(row) * cw + x / 2] = static_cast<std::uint16_t>(std::lround(512.0 + 896.0 * sat * std::sin(hue)));
+                }
             }
         }
     }

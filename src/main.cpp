@@ -117,7 +117,7 @@ int main(int argc, char** argv)
         {
             metrics.inc(name, {}, 0);
         }
-        metrics.inc("updates_total", {{"mode", "luma"}}, 0);
+        metrics.inc("updates_total", {{"mode", config.display.mode}}, 0);
 
         scopes::AppState state(config.display);
         if (auto const restored = scopes::loadRoute(config.stateDir))
