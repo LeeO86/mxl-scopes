@@ -6,6 +6,7 @@
 - `SCOPES_ACCUMULATE=all`: every frame (or field) between two updates goes into the update.
 - The trace is computed on the analysing thread; the writer only patches the groups that differ, so a slow update skips ticks and never delays an output grain.
 - The AVX2 analyse step multiplies with `vpmaddwd`: luma 15 % faster, same bytes.
+- No cell overflow can end the process: the line step is raised when the counts would not fit 16 bits (a UHD input on a small output, a parade, `all`), shown as `renderer.line_step`; other table errors show `FORMAT`. A settings change is drawn at once. `all` takes every grain in turn, counts what it cannot add (`mxl_scopes_accumulate_dropped_total`) and normalises to the grains of each update.
 - `mxl-scopes-bench --modes`, the `scene` pattern, golden pictures of every mode, `docs/performance.md` with the CPU per mode.
 
 ## Unreleased (M0, done 2026-10-15)

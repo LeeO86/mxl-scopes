@@ -203,6 +203,8 @@ struct MediaIo::Impl
         std::shared_ptr<std::vector<std::uint8_t> const> still;
         std::uint64_t stillVersion = 0;
         std::vector<TraceGroup> trace;
+        // The mode the picture shows (for /api/v1/output).
+        std::string mode;
     };
     TripleSlot<Job> jobs;
     std::thread renderer;
@@ -291,6 +293,8 @@ struct MediaIo::Impl
         // SCOPES_ACCUMULATE=all: grains added into the back job since the last update, and the
         // analyse time they took.
         int accGrains = 0;
+        // The settings or the format changed: draw the new picture without waiting for a tick.
+        bool redraw = false;
         double accWallMs = 0;
         double accCpuMs = 0;
 
@@ -345,6 +349,7 @@ struct MediaIo::Impl
         // Hands a picture to the writer: the trace of the analysed counts, or a state picture
         // (no trace). Clears the counts.
         auto publishJob = [&](std::string const& captionText, std::string const& stateText) {
+            redraw = false;
             accGrains = 0;
             accWallMs = 0;
             accCpuMs = 0;
@@ -354,6 +359,7 @@ struct MediaIo::Impl
             auto const seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
             job.still = engine.stillShared();
             job.stillVersion = engine.stillVersion();
+            job.mode = engine.paintParams().settings.mode;
             jobs.publish();
             firstFrame.store(true);
             if (stateText.empty())
@@ -530,15 +536,35 @@ struct MediaIo::Impl
             // The input's frame rate: for an interlaced flow two field grains make one frame.
             double const frameHz = static_cast<double>(meta.rateNum) / meta.rateDen / fields;
             scheduler.configure(settings.updateRate, frameHz, static_cast<std::uint64_t>(fields));
-            // §4.3: `all` adds every frame between two updates (input rate / update rate frames).
+            // §4.3: `all` adds every frame between two updates: room for input rate / update rate
+            // frames, rounded up, and one more for jitter.
             bool const accumulateAll = settings.accumulate == "all" && !scheduler.frameMode();
-            int const framesWanted = accumulateAll ? std::max(1, static_cast<int>(std::lround(frameHz / settings.updateRate))) : 1;
-            if (engine.configure({meta.width, grainRows, v210RowBytes(meta.width), fields, framesWanted}, settings, config.outputWidth, config.outputHeight))
+            int const framesCapacity = accumulateAll ? static_cast<int>(std::ceil(frameHz / settings.updateRate)) + 1 : 1;
+            try
             {
-                // New tables (the counts start again from zero).
-                accGrains = 0;
-                accWallMs = 0;
-                accCpuMs = 0;
+                if (engine.configure({meta.width, grainRows, v210RowBytes(meta.width), fields, framesCapacity}, settings, config.outputWidth, config.outputHeight))
+                {
+                    // New tables (the counts start again from zero); draw the new picture at once,
+                    // also while the input holds (a mode change without new grains).
+                    accGrains = 0;
+                    accWallMs = 0;
+                    accCpuMs = 0;
+                    redraw = true;
+                    stats.lineStep = engine.lineStep();
+                }
+            }
+            catch (std::exception const& ex)
+            {
+                // Never terminate on an input the tables cannot take: show FORMAT instead.
+                logError("analyse_configure_failed", {{"error", ex.what()}, {"flow", route.flowId}});
+                view.state = "format_mismatch";
+                view.reason = std::string("analyse: ") + ex.what();
+                publishView();
+                engine.configure({}, settings, config.outputWidth, config.outputHeight);
+                showState(settings);
+                closeReader();
+                wait(1000);
+                continue;
             }
             auto const grainBytes = v210RowBytes(meta.width) * static_cast<std::size_t>(grainRows);
 
@@ -556,8 +582,13 @@ struct MediaIo::Impl
             mxlStatus status = MXL_STATUS_OK;
             // Wait for the grain after the last one fetched; jump to the head only when behind.
             // A blocking read with a timeout, so a head grain that is invalid or not yet complete
-            // never makes this loop spin.
-            std::uint64_t const want = !haveCursor || cursor + 1 < head ? head : cursor + 1;
+            // never makes this loop spin. `all` reads every grain while it is still in the ring.
+            bool const inRing = haveCursor && cursor + 1 < head && head - (cursor + 1) + 2 < grainCount;
+            std::uint64_t const want = accumulateAll && inRing ? cursor + 1 : (!haveCursor || cursor + 1 < head ? head : cursor + 1);
+            if (accumulateAll && haveCursor && want == head && cursor + 1 < head)
+            {
+                metrics.inc("accumulate_dropped_total", {}, static_cast<double>(head - cursor - 1));
+            }
             std::uint64_t timeout = kGrainWaitNs;
             if (auto const tick = scheduler.nextTickNs(), now = mxlGetTime(); tick > now)
             {
@@ -644,7 +675,12 @@ struct MediaIo::Impl
                 }
                 return false;
             };
-            if (accumulateAll && fresh && live && accGrains < engine.framesPerUpdate() * fields)
+            if (accumulateAll && fresh && live && accGrains >= engine.maxGrains())
+            {
+                // More grains than 16-bit cells can take (jitter beyond the capacity): not added.
+                metrics.inc("accumulate_dropped_total", {});
+            }
+            else if (accumulateAll && fresh && live)
             {
                 // `all`: every new grain (each field of an interlaced flow) goes into the counts
                 // of the next update as it arrives.
@@ -705,7 +741,7 @@ struct MediaIo::Impl
                 publishJob(caption(settings), "");
                 shownKey.clear();
             }
-            else if (decision.update)
+            else if (decision.update || (redraw && live))
             {
                 // The grains of this update: the target, and for an interlaced flow the field
                 // before it as well (both fields of a frame). Each is checked for its size.
@@ -722,6 +758,12 @@ struct MediaIo::Impl
                         pictures[1] = pictures[0];
                         indexes[1] = target;
                     }
+                }
+                if (pictures[0] == nullptr && redraw)
+                {
+                    // The newest grain left the ring: the new settings' picture without a trace.
+                    engine.clear();
+                    publishJob(caption(settings), "");
                 }
                 if (pictures[0] != nullptr)
                 {
@@ -913,6 +955,7 @@ struct MediaIo::Impl
                         }
                         still = job->still;
                         stillVersion = job->stillVersion;
+                        view.mode = job->mode;
                     }
                     if (still != nullptr && still->size() == pictureBytes)
                     {

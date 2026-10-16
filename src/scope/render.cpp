@@ -264,6 +264,41 @@ std::vector<std::uint16_t> intensityTable(DisplaySettings const& settings, doubl
     return table;
 }
 
+void setIntensity(RenderPlan& plan, DisplaySettings const& settings, PlaneCounts const& counts)
+{
+    // §4.4: c_ref is the count of a cell that holds all samples of its column (a flat field).
+    int const columns = plan.columns;
+    for (int p = 0; p < 3; ++p)
+    {
+        auto const i = static_cast<std::size_t>(p);
+        double const cRef = columns > 0 && counts.samples[i] > 0 ? static_cast<double>(counts.samples[i]) / columns : 1.0;
+        plan.planeIntensity[i] = intensityTable(settings, cRef, counts.maxCount[i]);
+        plan.planeMax[i] = static_cast<std::uint32_t>(plan.planeIntensity[i].size() - 1);
+    }
+    plan.intensity = plan.planeIntensity[0];
+    plan.maxCount = plan.planeMax[0];
+    if (plan.overlay)
+    {
+        // §4.4: the R′, G′ and B′ traces add in R′G′B′ (pure primaries, so a neutral trace is
+        // white); BT.709 to Y′CbCr per component, × 64 for the integer sum.
+        double const ky[3] = {0.2126, 0.7152, 0.0722};
+        double const kcb[3] = {-0.2126 / 1.8556, -0.7152 / 1.8556, 0.5};
+        double const kcr[3] = {0.5, -0.7152 / 1.5748, -0.0722 / 1.5748};
+        for (int c = 0; c < 3; ++c)
+        {
+            auto const& lut = plan.planeIntensity[static_cast<std::size_t>(c)];
+            auto& table = plan.overlayColour[static_cast<std::size_t>(c)];
+            table.resize(lut.size());
+            for (std::size_t n = 0; n < lut.size(); ++n)
+            {
+                double const v = lut[n] / 1023.0 * 64.0;
+                table[n] = {static_cast<std::int32_t>(std::lround(ky[c] * 876.0 * v)), static_cast<std::int32_t>(std::lround(kcb[c] * 896.0 * v)),
+                    static_cast<std::int32_t>(std::lround(kcr[c] * 896.0 * v))};
+            }
+        }
+    }
+}
+
 RenderPlan makeRenderPlan(Layout const& layout, DisplaySettings const& settings, int columns, std::uint64_t samples, std::uint32_t maxCount)
 {
     PlaneCounts counts;
@@ -293,16 +328,7 @@ RenderPlan makeRenderPlan(Layout const& layout, DisplaySettings const& settings,
         plan.binOfRow[static_cast<std::size_t>(r)] =
             static_cast<std::uint16_t>((static_cast<std::int64_t>(layout.plotH - 1 - r) * plan.bins) / layout.plotH);
     }
-    // §4.4: c_ref is the count of a cell that holds all samples of its column (a flat field).
-    for (int p = 0; p < 3; ++p)
-    {
-        auto const i = static_cast<std::size_t>(p);
-        double const cRef = columns > 0 && counts.samples[i] > 0 ? static_cast<double>(counts.samples[i]) / columns : 1.0;
-        plan.planeIntensity[i] = intensityTable(settings, cRef, counts.maxCount[i]);
-        plan.planeMax[i] = static_cast<std::uint32_t>(plan.planeIntensity[i].size() - 1);
-    }
-    plan.intensity = plan.planeIntensity[0];
-    plan.maxCount = plan.planeMax[0];
+    setIntensity(plan, settings, counts);
     for (auto const& trace : look.colours)
     {
         TraceColour colour;
@@ -317,26 +343,6 @@ RenderPlan makeRenderPlan(Layout const& layout, DisplaySettings const& settings,
     plan.yOf = plan.colours[0].y;
     plan.cbOf = plan.colours[0].cb;
     plan.crOf = plan.colours[0].cr;
-    if (plan.overlay)
-    {
-        // §4.4: the R′, G′ and B′ traces add in R′G′B′ (pure primaries, so a neutral trace is
-        // white); BT.709 to Y′CbCr per component, × 64 for the integer sum.
-        double const ky[3] = {0.2126, 0.7152, 0.0722};
-        double const kcb[3] = {-0.2126 / 1.8556, -0.7152 / 1.8556, 0.5};
-        double const kcr[3] = {0.5, -0.7152 / 1.5748, -0.0722 / 1.5748};
-        for (int c = 0; c < 3; ++c)
-        {
-            auto const& lut = plan.planeIntensity[static_cast<std::size_t>(c)];
-            auto& table = plan.overlayColour[static_cast<std::size_t>(c)];
-            table.resize(lut.size());
-            for (std::size_t n = 0; n < lut.size(); ++n)
-            {
-                double const v = lut[n] / 1023.0 * 64.0;
-                table[n] = {static_cast<std::int32_t>(std::lround(ky[c] * 876.0 * v)), static_cast<std::int32_t>(std::lround(kcb[c] * 896.0 * v)),
-                    static_cast<std::int32_t>(std::lround(kcr[c] * 896.0 * v))};
-            }
-        }
-    }
     for (int k = 0; k < layout.panels; ++k)
     {
         auto const i = static_cast<std::size_t>(k);

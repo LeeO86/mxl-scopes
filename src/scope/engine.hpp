@@ -22,8 +22,8 @@ struct InputFormat
     std::size_t stride = 0;
     // Grains analysed into one update: 2 for interlaced (both fields of a frame), else 1.
     int fields = 1;
-    // Frames added into one update: SCOPES_ACCUMULATE=all takes every frame between two updates
-    // (input rate / update rate, rounded); `latest` 1. Capped so that no cell can pass 16 bits.
+    // Frames one update must be able to hold: SCOPES_ACCUMULATE=all adds every frame between two
+    // updates; `latest` 1. The engine raises the line step until they fit 16-bit cells.
     int frames = 1;
     [[nodiscard]] bool operator==(InputFormat const&) const = default;
 };
@@ -36,6 +36,8 @@ struct PaintParams
     int outputWidth = 0;
     int outputHeight = 0;
     int columns = 0;
+    // Per grain (one frame, or one field of an interlaced flow); the painter scales them by the
+    // grains an update holds.
     PlaneCounts counts;
     bool hasInput = false;
     [[nodiscard]] bool operator==(PaintParams const&) const = default;
@@ -49,10 +51,11 @@ public:
     bool configure(PaintParams const& params);
     // Writes the packed picture (packedSize() bytes) into `dst` and clears the counts. With a
     // state text (NOT ROUTED, NO SIGNAL, ...) or without an input the plot shows no trace.
-    void render(Histogram& hist, std::string const& caption, std::string const& state, std::uint8_t* dst);
+    // `grains` is the number of grains in the counts; the intensity is normalised to it (§4.4).
+    void render(Histogram& hist, std::string const& caption, std::string const& state, std::uint8_t* dst, int grains = 1);
     // The same picture as the still picture plus trace groups: the output writer rewrites only
     // the groups that differ from what an output grain already holds (§2.4).
-    void trace(Histogram& hist, std::string const& caption, std::string const& state, std::vector<TraceGroup>& trace);
+    void trace(Histogram& hist, std::string const& caption, std::string const& state, std::vector<TraceGroup>& trace, int grains = 1);
     [[nodiscard]] std::uint8_t const* stillPacked() const
     {
         return stillPacked_->data();
@@ -88,6 +91,7 @@ public:
 
 private:
     PaintParams params_;
+    int grains_ = 1;
     bool configured_ = false;
     RenderPlan render_;
     Frame422 still_;
@@ -153,10 +157,22 @@ public:
     {
         return level_;
     }
-    // Frames per update after the 16-bit cap (InputFormat::frames).
-    [[nodiscard]] int framesPerUpdate() const
+    // Grains (frames, or fields of an interlaced flow) one update can hold without a 16-bit cell
+    // overflowing; at least InputFormat::frames × fields.
+    [[nodiscard]] int maxGrains() const
     {
-        return frames_;
+        return maxGrains_;
+    }
+    // Grains analysed since the last render or trace.
+    [[nodiscard]] int grains() const
+    {
+        return grains_;
+    }
+    // The line step in use: SCOPES_LINE_STEP, raised when the counts would not fit 16 bits
+    // (many input samples per column: a small output, a parade, a UHD input, `all`).
+    [[nodiscard]] int lineStep() const
+    {
+        return lineStep_;
     }
     [[nodiscard]] std::size_t packedSize() const
     {
@@ -168,7 +184,9 @@ private:
     int stripColumns_;
     bool configured_ = false;
     InputFormat input_;
-    int frames_ = 1;
+    int maxGrains_ = 1;
+    int grains_ = 0;
+    int lineStep_ = 1;
     DisplaySettings settings_;
     int outputWidth_ = 0;
     int outputHeight_ = 0;

@@ -154,15 +154,14 @@ struct Avx2V
     {
         return _mm256_mullo_epi32(a, b);
     }
-    // a × b for lanes whose values fit signed 16 bits (high halves 0 or sign only in `a`'s low
-    // half): one vpmaddwd instead of the two-uop vpmulld. `b` must be a non-negative constant
-    // below 32768 with its high half zero; `a` may be negative (−512..511), its high half is
-    // cleared first.
-    // a × b for lanes that hold values 0..32767 (high halves zero): one vpmaddwd.
+    // a × b for lanes that hold values 0..32767 (high halves zero): one vpmaddwd instead of the
+    // two-µop vpmulld, the same 32-bit product.
     static Reg mulU16(Reg a, Reg b)
     {
         return _mm256_madd_epi16(a, b);
     }
+    // a × b for a signed `a` in −32768..32767 (its high half is cleared first) and a constant `b`
+    // in 0..32767: one vpmaddwd, the exact signed product.
     static Reg mulSmall(Reg a, Reg b)
     {
         return _mm256_madd_epi16(_mm256_and_si256(a, _mm256_set1_epi32(0xffff)), b);
