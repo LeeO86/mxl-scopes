@@ -206,7 +206,10 @@ std::string Api::outputJson() const
         << quote(o.key ? "video/v210a" : "video/v210") << ",\"key\":" << boolean(o.key) << ",\"writing\":" << boolean(o.writing)
         << ",\"frames\":" << o.frames << ",\"late\":" << o.late << ",\"missed\":" << o.missed;
     // Where the plot sits in the raster (§5.2), for tests and tools that sample the output.
-    auto const layout = makeLayout(config_.outputWidth, config_.outputHeight, panelCount(state_.settings()->mode));
+    // The layout of the picture on the output (its mode), else of the current settings.
+    auto const mode = o.mode.empty() ? state_.settings()->mode : o.mode;
+    out << ",\"mode\":" << quote(mode);
+    auto const layout = makeLayout(config_.outputWidth, config_.outputHeight, panelCount(mode));
     out << ",\"plot\":{\"x\":" << layout.plotX << ",\"y\":" << layout.plotY << ",\"width\":" << layout.plotW << ",\"height\":" << layout.plotH
         << ",\"bins\":" << histogramBins(layout) << ",\"panels\":[";
     for (int k = 0; k < layout.panels; ++k)
@@ -222,7 +225,7 @@ std::string Api::rendererJson() const
     auto const r = state_.renderer();
     std::ostringstream out;
     out << "{\"updates\":" << r.updates << ",\"skipped\":" << r.skipped << ",\"torn\":" << r.torn << ",\"update_rate_hz\":" << number(r.updateHz)
-        << ",\"analyse_ms\":" << number(r.analyseMs) << ",\"analyse_cpu_ms\":" << number(r.analyseCpuMs) << ",\"render_ms\":" << number(r.renderMs) << ",\"simd\":" << quote(simdName(build_.simd.level)) << "}";
+        << ",\"analyse_ms\":" << number(r.analyseMs) << ",\"analyse_cpu_ms\":" << number(r.analyseCpuMs) << ",\"render_ms\":" << number(r.renderMs) << ",\"line_step\":" << r.lineStep << ",\"simd\":" << quote(simdName(build_.simd.level)) << "}";
     return out.str();
 }
 

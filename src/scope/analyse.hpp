@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -117,7 +118,14 @@ struct Histogram
     }
 };
 
-// Throws std::invalid_argument when the counts could overflow 16 bits.
+// A plan whose cells could pass 16 bits (too many samples per column for one grain).
+struct CellOverflow : std::invalid_argument
+{
+    using std::invalid_argument::invalid_argument;
+};
+
+// Throws CellOverflow when the counts of one grain could overflow 16 bits, std::invalid_argument
+// for other invalid values.
 AnalysePlan makeAnalysePlan(int width, int height, std::size_t stride, int lineStep, int pixelStep, int columns, int bins,
     int stripColumns = kDefaultStripColumns, ScopeKind kind = ScopeKind::Luma);
 

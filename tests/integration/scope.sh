@@ -174,6 +174,9 @@ TRACE="$("$SAMPLE" --domain "$WORK/scopes" --flow "$FLOW_OUT" --width 640 --at "
 (( TRACE > 400 )) || fail "no trace with accumulate all ($TRACE)"
 curl -sf -X PATCH -H 'Content-Type: application/json' -d '{"accumulate":"latest"}' "$API/api/v1/scope" >/dev/null
 
+# At 1 Hz a mode change must show at once, not at the next tick (the picture is redrawn when
+# the settings change, also while the input holds).
+curl -sf -X PATCH -H 'Content-Type: application/json' -d '{"update_rate":1}' "$API/api/v1/scope" >/dev/null || fail "PATCH 1 Hz"
 # Live mode changes keep the flow id; NMOS describes the new mode. A flat grey is R′ = G′ =
 # B′ = Cb = Cr = 512: one trace row in every panel of the parades.
 for mode in rgb-parade ycbcr-parade rgb-overlay; do
@@ -181,6 +184,7 @@ for mode in rgb-parade ycbcr-parade rgb-overlay; do
   sleep 0.6
   OUTM="$(curl -sf "$API/api/v1/output")"
   [[ "$(echo "$OUTM" | json 'd["flow_id"]')" == "$FLOW_OUT" ]] || fail "mode $mode minted a new flow id"
+  [[ "$(echo "$OUTM" | json 'd["mode"]')" == "$mode" ]] || fail "/api/v1/output does not show $mode"
   read -r PY PH <<<"$(echo "$OUTM" | json '"%d %d" % (d["plot"]["y"], d["plot"]["height"])')"
   ROWM=$(( PY + PH - 1 - (512 * PH >> 10) ))
   AT=()
@@ -197,6 +201,7 @@ for mode in rgb-parade ycbcr-parade rgb-overlay; do
   echo "$mode: NMOS flow description $DESC"
   [[ "$DESC" == "$(curl -sf "$API/api/v1/scope" | json 'd["title"]')" ]] || fail "NMOS flow description $DESC does not follow $mode"
 done
+curl -sf -X PATCH -H 'Content-Type: application/json' -d '{"update_rate":10}' "$API/api/v1/scope" >/dev/null || fail "PATCH 10 Hz"
 grep -q 'mxl_scopes_updates_total{mode="rgb-parade"}' <<<"$(curl -sf "$API/metrics")" || fail "no updates_total for rgb-parade"
 curl -sf -X PATCH -H 'Content-Type: application/json' -d '{"mode":"luma"}' "$API/api/v1/scope" >/dev/null || fail "PATCH mode luma"
 curl -s -X PATCH -H 'Content-Type: application/json' -d '{"mode":"vectorscope"}' -o /dev/null -w '%{http_code}' "$API/api/v1/scope" | grep -q 400 \
@@ -204,7 +209,7 @@ curl -s -X PATCH -H 'Content-Type: application/json' -d '{"mode":"vectorscope"}'
 echo "modes ok"
 
 METRICS="$(curl -sf "$API/metrics")"
-for name in mxl_scopes_updates_total mxl_scopes_analyse_seconds_bucket mxl_scopes_output_frames_total 'mxl_scopes_input_state{state="running"} 1' mxl_scopes_simd_level; do
+for name in mxl_scopes_accumulate_dropped_total mxl_scopes_updates_total mxl_scopes_analyse_seconds_bucket mxl_scopes_output_frames_total 'mxl_scopes_input_state{state="running"} 1' mxl_scopes_simd_level; do
   grep -q "$name" <<<"$METRICS" || fail "metric $name missing"
 done
 

@@ -31,7 +31,7 @@ Environment > `SCOPES_CONFIG_FILE` (flat JSON, else `<SCOPES_STATE_DIR>/config.j
 | `SCOPES_MODE` | `luma` | `luma`, `ycbcr-parade`, `rgb-parade`, `rgb-overlay`, live (`ycbcr-overlay` and stage-2 modes exit 78) |
 | `SCOPES_UPDATE_RATE` | `25` | `frame` or 1–60 Hz, live |
 | `SCOPES_ACCUMULATE` | `latest` | `latest` or `all` (every frame between two updates), live |
-| `SCOPES_LINE_STEP`, `SCOPES_PIXEL_STEP` | 1, 1 | live |
+| `SCOPES_LINE_STEP`, `SCOPES_PIXEL_STEP` | 1, 1 | live; the line step is raised when the counts would not fit 16 bits (`renderer.line_step` in the status) |
 | `SCOPES_RANGE`, `SCOPES_GRATICULE_UNITS`, `SCOPES_GRATICULE_LEVEL` | `limited`, `mv`, 60 | live |
 | `SCOPES_INTENSITY`, `SCOPES_TRACE_MIN`, `SCOPES_TRACE_COLOR`, `SCOPES_CAPTION` | 100, 96, `green`, `true` | live; the trace colour applies to `luma` (the parades and the overlay colour each component) |
 | `SCOPES_OUTPUT_FORMAT`, `SCOPES_OUTPUT_RATE` | `1920x1080`, `input` | at start (`input` follows the routed flow live) |

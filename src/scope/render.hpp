@@ -131,6 +131,9 @@ int rowOfCode(RenderPlan const& plan, int code);
 // `samples` and `maxCount` come from the analyse plan; zero without an input. The mode in the
 // settings decides the panels; the layout must have its panel count.
 RenderPlan makeRenderPlan(Layout const& layout, DisplaySettings const& settings, int columns, PlaneCounts const& counts);
+// Rebuilds the intensity tables (and the overlay's colour tables) for other counts: the number
+// of grains in an update changes c_ref and the largest count, nothing else (§4.4).
+void setIntensity(RenderPlan& plan, DisplaySettings const& settings, PlaneCounts const& counts);
 // Luma (and tests): every plane with the same counts.
 RenderPlan makeRenderPlan(Layout const& layout, DisplaySettings const& settings, int columns, std::uint64_t samples, std::uint32_t maxCount);
 

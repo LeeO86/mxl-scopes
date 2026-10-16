@@ -384,26 +384,70 @@ TEST_CASE("golden hashes of the other modes")
     }
 }
 
-TEST_CASE("accumulate: frames per update scale the intensity and stop at 16 bits")
+TEST_CASE("accumulate: the intensity follows the grains analysed; the capacity raises the line step")
 {
     DisplaySettings settings;
     ScopeEngine engine(SimdLevel::Scalar);
     engine.configure({1920, 1080, v210RowBytes(1920), 1, 2}, settings, 1920, 1080);
-    CHECK(engine.framesPerUpdate() == 2);
-    CHECK(engine.paintParams().counts.samples[0] == 2ull * 1920 * 1080);
-    engine.configure({1920, 1080, v210RowBytes(1920), 1, 60}, settings, 1920, 1080);
-    CHECK(engine.framesPerUpdate() < 60);
-    CHECK(static_cast<std::uint64_t>(engine.analysePlan().maxCellCount) * static_cast<std::uint64_t>(engine.framesPerUpdate()) <= 65535);
-    // Two frames of a flat field render like one (the normalisation counts both).
+    CHECK(engine.lineStep() == 1);
+    CHECK(engine.maxGrains() >= 2);
+    // 51 frames (1 Hz from 50p, plus one) do not fit 16-bit cells at every line: every n-th line.
+    engine.configure({1920, 1080, v210RowBytes(1920), 1, 51}, settings, 1920, 1080);
+    CHECK(engine.lineStep() > 1);
+    CHECK(engine.maxGrains() >= 51);
+    CHECK(static_cast<std::uint64_t>(engine.analysePlan().maxCellCount) * static_cast<std::uint64_t>(engine.maxGrains()) <= 65535);
+    // One, two or three frames of a flat field render alike: normalised to the grains analysed
+    // (a 50p input at 12.5 Hz gives 4, at 20 Hz 2 or 3 frames per update; no flicker).
     auto const frame = packPattern(makePattern("flat", 1920, 1080, 512));
     std::vector<std::uint8_t> one(engine.packedSize());
-    std::vector<std::uint8_t> two(engine.packedSize());
-    engine.configure({1920, 1080, v210RowBytes(1920), 1, 1}, settings, 1920, 1080);
+    engine.configure({1920, 1080, v210RowBytes(1920), 1, 4}, settings, 1920, 1080);
     engine.analyse(frame.data());
     engine.render("", "", one.data());
-    engine.configure({1920, 1080, v210RowBytes(1920), 1, 2}, settings, 1920, 1080);
-    engine.analyse(frame.data());
-    engine.analyse(frame.data());
-    engine.render("", "", two.data());
-    CHECK(one == two);
+    for (int n : {2, 3, 4})
+    {
+        CAPTURE(n);
+        std::vector<std::uint8_t> more(engine.packedSize());
+        for (int i = 0; i < n; ++i)
+        {
+            engine.analyse(frame.data());
+        }
+        CHECK(engine.grains() == n);
+        engine.render("", "", more.data());
+        CHECK(more == one);
+    }
+}
+
+TEST_CASE("modes: a UHD input on a small output never overflows a cell (every mode, line step raised)")
+{
+    // A parade panel of a 384×216 output has 66 columns: 3840 / 66 × 2160 samples per cell
+    // would pass 16 bits. The engine raises the line step instead of failing.
+    auto const uhd = packPattern(makePattern("random", 3840, 2160, 0, 21));
+    auto const fields = packPattern(makePattern("random", 1920, 540, 0, 22));
+    for (auto const* mode : {"luma", "ycbcr-parade", "rgb-parade", "rgb-overlay"})
+    {
+        for (auto [w, h] : {std::pair{320, 180}, std::pair{384, 216}, std::pair{640, 360}, std::pair{1920, 1080}})
+        {
+            for (int frames : {1, 61})
+            {
+                CAPTURE(mode);
+                CAPTURE(w);
+                CAPTURE(frames);
+                DisplaySettings settings;
+                settings.mode = mode;
+                ScopeEngine engine(SimdLevel::Scalar);
+                REQUIRE_NOTHROW(engine.configure({3840, 2160, v210RowBytes(3840), 1, frames}, settings, w, h));
+                auto const& plan = engine.analysePlan();
+                CHECK(static_cast<std::uint64_t>(plan.maxCellCount) * static_cast<std::uint64_t>(engine.maxGrains()) <= 65535);
+                CHECK(engine.maxGrains() >= frames);
+                compareCounts(plan, uhd);
+                std::vector<std::uint8_t> out(engine.packedSize());
+                engine.analyse(uhd.data());
+                engine.render(modeTitle(mode), "", out.data());
+                // Interlaced: two fields per update.
+                ScopeEngine fieldEngine(SimdLevel::Scalar);
+                REQUIRE_NOTHROW(fieldEngine.configure({1920, 540, v210RowBytes(1920), 2, frames}, settings, w, h));
+                CHECK(fieldEngine.maxGrains() >= 2 * frames);
+            }
+        }
+    }
 }

@@ -149,7 +149,7 @@ AnalysePlan makeAnalysePlan(int width, int height, std::size_t stride, int lineS
     auto const maxChroma = static_cast<std::uint64_t>(*std::max_element(perColumnChroma.begin(), perColumnChroma.end())) * rows;
     if (maxLuma > 65535)
     {
-        throw std::invalid_argument("a histogram cell could exceed 16 bits (" + std::to_string(maxLuma) + ")");
+        throw CellOverflow("a histogram cell could exceed 16 bits (" + std::to_string(maxLuma) + ")");
     }
     for (int p = 0; p < plan.planes; ++p)
     {

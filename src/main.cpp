@@ -113,7 +113,7 @@ int main(int argc, char** argv)
         metrics.set("nmos_registry_up", {}, 0);
         metrics.inc("nmos_activations_total", {}, 0);
         for (char const* name : {"updates_skipped_total", "updates_torn_total", "output_frames_total", "output_frames_late_total", "output_frames_missed_total",
-                 "input_grains_total", "input_resyncs_total"})
+                 "input_grains_total", "input_resyncs_total", "accumulate_dropped_total"})
         {
             metrics.inc(name, {}, 0);
         }
