@@ -14,7 +14,6 @@
 #include "scope/cpu/lanes.hpp"
 
 #include <algorithm>
-#include <bit>
 
 namespace scopes::cpu
 {
@@ -22,8 +21,6 @@ template <class V, class C, ScopeKind K, int PS, bool TWO>
 static std::uint64_t analyseRowsMulti(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range)
 {
     std::uint64_t outOfGamut = 0;
-    constexpr std::uint32_t kValidA = validLanesA(V::kGroups, PS);
-    constexpr std::uint32_t kValidB = validLanesB(V::kGroups, PS);
     using R = typename V::Reg;
     constexpr int G = V::kGroups;
     constexpr int N = 4 * G;
@@ -33,6 +30,12 @@ static std::uint64_t analyseRowsMulti(AnalysePlan const& plan, std::uint8_t cons
     auto* counts = hist.data<C>();
     auto* scratch = hist.scratchData<C>();
     alignas(64) std::uint32_t buffer[kPer * kChunk];
+    // The gamut count (§4.7, `Rgb`): per lane, of the samples taken at this pixel step.
+    R gamut = V::set1(0);
+    R const gamutLow = V::set1(kGamutLow);
+    R const gamutHigh = V::set1(kGamutHigh);
+    auto const validA = V::lanes(validLanesA(V::kGroups, PS));
+    auto const validB = V::lanes(validLanesB(V::kGroups, PS));
     R const mask = V::set1(0x3ff);
     R const bins = V::set1(plan.bins);
     R const columns = V::set1(plan.columns);
@@ -83,28 +86,25 @@ static std::uint64_t analyseRowsMulti(AnalysePlan const& plan, std::uint8_t cons
                         R const round = V::set1(4096);
                         R const centre = V::set1(512);
                         auto const clamp = [&](R v) { return V::min(V::max(v, zero), top); };
-                        R const low = V::set1(kGamutLow);
-                        R const high = V::set1(kGamutHigh);
+
                         // §4.8 in 32-bit lanes; the chroma differences (−512..511) and the Q13
                         // coefficients fit signed 16 bits, so mulSmall and dot2 are exact. The
                         // unclamped values give the gamut count (§4.7): a bit per lane outside.
-                        auto const rgb = [&](R yv, R cbv, R crv, R& r, R& gv, R& b) {
+                        auto const rgb = [&](R yv, R cbv, R crv, R& r, R& gv, R& b, typename V::LaneSet valid) {
                             R const yy = V::add(V::slli(yv, 13), round);
                             R const db = V::sub(cbv, centre);
                             R const dr = V::sub(crv, centre);
                             r = V::srai(V::add(yy, V::mulSmall(dr, V::set1(kQ13CrR))), 13);
                             gv = V::srai(V::add(yy, V::dot2(db, dr, -kQ13CbG, -kQ13CrG)), 13);
                             b = V::srai(V::add(yy, V::mulSmall(db, V::set1(kQ13CbB))), 13);
-                            std::uint32_t const outside = V::outside(r, low, high) | V::outside(gv, low, high) | V::outside(b, low, high);
+                            V::countOutside(gamut, r, gv, b, gamutLow, gamutHigh, valid);
                             r = clamp(r);
                             gv = clamp(gv);
                             b = clamp(b);
-                            return outside;
                         };
                         R rA, gA, bA, rB, gB, bB;
-                        std::uint32_t const outA = rgb(yA, cbA, crA, rA, gA, bA);
-                        std::uint32_t const outB = rgb(yB, cbB, crB, rB, gB, bB);
-                        outOfGamut += static_cast<std::uint64_t>(std::popcount(outA & kValidA) + std::popcount(outB & kValidB));
+                        rgb(yA, cbA, crA, rA, gA, bA, validA);
+                        rgb(yB, cbB, crB, rB, gB, bB, validB);
                         auto const* offA = plan.simdOffA.data() + at;
                         auto const* offB = plan.simdOffB.data() + at;
                         auto const plane = static_cast<int>(plan.planeCells);
@@ -150,7 +150,7 @@ static std::uint64_t analyseRowsMulti(AnalysePlan const& plan, std::uint8_t cons
             foldStrip(plan, strip, counts, scratch);
         }
     }
-    return outOfGamut;
+    return outOfGamut + V::sumLanes(gamut);
 }
 
 template <class V, ScopeKind K, int PS, class C>

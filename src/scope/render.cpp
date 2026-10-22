@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <type_traits>
 
 namespace scopes
 {
@@ -725,6 +726,20 @@ bool panelRow(RenderPlan const& plan, PanelPlan const& panel, C const* const* li
 
 namespace
 {
+// The samples of one histogram row. 16-bit cells add in 32-bit lanes (at most 3840 × 65535 fits),
+// which the compiler vectorises; 32-bit cells in 64 bits.
+template <class C>
+std::uint64_t rowSum(C const* cells, int columns)
+{
+    using Acc = std::conditional_t<sizeof(C) == 2, std::uint32_t, std::uint64_t>;
+    Acc sum = 0;
+    for (int c = 0; c < columns; ++c)
+    {
+        sum += cells[c];
+    }
+    return sum;
+}
+
 template <class C>
 void collectTraceCells(RenderPlan const& plan, Histogram& hist, std::vector<TraceGroup>& trace, int rowBegin, int rowEnd, BinTotals* totals)
 {
@@ -767,13 +782,7 @@ void collectTraceCells(RenderPlan const& plan, Histogram& hist, std::vector<Trac
             // The first plot row of this bin: its samples over all columns (§4.7).
             for (int p = 0; p < plan.planes; ++p)
             {
-                std::uint64_t sum = 0;
-                auto const* cells = rows[static_cast<std::size_t>(p)];
-                for (int c = 0; c < plan.columns; ++c)
-                {
-                    sum += cells[c];
-                }
-                totals->plane[static_cast<std::size_t>(p)][bin] = sum;
+                totals->plane[static_cast<std::size_t>(p)][bin] = rowSum(rows[static_cast<std::size_t>(p)], plan.columns);
             }
         }
         auto gi = plan.graticuleStart[static_cast<std::size_t>(r)];

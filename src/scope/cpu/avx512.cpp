@@ -123,10 +123,30 @@ struct Avx512V
 {
 
     using Reg = __m512i;
-    // Bit per lane: the lane is below `low` or above `high` (signed).
-    static std::uint32_t outside(Reg v, Reg low, Reg high)
+    // The gamut count (§4.7) in vector lanes: a lane set is a mask.
+    using LaneSet = __mmask16;
+    static LaneSet lanes(std::uint32_t bits)
     {
-        return static_cast<std::uint32_t>(_mm512_cmpgt_epi32_mask(low, v) | _mm512_cmpgt_epi32_mask(v, high));
+        return static_cast<__mmask16>(bits & 0xffffu);
+    }
+    // Adds 1 to the lanes of `valid` where any of r, g, b is below `low` or above `high`.
+    static void countOutside(Reg& acc, Reg r, Reg g, Reg b, Reg low, Reg high, LaneSet valid)
+    {
+        Reg const most = _mm512_max_epi32(_mm512_max_epi32(r, g), b);
+        Reg const least = _mm512_min_epi32(_mm512_min_epi32(r, g), b);
+        __mmask16 const out = static_cast<__mmask16>((_mm512_cmpgt_epi32_mask(most, high) | _mm512_cmpgt_epi32_mask(low, least)) & valid);
+        acc = _mm512_mask_add_epi32(acc, out, acc, _mm512_set1_epi32(1));
+    }
+    static std::uint64_t sumLanes(Reg acc)
+    {
+        alignas(64) std::uint32_t v[16];
+        _mm512_store_si512(v, acc);
+        std::uint64_t sum = 0;
+        for (auto x : v)
+        {
+            sum += x;
+        }
+        return sum;
     }
     static constexpr int kGroups = 4;
     static constexpr int kChunk = 16;

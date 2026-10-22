@@ -88,6 +88,9 @@ struct AnalysePlan
         int col1 = 0;   // last column touched
     };
     std::vector<Strip> strips;
+    // Strip workers: part k analyses strips [partStart[k], partStart[k + 1]); no histogram column
+    // spans two parts. One part: {0, strips.size()}.
+    std::vector<int> partStart;
     // v210 groups whose six samples all lie inside the width.
     int fullGroups = 0;
     // SIMD order of the columns: per group, lanes {0, 1, 3, 4} and {-, 2, -, 5} (AVX2 loads two
@@ -175,10 +178,10 @@ struct CellOverflow : std::invalid_argument
 };
 
 // `grains`: the grains one update adds up; the plan is `wide` when their counts could pass 16
-// bits. Throws CellOverflow when they could pass 32 bits, std::invalid_argument for other
+// bits. `parts`: the strip workers that share the strips (AnalysePlan::partStart). Throws CellOverflow when they could pass 32 bits, std::invalid_argument for other
 // invalid values.
 AnalysePlan makeAnalysePlan(int width, int height, std::size_t stride, int lineStep, int pixelStep, int columns, int bins,
-    int stripColumns = kDefaultStripColumns, ScopeKind kind = ScopeKind::Luma, int grains = 1);
+    int stripColumns = kDefaultStripColumns, ScopeKind kind = ScopeKind::Luma, int grains = 1, int parts = 1);
 
 // Strips [begin, end) of a plan; end −1 is the last. A strip worker analyses one range: the
 // ranges of the workers share no histogram column (ScopeEngine splits them so).

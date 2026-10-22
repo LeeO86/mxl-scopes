@@ -107,35 +107,6 @@ ScopeEngine::ScopeEngine(SimdLevel level, int stripColumns, int threads)
     }
 }
 
-namespace
-{
-// Strip boundaries for `parts` workers: even shares of the v210 groups, each boundary moved to
-// the next strip that shares no histogram column with the one before it, so no two workers ever
-// touch one cell (§4.3). A part may be empty.
-std::vector<int> splitStrips(AnalysePlan const& plan, int parts)
-{
-    auto const& strips = plan.strips;
-    int const n = static_cast<int>(strips.size());
-    int const groups = n > 0 ? strips.back().g1 : 0;
-    std::vector<int> split{0};
-    for (int k = 1; k < parts; ++k)
-    {
-        int const target = static_cast<int>(static_cast<std::int64_t>(groups) * k / parts);
-        int i = split.back();
-        while (i < n && strips[static_cast<std::size_t>(i)].g0 < target)
-        {
-            ++i;
-        }
-        while (i > 0 && i < n && strips[static_cast<std::size_t>(i) - 1].col1 >= strips[static_cast<std::size_t>(i)].col0)
-        {
-            ++i;
-        }
-        split.push_back(std::max(split.back(), i));
-    }
-    split.push_back(n);
-    return split;
-}
-} // namespace
 
 bool ScopeEngine::configure(InputFormat const& input, DisplaySettings const& settings, int outputWidth, int outputHeight, bool key)
 {
@@ -155,7 +126,7 @@ bool ScopeEngine::configure(InputFormat const& input, DisplaySettings const& set
         // when they fit, else 32-bit cells (AnalysePlan::wide).
         auto const grainsWanted = std::max(1, input.fields) * std::max(1, input.frames);
         analyse_ = makeAnalysePlan(input.width, input.height, input.stride, std::max(1, settings.lineStep), settings.pixelStep, columns, bins, stripColumns_,
-            scopeKindOf(settings.mode), grainsWanted);
+            scopeKindOf(settings.mode), grainsWanted, threads());
         auto const perGrain = std::max<std::uint64_t>(1, analyse_.maxCellCount);
         maxGrains_ = static_cast<int>(std::min<std::uint64_t>(1u << 20, std::max<std::uint64_t>(1, (analyse_.wide ? 0xffffffffull : 65535ull) / perGrain)));
         hist_.reset(analyse_);
@@ -165,7 +136,7 @@ bool ScopeEngine::configure(InputFormat const& input, DisplaySettings const& set
         analyse_ = AnalysePlan{};
         hist_ = Histogram{};
     }
-    stripSplit_ = splitStrips(analyse_, threads());
+    stripSplit_ = analyse_.partStart.empty() ? std::vector<int>(static_cast<std::size_t>(threads()) + 1, 0) : analyse_.partStart;
     input_ = input;
     settings_ = settings;
     outputWidth_ = outputWidth;
@@ -268,7 +239,7 @@ void ScopeEngine::measureUpdate(int grains)
 
 void ScopeEngine::render(std::string const& caption, std::string const& state, std::uint8_t* dst)
 {
-    if (painter_.render(hist_, caption, state, dst, grains_, &totals_))
+    if (painter_.render(hist_, caption, state, dst, grains_, analyse_.kind == ScopeKind::Rgb ? nullptr : &totals_))
     {
         measureUpdate(grains_);
     }
@@ -278,7 +249,7 @@ void ScopeEngine::render(std::string const& caption, std::string const& state, s
 
 void ScopeEngine::trace(std::string const& caption, std::string const& state, std::vector<TraceGroup>& out)
 {
-    if (painter_.trace(hist_, caption, state, out, grains_, &totals_))
+    if (painter_.trace(hist_, caption, state, out, grains_, analyse_.kind == ScopeKind::Rgb ? nullptr : &totals_))
     {
         measureUpdate(grains_);
     }

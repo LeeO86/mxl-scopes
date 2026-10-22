@@ -236,6 +236,8 @@ private:
     AnalysePlan analyse_;
     Histogram hist_;
     ScopePainter painter_;
+    // The bin totals of the luma and chroma planes (§4.7); the RGB modes measure only the gamut,
+    // counted by the analyse step, and skip them.
     BinTotals totals_;
     Measurements measurements_;
     std::uint64_t measuredUpdates_ = 0;

@@ -45,9 +45,9 @@ void Histogram::clear()
 }
 
 AnalysePlan makeAnalysePlan(int width, int height, std::size_t stride, int lineStep, int pixelStep, int columns, int bins, int stripColumns, ScopeKind kind,
-    int grains)
+    int grains, int parts)
 {
-    if (grains < 1 || width < 1 || height < 1 || columns < 1 || bins < 1 || bins > 1024 || stride < v210RowBytes(width) || lineStep < 1 || pixelStep < 1 ||
+    if (parts < 1 || grains < 1 || width < 1 || height < 1 || columns < 1 || bins < 1 || bins > 1024 || stride < v210RowBytes(width) || lineStep < 1 || pixelStep < 1 ||
         6 % pixelStep != 0 || stripColumns < 1)
     {
         throw std::invalid_argument("invalid analyse plan");
@@ -92,33 +92,40 @@ AnalysePlan makeAnalysePlan(int width, int height, std::size_t stride, int lineS
         {
             end = std::min(groups, end + 4);
         }
-        // End the strip where a new histogram column starts, so no column spans two strips and
-        // strip workers can split between any two strips (SCOPES_THREADS): a whole quad of
-        // groups if one fits, else any group.
-        auto const clean = [&](int e) { return e >= groups || col[static_cast<std::size_t>(6 * e - 1)] < col[static_cast<std::size_t>(6 * e)]; };
-        int cut = end;
-        while (cut - 4 > g && !clean(cut))
-        {
-            cut -= 4;
-        }
-        if (!clean(cut))
-        {
-            cut = end;
-            while (cut - 1 > g && !clean(cut))
-            {
-                --cut;
-            }
-            if (!clean(cut))
-            {
-                cut = end; // one column wider than the strip: shared (workers do not split here)
-            }
-        }
-        end = cut;
         strip.g1 = end;
         strip.col1 = lastCol(end - 1);
         plan.strips.push_back(strip);
         g = end;
     }
+    // Strip workers (SCOPES_THREADS): `parts` ranges of strips of about equal size whose
+    // boundaries start a new histogram column, so no cell is shared between two workers. A strip
+    // across such a boundary is split there; the other strips stay as they are.
+    plan.partStart.assign(1, 0);
+    for (int k = 1; k < parts; ++k)
+    {
+        int cut = std::max(groups * k / parts, plan.strips[static_cast<std::size_t>(plan.partStart.back())].g0);
+        while (cut < groups && cut > 0 && col[static_cast<std::size_t>(6 * cut - 1)] == col[static_cast<std::size_t>(6 * cut)])
+        {
+            ++cut;
+        }
+        auto it = std::find_if(plan.strips.begin(), plan.strips.end(), [&](AnalysePlan::Strip const& st) { return st.g1 > cut; });
+        if (cut >= groups || it == plan.strips.end())
+        {
+            plan.partStart.push_back(static_cast<int>(plan.strips.size()));
+            continue;
+        }
+        if (it->g0 < cut)
+        {
+            AnalysePlan::Strip tail = *it;
+            tail.g0 = cut;
+            tail.col0 = col[static_cast<std::size_t>(6 * cut)];
+            it->g1 = cut;
+            it->col1 = col[static_cast<std::size_t>(6 * cut - 1)];
+            it = plan.strips.insert(it + 1, tail);
+        }
+        plan.partStart.push_back(static_cast<int>(it - plan.strips.begin()));
+    }
+    plan.partStart.push_back(static_cast<int>(plan.strips.size()));
     plan.simdOffA.assign(static_cast<std::size_t>(groups) * 4u + 16u, 0);
     plan.simdOffB.assign(static_cast<std::size_t>(groups) * 4u + 16u, 0);
     for (int g = 0; g < plan.fullGroups; ++g)

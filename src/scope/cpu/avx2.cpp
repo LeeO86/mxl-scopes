@@ -125,11 +125,31 @@ struct Avx2V
 {
 
     using Reg = __m256i;
-    // Bit per lane: the lane is below `low` or above `high` (signed).
-    static std::uint32_t outside(Reg v, Reg low, Reg high)
+    // The gamut count (§4.7) in vector lanes: a lane set is all ones where its bit is set.
+    using LaneSet = Reg;
+    static LaneSet lanes(std::uint32_t bits)
     {
-        Reg const out = _mm256_or_si256(_mm256_cmpgt_epi32(low, v), _mm256_cmpgt_epi32(v, high));
-        return static_cast<std::uint32_t>(_mm256_movemask_ps(_mm256_castsi256_ps(out)));
+        auto const on = [&](int i) { return (bits >> i) & 1u ? -1 : 0; };
+        return _mm256_setr_epi32(on(0), on(1), on(2), on(3), on(4), on(5), on(6), on(7));
+    }
+    // Adds 1 to the lanes of `valid` where any of r, g, b is below `low` or above `high`.
+    static void countOutside(Reg& acc, Reg r, Reg g, Reg b, Reg low, Reg high, LaneSet valid)
+    {
+        Reg const most = _mm256_max_epi32(_mm256_max_epi32(r, g), b);
+        Reg const least = _mm256_min_epi32(_mm256_min_epi32(r, g), b);
+        Reg const out = _mm256_or_si256(_mm256_cmpgt_epi32(most, high), _mm256_cmpgt_epi32(low, least));
+        acc = _mm256_sub_epi32(acc, _mm256_and_si256(out, valid));
+    }
+    static std::uint64_t sumLanes(Reg acc)
+    {
+        alignas(32) std::uint32_t v[8];
+        _mm256_store_si256(reinterpret_cast<__m256i*>(v), acc);
+        std::uint64_t sum = 0;
+        for (auto x : v)
+        {
+            sum += x;
+        }
+        return sum;
     }
     static constexpr int kGroups = 2;
     static constexpr int kChunk = 32;
