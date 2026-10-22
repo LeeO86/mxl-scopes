@@ -60,7 +60,7 @@ int main(int argc, char** argv)
     if (domain.empty() || flow.empty() || !rate || !scopes::knownPattern(pattern) || width < 1 || height < 1 || (!interlace.empty() && !interlaced) ||
         (interlaced && height % 2 != 0))
     {
-        std::cerr << "usage: mxl-scopes-writer --domain DIR --flow UUID [--pattern bars75|bars100|ramp|flat|random|camera] [--level CODE]\n"
+        std::cerr << "usage: mxl-scopes-writer --domain DIR --flow UUID [--pattern bars75|bars100|ramp|flat|random|camera|scene] [--level CODE]\n"
                      "                         [--width 1920 --height 1080 --rate 50|5994|N/D] [--label TEXT]\n"
                      "                         [--interlace tff|bff (rate 25 or 2997)] [--invalid 1] [--partial 1]\n";
         return 2;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string_view>
 
 namespace scopes
 {
@@ -8,6 +9,12 @@ namespace scopes
 // At a tick the newest grain is analysed, never one twice. `frame` (rate 0), or a rate at or
 // above the input rate, updates on every new grain. A tick that passes while an update runs
 // is skipped and counted.
+// The update rate a mode runs at, from the `SCOPES_UPDATE_RATE` setting (0 is `frame`) and the
+// input frame rate (0 unknown). `rgb-overlay` updates at most every n-th input frame, n the
+// smallest that keeps it at or below 30 Hz: 25 Hz from 50p, 29.97 Hz from 59.94p, every frame
+// from 25p. Its render is too slow for every frame at 1080p50 (SPECIFICATION §4.6).
+double modeUpdateRate(std::string_view mode, double rateHz, double inputHz);
+
 class UpdateScheduler
 {
 public:

@@ -112,3 +112,40 @@ TEST_CASE("interlaced frame mode: one update per field pair, nothing counted as 
     CHECK(skipped == 0);
     CHECK(scheduler.effectiveHz() == 25);
 }
+
+TEST_CASE("rgb-overlay updates at most every second frame above 30 Hz")
+{
+    // 50p: `frame` and any rate above 25 Hz become 25 Hz; lower rates stay.
+    CHECK(modeUpdateRate("rgb-overlay", 0, 50) == 25);
+    CHECK(modeUpdateRate("rgb-overlay", 50, 50) == 25);
+    CHECK(modeUpdateRate("rgb-overlay", 30, 50) == 25);
+    CHECK(modeUpdateRate("rgb-overlay", 25, 50) == 25);
+    CHECK(modeUpdateRate("rgb-overlay", 10, 50) == 10);
+    // 59.94p: 29.97 Hz; 60p: 30 Hz.
+    CHECK(modeUpdateRate("rgb-overlay", 0, 60000.0 / 1001) == doctest::Approx(30000.0 / 1001));
+    CHECK(modeUpdateRate("rgb-overlay", 0, 60) == 30);
+    // 25p, 29.97p and 1080i50 (25 frames/s): every frame.
+    CHECK(modeUpdateRate("rgb-overlay", 0, 25) == 0);
+    CHECK(modeUpdateRate("rgb-overlay", 0, 30000.0 / 1001) == 0);
+    // Unknown input rate, and the other modes: the setting.
+    CHECK(modeUpdateRate("rgb-overlay", 0, 0) == 0);
+    for (auto const* mode : {"luma", "ycbcr-parade", "rgb-parade"})
+    {
+        CHECK(modeUpdateRate(mode, 0, 50) == 0);
+        CHECK(modeUpdateRate(mode, 50, 50) == 50);
+    }
+}
+
+TEST_CASE("rgb-overlay `frame` from 50p and 59.94p takes every second grain")
+{
+    auto const run = simulate(modeUpdateRate("rgb-overlay", 0, 50), 50, 1, 10);
+    CHECK(run.updates >= 249);
+    CHECK(run.updates <= 251);
+    CHECK_FALSE(run.twice);
+    CHECK(run.skipped == 0);
+    auto const ntsc = simulate(modeUpdateRate("rgb-overlay", 0, 60000.0 / 1001), 60000, 1001, 10);
+    CHECK(ntsc.updates >= 299);
+    CHECK(ntsc.updates <= 301);
+    CHECK_FALSE(ntsc.twice);
+    CHECK(ntsc.skipped == 0);
+}

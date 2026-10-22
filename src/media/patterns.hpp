@@ -21,7 +21,7 @@ Ycbcr10 rgbToYcbcr709(double r, double g, double b);
 // Test patterns for the unit tests, the benchmark and the pattern writer (SPECIFICATION §14):
 // `bars75`, `bars100` (eight vertical bars, white to black), `ramp` (luma 64..940 left to
 // right, neutral chroma), `flat` (luma `level`), `random` (every code 0..1023, seeded), `camera`
-// (smooth picture-like luma).
+// (smooth picture-like luma), `scene` (the camera luma with smooth colour).
 Frame422 makePattern(std::string const& name, int width, int height, int level = 512, std::uint32_t seed = 1);
 bool knownPattern(std::string const& name);
 // The packed frame, `v210RowBytes(width)` per line.

@@ -55,6 +55,8 @@ struct OutputView
     std::uint64_t frames = 0;
     std::uint64_t late = 0;
     std::uint64_t missed = 0;
+    // The mode of the picture on the output (a change shows at the next update).
+    std::string mode;
 };
 
 struct RendererView
@@ -69,6 +71,8 @@ struct RendererView
     double analyseCpuMs = 0;
     double renderMs = 0;
     std::uint64_t lastIndex = 0;
+    // The line step in use (SCOPES_LINE_STEP, raised when the counts would not fit 16 bits).
+    int lineStep = 1;
 };
 
 // The latest scope picture for GET /api/v1/snapshot.png (packed v210).

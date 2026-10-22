@@ -82,6 +82,7 @@ if(SCOPES_BUILD_TESTS)
         tests/unit/test_main.cpp
         tests/unit/test_config.cpp
         tests/unit/test_engine.cpp
+        tests/unit/test_modes.cpp
         tests/unit/test_render.cpp
         tests/unit/test_scheduler.cpp
         tests/unit/test_api.cpp

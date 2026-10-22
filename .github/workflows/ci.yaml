@@ -51,7 +51,7 @@ jobs:
           grep -q avx2 /proc/cpuinfo && echo "runner has AVX2" || echo "runner has no AVX2: the AVX2 engine tests are skipped"
           ./build/unit-tests
       - name: Benchmark (informative)
-        run: ./build/mxl-scopes-bench --iterations 30 --strips 64,512 --steps 1/1,2/1 --pattern bars75
+        run: ./build/mxl-scopes-bench --iterations 30 --strips 64,512 --steps 1/1,2/1 --pattern bars75 --modes luma,ycbcr-parade,rgb-parade,rgb-overlay
 
   build-and-test:
     runs-on: ubuntu-24.04

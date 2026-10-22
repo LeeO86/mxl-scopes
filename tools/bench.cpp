@@ -77,7 +77,7 @@ int main(int argc, char** argv)
         {
             std::cout << "mxl-scopes-bench [--rasters 1920x1080,3840x2160] [--output 1920x1080] [--simd scalar,avx2,avx512]\n"
                          "                 [--strips 32,64,128] [--steps 1/1,2/1,2/2] [--pattern random|bars75|ramp|flat]\n"
-                         "                 [--iterations 200]\n"
+                         "                 [--iterations 200] [--modes luma,ycbcr-parade,rgb-parade,rgb-overlay]\n"
                          "mxl-scopes-bench --golden DIR   (writes the golden pictures as PNG)\n";
             return 0;
         }
@@ -99,6 +99,26 @@ int main(int argc, char** argv)
             std::ofstream(dir + "/" + pattern + ".png", std::ios::binary) << encodePng(picture, 1);
             std::printf("%s/%s.png\n", dir.c_str(), pattern);
         }
+        // The other modes: colour bars and the colour scene.
+        for (auto const* mode : {"ycbcr-parade", "rgb-parade", "rgb-overlay"})
+        {
+            for (auto const* pattern : {"bars75", "scene"})
+            {
+                DisplaySettings settings;
+                settings.mode = mode;
+                ScopeEngine engine(SimdLevel::Scalar);
+                engine.configure({1920, 1080, v210RowBytes(1920)}, settings, 1920, 1080);
+                auto const frame = packPattern(makePattern(pattern, 1920, 1080, 512));
+                std::vector<std::uint8_t> out(engine.packedSize());
+                engine.analyse(frame.data());
+                engine.render(modeTitle(mode), "", out.data());
+                Frame422 picture;
+                picture.allocate(1920, 1080);
+                unpackV210(out.data(), v210RowBytes(1920), picture);
+                std::ofstream(dir + "/" + mode + "-" + pattern + ".png", std::ios::binary) << encodePng(picture, 1);
+                std::printf("%s/%s-%s.png\n", dir.c_str(), mode, pattern);
+            }
+        }
         return 0;
     }
     auto const rasters = split(arg(argc, argv, "--rasters", "1920x1080,3840x2160"));
@@ -107,6 +127,8 @@ int main(int argc, char** argv)
     auto const strips = split(arg(argc, argv, "--strips", "32,64,128"));
     auto const steps = split(arg(argc, argv, "--steps", "1/1,2/1,2/2"));
     auto const pattern = arg(argc, argv, "--pattern", "random");
+    auto const modes = split(arg(argc, argv, "--modes", "luma"));
+    std::vector<std::pair<std::string, std::string>> runs;
     int const iterations = std::max(5, std::stoi(arg(argc, argv, "--iterations", "200")));
     // --frames N cycles through N copies of the picture (N × 5.5 MB at 1080p beats the caches,
     // as a ring of MXL grains does); --interval-ms M sleeps between updates (a 25 Hz renderer).
@@ -118,20 +140,27 @@ int main(int argc, char** argv)
     int const napMs = std::max(0, std::stoi(arg(argc, argv, "--nap-ms", "0")));
     // --warm-us U spins U µs after the sleep, before the timed update (clock ramp-up test).
     int const warmUs = std::max(0, std::stoi(arg(argc, argv, "--warm-us", "0")));
+    for (auto const& mode : modes)
+    {
+        for (auto const& simd : simds)
+        {
+            runs.emplace_back(mode, simd);
+        }
+    }
     int const outW = std::stoi(output.substr(0, output.find('x')));
     int const outH = std::stoi(output.substr(output.find('x') + 1));
     bool const avx2 = cpuHasAvx2() && avx2Compiled();
     bool const avx512 = cpuHasAvx512() && avx512Compiled();
     std::printf("# cpu avx512=%s%s ", avx512 ? "yes" : "no", cpuIsSkylakeServer() ? " (skylake-sp)" : "");
     std::printf("avx2=%s pattern=%s output=%dx%d iterations=%d\n", avx2 ? "yes" : "no", pattern.c_str(), outW, outH, iterations);
-    std::printf("%-10s %-7s %-6s %-6s %10s %10s %10s %10s %10s %10s\n", "raster", "simd", "strip", "step", "analyse", "an_p99", "render", "-", "total",
+    std::printf("%-13s %-10s %-7s %-6s %-6s %10s %10s %10s %10s %10s %10s\n", "mode", "raster", "simd", "strip", "step", "analyse", "an_p99", "render", "-", "total",
         "total_p99");
     for (auto const& raster : rasters)
     {
         int const w = std::stoi(raster.substr(0, raster.find('x')));
         int const h = std::stoi(raster.substr(raster.find('x') + 1));
         std::vector<std::vector<std::uint8_t>> frames(static_cast<std::size_t>(copies), packPattern(makePattern(pattern, w, h, 512, 7)));
-        for (auto const& simd : simds)
+        for (auto const& [mode, simd] : runs)
         {
             if ((simd == "avx2" && !avx2) || (simd == "avx512" && !avx512))
             {
@@ -143,6 +172,7 @@ int main(int argc, char** argv)
                 for (auto const& step : steps)
                 {
                     DisplaySettings settings;
+                    settings.mode = mode;
                     settings.lineStep = std::stoi(step.substr(0, step.find('/')));
                     settings.pixelStep = std::stoi(step.substr(step.find('/') + 1));
                     ScopeEngine engine(simd == "avx512" ? SimdLevel::Avx512 : simd == "avx2" ? SimdLevel::Avx2 : SimdLevel::Scalar, std::stoi(strip));
@@ -183,7 +213,7 @@ int main(int argc, char** argv)
                         auto const t0 = std::chrono::steady_clock::now();
                         engine.analyse(frame.data());
                         auto const t1 = std::chrono::steady_clock::now();
-                        engine.render("Luma waveform", "", out.data());
+                        engine.render(modeTitle(mode), "", out.data());
                         auto const t2 = std::chrono::steady_clock::now();
                         auto const t3 = t2;
                         if (i >= 3)
@@ -196,7 +226,7 @@ int main(int argc, char** argv)
                     }
                     auto const a = stats(analyse);
                     auto const t = stats(total);
-                    std::printf("%-10s %-7s %-6s %-6s %10.3f %10.3f %10.3f %10.3f %10.3f %10.3f\n", raster.c_str(), simd.c_str(), strip.c_str(), step.c_str(),
+                    std::printf("%-13s %-10s %-7s %-6s %-6s %10.3f %10.3f %10.3f %10.3f %10.3f %10.3f\n", mode.c_str(), raster.c_str(), simd.c_str(), strip.c_str(), step.c_str(),
                         a.median, a.p99, stats(render).median, stats(pack).median, t.median, t.p99);
                     std::fflush(stdout);
                 }

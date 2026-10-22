@@ -463,18 +463,14 @@ Config loadConfig(std::map<std::string, std::string> const& env, std::map<std::s
 
     Config cfg;
     auto& d = cfg.display;
-    // Stage-1 modes after luma arrive in M2; stage-2 modes are not in v1 (§5.1, §8.1).
+    // The stage-1 modes (§5.1); ycbcr-overlay (a SHOULD) is not built; stage-2 modes are not in v1.
     d.mode = requireEnum("SCOPES_MODE", raw("SCOPES_MODE"), {"luma", "ycbcr-parade", "rgb-parade", "rgb-overlay", "ycbcr-overlay"});
-    if (d.mode != "luma")
+    if (d.mode == "ycbcr-overlay")
     {
-        throw ConfigError("SCOPES_MODE " + d.mode + " is not implemented in this build (luma only until M2)");
+        throw ConfigError("SCOPES_MODE ycbcr-overlay is not implemented in this build");
     }
     d.updateRate = parseUpdateRate(raw("SCOPES_UPDATE_RATE"));
     d.accumulate = requireEnum("SCOPES_ACCUMULATE", raw("SCOPES_ACCUMULATE"), {"latest", "all"});
-    if (d.accumulate != "latest")
-    {
-        throw ConfigError("SCOPES_ACCUMULATE=all is not implemented in this build (M1)");
-    }
     d.lineStep = requireInt("SCOPES_LINE_STEP", raw("SCOPES_LINE_STEP"), 1, 8);
     d.pixelStep = requireInt("SCOPES_PIXEL_STEP", raw("SCOPES_PIXEL_STEP"), 1, 6);
     if (6 % d.pixelStep != 0)
