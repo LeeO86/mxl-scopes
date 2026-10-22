@@ -41,6 +41,8 @@ struct PaintParams
     // grains an update holds.
     PlaneCounts counts;
     bool hasInput = false;
+    // video/v210a: a key plane after the fill (SPECIFICATION §7).
+    bool key = false;
     [[nodiscard]] bool operator==(PaintParams const&) const = default;
 };
 
@@ -89,7 +91,7 @@ public:
     }
     [[nodiscard]] std::size_t packedSize() const
     {
-        return v210RowBytes(params_.outputWidth) * static_cast<std::size_t>(params_.outputHeight);
+        return (v210RowBytes(params_.outputWidth) + (params_.key ? alphaRowBytes(params_.outputWidth) : 0)) * static_cast<std::size_t>(params_.outputHeight);
     }
     // Strip workers for the trace step (plot rows split between them); null: one thread.
     void setWorkers(WorkerPool* pool)
@@ -132,7 +134,8 @@ public:
 
     // Rebuilds the tables when the input format, the settings or the raster changed.
     // Returns true when it rebuilt them.
-    bool configure(InputFormat const& input, DisplaySettings const& settings, int outputWidth, int outputHeight);
+    // `key`: the output carries a key plane (video/v210a, §7).
+    bool configure(InputFormat const& input, DisplaySettings const& settings, int outputWidth, int outputHeight, bool key = false);
     // Adds one v210 frame (the configured input format) to the engine's histograms, or to
     // `hist`, which is resized (and cleared) when it does not fit the plan.
     void analyse(std::uint8_t const* v210);
@@ -199,9 +202,10 @@ public:
     {
         return lineStep_;
     }
+    // The packed picture: the v210 fill, and the key plane after it when the output has a key.
     [[nodiscard]] std::size_t packedSize() const
     {
-        return v210RowBytes(outputWidth_) * static_cast<std::size_t>(outputHeight_);
+        return (v210RowBytes(outputWidth_) + (key_ ? alphaRowBytes(outputWidth_) : 0)) * static_cast<std::size_t>(outputHeight_);
     }
     [[nodiscard]] int threads() const
     {
@@ -228,6 +232,7 @@ private:
     DisplaySettings settings_;
     int outputWidth_ = 0;
     int outputHeight_ = 0;
+    bool key_ = false;
     AnalysePlan analyse_;
     Histogram hist_;
     ScopePainter painter_;

@@ -13,7 +13,8 @@ bool ScopePainter::configure(PaintParams const& params)
     {
         return false;
     }
-    render_ = makeRenderPlan(makeLayout(params.outputWidth, params.outputHeight, panelCount(params.settings.mode)), params.settings, params.columns, params.counts);
+    render_ = makeRenderPlan(makeLayout(params.outputWidth, params.outputHeight, panelCount(params.settings.mode)), params.settings, params.columns, params.counts,
+        params.key);
     int const parts = pool_ ? pool_->threads() : 1;
     rowSplit_ = traceRowSplit(render_, parts);
     parts_.resize(static_cast<std::size_t>(parts));
@@ -36,6 +37,10 @@ bool ScopePainter::trace(Histogram& hist, std::string const& caption, std::strin
         // A new buffer: the old one may still be in use by the output writer.
         auto packed = std::make_shared<std::vector<std::uint8_t>>(packedSize());
         packV210(still_, packed->data(), v210RowBytes(still_.width));
+        if (params_.key)
+        {
+            packAlpha(still_, packed->data() + render_.fillBytes);
+        }
         stillPacked_ = std::move(packed);
         caption_ = caption;
         state_ = state;
@@ -132,9 +137,9 @@ std::vector<int> splitStrips(AnalysePlan const& plan, int parts)
 }
 } // namespace
 
-bool ScopeEngine::configure(InputFormat const& input, DisplaySettings const& settings, int outputWidth, int outputHeight)
+bool ScopeEngine::configure(InputFormat const& input, DisplaySettings const& settings, int outputWidth, int outputHeight, bool key)
 {
-    if (configured_ && input == input_ && settings == settings_ && outputWidth == outputWidth_ && outputHeight == outputHeight_)
+    if (configured_ && input == input_ && settings == settings_ && outputWidth == outputWidth_ && outputHeight == outputHeight_ && key == key_)
     {
         return false;
     }
@@ -165,6 +170,7 @@ bool ScopeEngine::configure(InputFormat const& input, DisplaySettings const& set
     settings_ = settings;
     outputWidth_ = outputWidth;
     outputHeight_ = outputHeight;
+    key_ = key;
     configured_ = true;
     painter_.configure(paintParams());
     return true;
@@ -181,7 +187,7 @@ PaintParams ScopeEngine::paintParams() const
         counts.samples[p] = analyse_.planeSamples[plane];
         counts.maxCount[p] = analyse_.planeMaxCell[plane];
     }
-    return PaintParams{settings_, outputWidth_, outputHeight_, histogramColumns(layout, input_.width), counts, input_.width > 0};
+    return PaintParams{settings_, outputWidth_, outputHeight_, histogramColumns(layout, input_.width), counts, input_.width > 0, key_};
 }
 
 void ScopeEngine::fit(Histogram& hist) const

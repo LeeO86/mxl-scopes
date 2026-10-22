@@ -168,12 +168,12 @@ std::string rateLabel(double hz)
     return text;
 }
 
-std::string videoFlowDefinition(std::string const& id, std::string const& description, std::string const& mode, int width, int height, Rate rate)
+std::string videoFlowDefinition(std::string const& id, std::string const& description, std::string const& mode, int width, int height, Rate rate, bool key)
 {
     return std::string("{\"id\":\"") + id + "\",\"format\":\"urn:x-nmos:format:video\",\"label\":\"Scopes Out Video\",\"description\":\"" +
            jsonEscape(description) +
            "\",\"tags\":{\"urn:x-nmos:tag:grouphint/v1.0\":[\"Scopes Out:Video\"],\"urn:x-mxl:tag:scope-mode/v1.0\":[\"" + jsonEscape(mode) +
-           "\"]},\"parents\":[],\"media_type\":\"video/v210\",\"grain_rate\":{\"numerator\":" + std::to_string(rate.num) + ",\"denominator\":" +
+           "\"]},\"parents\":[],\"media_type\":\"" + (key ? "video/v210a" : "video/v210") + "\",\"grain_rate\":{\"numerator\":" + std::to_string(rate.num) + ",\"denominator\":" +
            std::to_string(rate.den) + "},\"frame_width\":" + std::to_string(width) + ",\"frame_height\":" + std::to_string(height) +
            ",\"interlace_mode\":\"progressive\",\"colorspace\":\"BT709\",\"transfer_characteristic\":\"SDR\",\"components\":[{\"name\":\"Y\",\"width\":" +
            std::to_string(width) + ",\"height\":" + std::to_string(height) + ",\"bit_depth\":10},{\"name\":\"Cb\",\"width\":" + std::to_string(width / 2) +
@@ -446,7 +446,7 @@ struct MediaIo::Impl
                 view.state = "not_routed";
                 view.reason.clear();
                 publishView();
-                engine.configure({}, settings, config.outputWidth, config.outputHeight);
+                engine.configure({}, settings, config.outputWidth, config.outputHeight, config.outputKey);
                 showState(settings);
                 wait(50);
                 continue;
@@ -480,7 +480,7 @@ struct MediaIo::Impl
                 view.state = "waiting";
                 view.reason = reason;
                 publishView();
-                engine.configure({}, settings, config.outputWidth, config.outputHeight);
+                engine.configure({}, settings, config.outputWidth, config.outputHeight, config.outputKey);
                 showState(settings);
                 wait(backoff);
                 backoff = std::min(5000, backoff * 2);
@@ -558,7 +558,7 @@ struct MediaIo::Impl
                 view.state = "format_mismatch";
                 view.reason = problem;
                 publishView();
-                engine.configure({}, settings, config.outputWidth, config.outputHeight);
+                engine.configure({}, settings, config.outputWidth, config.outputHeight, config.outputKey);
                 showState(settings);
                 // Open the flow again in a second: a writer may re-create it in a format that fits.
                 closeReader();
@@ -575,7 +575,7 @@ struct MediaIo::Impl
             int const framesCapacity = accumulateAll ? static_cast<int>(std::ceil(frameHz / updateRate)) + 1 : 1;
             try
             {
-                if (engine.configure({meta.width, grainRows, v210RowBytes(meta.width), fields, framesCapacity}, settings, config.outputWidth, config.outputHeight))
+                if (engine.configure({meta.width, grainRows, v210RowBytes(meta.width), fields, framesCapacity}, settings, config.outputWidth, config.outputHeight, config.outputKey))
                 {
                     // New tables (the counts start again from zero); draw the new picture at once,
                     // also while the input holds (a mode change without new grains).
@@ -593,7 +593,7 @@ struct MediaIo::Impl
                 view.state = "format_mismatch";
                 view.reason = std::string("analyse: ") + ex.what();
                 publishView();
-                engine.configure({}, settings, config.outputWidth, config.outputHeight);
+                engine.configure({}, settings, config.outputWidth, config.outputHeight, config.outputKey);
                 showState(settings);
                 closeReader();
                 wait(1000);
@@ -897,7 +897,9 @@ struct MediaIo::Impl
         {
             std::uint64_t still = 0;
             std::uint64_t generation = 0;
+            // The trace groups this slot holds: fill offsets and, with a key, key offsets.
             std::vector<std::uint32_t> offsets;
+            std::vector<std::uint32_t> keyOffsets;
         };
         std::vector<SlotRecord> slots;
         std::uint8_t const* previous = nullptr;
@@ -909,17 +911,19 @@ struct MediaIo::Impl
         view.domainId = domainId;
         view.width = config.outputWidth;
         view.height = config.outputHeight;
+        view.key = config.outputKey;
         auto open = [&] {
             if (writer != nullptr)
             {
                 mxlReleaseFlowWriter(instance, writer);
                 writer = nullptr;
             }
-            auto const token = std::to_string(config.outputWidth) + "x" + std::to_string(config.outputHeight) + "p" + rateToken(rate);
+            // The flow token (§7.1): format, rate and key; a v210a output is another flow.
+            auto const token = std::to_string(config.outputWidth) + "x" + std::to_string(config.outputHeight) + "p" + rateToken(rate) + (config.outputKey ? "a" : "");
             auto const flowId = ids.flow(token);
             announcedMode = state.settings()->mode;
             auto const description = modeTitle(announcedMode);
-            auto const def = videoFlowDefinition(flowId, description, announcedMode, config.outputWidth, config.outputHeight, rate);
+            auto const def = videoFlowDefinition(flowId, description, announcedMode, config.outputWidth, config.outputHeight, rate, config.outputKey);
             mxlFlowConfigInfo flowConfig{};
             if (mxlCreateFlowWriter(instance, def.c_str(), "{\"maxCommitBatchSizeHint\":1}", &writer, &flowConfig, nullptr) != MXL_STATUS_OK)
             {
@@ -943,7 +947,7 @@ struct MediaIo::Impl
             }
             if (callback && writer != nullptr)
             {
-                callback(OutputFlow{flowId, config.outputWidth, config.outputHeight, rate, description, announcedMode});
+                callback(OutputFlow{flowId, config.outputWidth, config.outputHeight, rate, description, announcedMode, config.outputKey});
             }
         };
         open();
@@ -979,7 +983,8 @@ struct MediaIo::Impl
             {
                 mxlGrainInfo grain{};
                 std::uint8_t* payload = nullptr;
-                auto const pictureBytes = v210RowBytes(config.outputWidth) * static_cast<std::size_t>(config.outputHeight);
+                auto const fillBytes = v210RowBytes(config.outputWidth) * static_cast<std::size_t>(config.outputHeight);
+                auto const pictureBytes = fillBytes + (config.outputKey ? alphaRowBytes(config.outputWidth) * static_cast<std::size_t>(config.outputHeight) : 0);
                 if (mxlFlowWriterOpenGrain(writer, index, &grain, &payload) == MXL_STATUS_OK && payload != nullptr && grain.grainSize >= pictureBytes)
                 {
                     if (auto* job = jobs.take(); job != nullptr)
@@ -1000,7 +1005,7 @@ struct MediaIo::Impl
                         SlotRecord fresh;
                         auto& slot = grainCount > 0 ? slots[index % grainCount] : fresh;
                         auto const version = stillVersion;
-                        auto const deltaBytes = (slot.offsets.size() + current.size()) * 16u;
+                        auto const deltaBytes = (slot.offsets.size() + current.size()) * (config.outputKey ? 24u : 16u);
                         bool const previousCurrent = previous != nullptr && index > previousIndex && index - previousIndex < grainCount &&
                                                      slots[previousIndex % grainCount].still == version &&
                                                      slots[previousIndex % grainCount].generation == generation;
@@ -1014,6 +1019,10 @@ struct MediaIo::Impl
                             for (auto const offset : slot.offsets)
                             {
                                 std::memcpy(payload + offset, still->data() + offset, 16);
+                            }
+                            for (auto const offset : slot.keyOffsets)
+                            {
+                                std::memcpy(payload + offset, still->data() + offset, 8);
                             }
                             applyTrace(current, payload);
                         }
@@ -1030,9 +1039,14 @@ struct MediaIo::Impl
                         slot.still = version;
                         slot.generation = generation;
                         slot.offsets.resize(current.size());
+                        slot.keyOffsets.clear();
                         for (std::size_t i = 0; i < current.size(); ++i)
                         {
                             slot.offsets[i] = current[i].offset;
+                            if (current[i].keyOffset != 0)
+                            {
+                                slot.keyOffsets.push_back(current[i].keyOffset);
+                            }
                         }
                     }
                     else
@@ -1048,7 +1062,7 @@ struct MediaIo::Impl
                         auto shot = std::make_shared<Snapshot>();
                         shot->width = config.outputWidth;
                         shot->height = config.outputHeight;
-                        shot->v210.assign(payload, payload + pictureBytes);
+                        shot->v210.assign(payload, payload + fillBytes);
                         state.setSnapshot(std::move(shot));
                     }
                     grain.validSlices = grain.totalSlices;
@@ -1089,7 +1103,7 @@ struct MediaIo::Impl
                 }
                 if (callback)
                 {
-                    callback(OutputFlow{view.flowId, config.outputWidth, config.outputHeight, rate, modeTitle(mode), mode});
+                    callback(OutputFlow{view.flowId, config.outputWidth, config.outputHeight, rate, modeTitle(mode), mode, config.outputKey});
                 }
             }
         }

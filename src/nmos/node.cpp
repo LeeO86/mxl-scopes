@@ -233,7 +233,7 @@ void applyFlow(nmos::node_model& model, NmosIds const& ids, OutputFlow const& fl
     {
         auto resource = nmos::make_coded_video_flow(us(flow.flowId), us(ids.source), us(ids.device), rate, static_cast<unsigned>(flow.width),
             static_cast<unsigned>(flow.height), nmos::interlace_modes::progressive, nmos::colorspaces::BT709, nmos::transfer_characteristics::SDR,
-            sdp::samplings::YCbCr_4_2_2, 10, nmos::media_types::video_v210, model.settings);
+            sdp::samplings::YCbCr_4_2_2, 10, flow.key ? nmos::media_types::video_v210a : nmos::media_types::video_v210, model.settings);
         resource.data[U("label")] = value::string(U("Scopes Out Video"));
         resource.data[U("description")] = value::string(us(flow.description));
         tagGroup(resource, "Scopes Out", "Video");

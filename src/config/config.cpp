@@ -514,10 +514,6 @@ Config loadConfig(std::map<std::string, std::string> const& env, std::map<std::s
         }
     }
     cfg.outputKey = requireBool("SCOPES_OUTPUT_KEY", raw("SCOPES_OUTPUT_KEY"));
-    if (cfg.outputKey)
-    {
-        throw ConfigError("SCOPES_OUTPUT_KEY=true is not implemented in this build (M2)");
-    }
     cfg.threads = requireInt("SCOPES_THREADS", raw("SCOPES_THREADS"), 1, 8);
     cfg.backend = requireEnum("SCOPES_BACKEND", raw("SCOPES_BACKEND"), {"auto", "cpu", "cuda"});
     if (cfg.backend == "cuda")

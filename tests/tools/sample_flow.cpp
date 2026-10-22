@@ -1,5 +1,6 @@
 // mxl-scopes-sample: prints the 10-bit luma of output pixels of the newest grain of a flow,
-// one line per --at X,Y (x,y in pixels). For the integration tests.
+// one line per --at X,Y (x,y in pixels); with --key-height H the key sample of a video/v210a
+// grain of H lines instead. For the integration tests.
 #include <mxl/flow.h>
 #include <mxl/mxl.h>
 #include <mxl/time.h>
@@ -25,6 +26,7 @@ int main(int argc, char** argv)
     std::string domain;
     std::string flow;
     int width = 1920;
+    int keyHeight = 0;
     std::vector<std::pair<int, int>> points;
     for (int i = 1; i + 1 < argc; i += 2)
     {
@@ -42,6 +44,10 @@ int main(int argc, char** argv)
         {
             width = std::stoi(value);
         }
+        else if (name == "--key-height")
+        {
+            keyHeight = std::stoi(value);
+        }
         else if (name == "--at")
         {
             auto const comma = value.find(',');
@@ -50,7 +56,7 @@ int main(int argc, char** argv)
     }
     if (domain.empty() || flow.empty() || points.empty())
     {
-        std::cerr << "usage: mxl-scopes-sample --domain DIR --flow UUID --width W --at X,Y [--at X,Y ...]\n";
+        std::cerr << "usage: mxl-scopes-sample --domain DIR --flow UUID --width W [--key-height H] --at X,Y [--at X,Y ...]\n";
         return 2;
     }
     auto* instance = mxlCreateInstance(domain.c_str(), nullptr);
@@ -93,6 +99,15 @@ int main(int argc, char** argv)
     std::size_t const rowBytes = static_cast<std::size_t>((width + 47) / 48) * 128u;
     for (auto const& [x, y] : points)
     {
+        if (keyHeight > 0)
+        {
+            // The key plane follows the fill: ceil(width / 3) words per line.
+            std::size_t const keyRow = static_cast<std::size_t>((width + 2) / 3) * 4u;
+            std::uint32_t word = 0;
+            std::memcpy(&word, payload + rowBytes * static_cast<std::size_t>(keyHeight) + static_cast<std::size_t>(y) * keyRow + 4u * static_cast<std::size_t>(x / 3), 4);
+            std::cout << sample10(word, 10 * (x % 3)) << "\n";
+            continue;
+        }
         auto const* line = payload + static_cast<std::size_t>(y) * rowBytes;
         std::uint32_t words[4] = {};
         std::memcpy(words, line + static_cast<std::size_t>(x / 6) * 16u, sizeof(words));

@@ -35,6 +35,7 @@ Environment > `SCOPES_CONFIG_FILE` (flat JSON, else `<SCOPES_STATE_DIR>/config.j
 | `SCOPES_RANGE`, `SCOPES_GRATICULE_UNITS`, `SCOPES_GRATICULE_LEVEL` | `limited`, `mv`, 60 | live |
 | `SCOPES_INTENSITY`, `SCOPES_TRACE_MIN`, `SCOPES_TRACE_COLOR`, `SCOPES_CAPTION` | 100, 96, `green`, `true` | live; the trace colour applies to `luma` (the parades and the overlay colour each component) |
 | `SCOPES_OUTPUT_FORMAT`, `SCOPES_OUTPUT_RATE` | `1920x1080`, `input` | at start (`input` follows the routed flow live) |
+| `SCOPES_OUTPUT_KEY`, `SCOPES_BG_ALPHA` | `false`, 0 | `true`: `video/v210a`, the scope over a picture in a multiviewer (key: background `SCOPES_BG_ALPHA`, trace at its intensity, graticule at its level, texts opaque); the key at start, `SCOPES_BG_ALPHA` live |
 | `SCOPES_HOLD_MS`, `SCOPES_INPUT_OFFSET_GRAINS` | 1000, 0 | live |
 | `SCOPES_THREADS` | 1 | 1–8 at start: the renderer and `SCOPES_THREADS` − 1 strip workers share the analyse and trace steps (same picture for any count; `renderer.threads` in the status) |
 | `SCOPES_SIMD` | `auto` | `auto`, `avx512`, `avx2`, `scalar` (`auto` = AVX2; AVX-512 only when set to `avx512`, it measured slower so far) |

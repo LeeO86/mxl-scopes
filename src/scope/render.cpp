@@ -326,10 +326,14 @@ RenderPlan makeRenderPlan(Layout const& layout, DisplaySettings const& settings,
     return makeRenderPlan(layout, settings, columns, counts);
 }
 
-RenderPlan makeRenderPlan(Layout const& layout, DisplaySettings const& settings, int columns, PlaneCounts const& counts)
+RenderPlan makeRenderPlan(Layout const& layout, DisplaySettings const& settings, int columns, PlaneCounts const& counts, bool key)
 {
     RenderPlan plan;
     plan.layout = layout;
+    plan.key = key;
+    plan.bgAlpha = static_cast<std::uint16_t>(std::clamp(settings.bgAlpha, 0, 1023));
+    plan.labelAlpha = static_cast<std::uint16_t>(std::max<int>(plan.bgAlpha, std::lround(1023.0 * settings.graticuleLevel / 100.0)));
+    plan.fillBytes = v210RowBytes(layout.width) * static_cast<std::size_t>(layout.height);
     plan.columns = columns;
     plan.bins = histogramBins(layout);
     plan.planes = planesOf(scopeKindOf(settings.mode));
@@ -374,6 +378,10 @@ RenderPlan makeRenderPlan(Layout const& layout, DisplaySettings const& settings,
     int const lineLuma = 64 + static_cast<int>(std::lround(876 * 0.8));
     plan.base.allocate(layout.width, layout.height);
     plan.base.fill(kBackgroundY, kBackgroundC, kBackgroundC);
+    if (key)
+    {
+        plan.base.a.assign(plan.base.y.size(), plan.bgAlpha);
+    }
     int const s = layout.textScale;
     auto const labelLuma = static_cast<std::uint16_t>(kBackgroundY + scale1023(lineLuma - kBackgroundY, level * 1023 / 100));
     if (level > 0)
@@ -401,7 +409,7 @@ RenderPlan makeRenderPlan(Layout const& layout, DisplaySettings const& settings,
                 if (labelled && !line.label.empty())
                 {
                     int const w = textWidth(line.label, s);
-                    drawText(plan.base, x0 - 3 * s - w, line.row - 4 * s, s, line.label, labelLuma);
+                    drawText(plan.base, x0 - 3 * s - w, line.row - 4 * s, s, line.label, labelLuma, plan.labelAlpha);
                 }
             }
             if (k == 0)
@@ -414,7 +422,7 @@ RenderPlan makeRenderPlan(Layout const& layout, DisplaySettings const& settings,
         // Units in the top-left corner of the margin.
         std::string const units = settings.graticuleUnits == "mv" ? "mV" : settings.graticuleUnits == "percent" ? "%" : "code";
         int const bandBottom = std::max(0, layout.plotY - 4 * s);
-        drawText(plan.base, std::max(0, layout.plotX - 3 * s - textWidth(units, s)), std::max(0, (bandBottom - 8 * s) / 2), s, units, labelLuma);
+        drawText(plan.base, std::max(0, layout.plotX - 3 * s - textWidth(units, s)), std::max(0, (bandBottom - 8 * s) / 2), s, units, labelLuma, plan.labelAlpha);
     }
     // Panel names under the parade panels, when the bottom margin has room.
     int const bottom = layout.height - layout.plotY - layout.plotH;
@@ -444,7 +452,7 @@ RenderPlan makeRenderPlan(Layout const& layout, DisplaySettings const& settings,
 namespace
 {
 // The graticule pixels of one plot row over the row's samples (x relative to the row start).
-void blendGraticuleRow(RenderPlan const& plan, int r, std::uint16_t* ys, std::uint16_t* cbs, std::uint16_t* crs)
+void blendGraticuleRow(RenderPlan const& plan, int r, std::uint16_t* ys, std::uint16_t* cbs, std::uint16_t* crs, std::uint16_t* as)
 {
     auto const begin = plan.graticuleStart[static_cast<std::size_t>(r)];
     auto const end = plan.graticuleStart[static_cast<std::size_t>(r) + 1];
@@ -452,6 +460,10 @@ void blendGraticuleRow(RenderPlan const& plan, int r, std::uint16_t* ys, std::ui
     {
         auto const& g = plan.plotGraticule[i];
         ys[g.x] = blend(ys[g.x], g.luma, g.alpha);
+        if (as != nullptr)
+        {
+            as[g.x] = std::max(as[g.x], g.alpha);
+        }
         if ((g.x & 1) == 0)
         {
             cbs[g.x / 2] = blend(cbs[g.x / 2], kBackgroundC, g.alpha);
@@ -471,14 +483,19 @@ void renderEmptyPlot(RenderPlan const& plan, Frame422& frame)
         auto* ys = frame.y.data() + static_cast<std::size_t>(row) * frame.width;
         auto* cbs = frame.cb.data() + static_cast<std::size_t>(row) * cw;
         auto* crs = frame.cr.data() + static_cast<std::size_t>(row) * cw;
+        auto* as = frame.a.empty() ? nullptr : frame.a.data() + static_cast<std::size_t>(row) * frame.width;
         for (int k = 0; k < layout.panels; ++k)
         {
             int const x0 = layout.panelX[static_cast<std::size_t>(k)];
             std::fill(ys + x0, ys + x0 + layout.panelW, kBackgroundY);
             std::fill(cbs + x0 / 2, cbs + (x0 + layout.panelW) / 2, kBackgroundC);
             std::fill(crs + x0 / 2, crs + (x0 + layout.panelW) / 2, kBackgroundC);
+            if (as != nullptr)
+            {
+                std::fill(as + x0, as + x0 + layout.panelW, plan.bgAlpha);
+            }
         }
-        blendGraticuleRow(plan, r, ys, cbs, crs);
+        blendGraticuleRow(plan, r, ys, cbs, crs, as);
     }
 }
 
@@ -590,6 +607,21 @@ bool panelRow(RenderPlan const& plan, PanelPlan const& panel, C const* const* li
         std::uint16_t y[6];
         std::uint16_t cb[3];
         std::uint16_t cr[3];
+        // The key (§7): max(background alpha, trace intensity), the graticule over it.
+        std::uint16_t a[6] = {};
+        if (plan.key)
+        {
+            for (int i = 0; i < 6; ++i)
+            {
+                std::uint16_t level = 0;
+                for (int p = 0; p < (OVERLAY ? 3 : 1); ++p)
+                {
+                    auto const plane = static_cast<std::size_t>(OVERLAY ? p : panel.plane);
+                    level = std::max(level, plan.planeIntensity[plane][std::min<std::uint32_t>(lines[p][6 * g + i], plan.planeMax[plane])]);
+                }
+                a[i] = std::max(plan.bgAlpha, level);
+            }
+        }
         if constexpr (OVERLAY)
         {
             // Sums of the three planes' contributions (× 64) per pixel; chroma from the pair.
@@ -637,6 +669,7 @@ bool panelRow(RenderPlan const& plan, PanelPlan const& panel, C const* const* li
             auto const& gp = plan.plotGraticule[gi];
             int const at = gp.x - x0;
             y[at] = blend(y[at], gp.luma, gp.alpha);
+            a[at] = std::max(a[at], gp.alpha);
             if ((at & 1) == 0)
             {
                 cb[at / 2] = blend(cb[at / 2], kBackgroundC, gp.alpha);
@@ -649,6 +682,13 @@ bool panelRow(RenderPlan const& plan, PanelPlan const& panel, C const* const* li
         put32(group.bytes + 4, word3(y[1], cb[1], y[2]));
         put32(group.bytes + 8, word3(cr[1], y[3], cb[2]));
         put32(group.bytes + 12, word3(y[4], cr[2], y[5]));
+        if (plan.key)
+        {
+            auto const row = rowOffset / v210RowBytes(layout.width);
+            group.keyOffset = static_cast<std::uint32_t>(plan.fillBytes + row * alphaRowBytes(layout.width) + 4 * static_cast<std::size_t>(x0 / 3));
+            put32(group.key, word3(a[0], a[1], a[2]));
+            put32(group.key + 4, word3(a[3], a[4], a[5]));
+        }
         trace.push_back(group);
     }
     return trace.size() != traceBefore;
@@ -772,6 +812,10 @@ void applyTrace(std::vector<TraceGroup> const& trace, std::uint8_t* dst)
     for (auto const& group : trace)
     {
         std::memcpy(dst + group.offset, group.bytes, sizeof(group.bytes));
+        if (group.keyOffset != 0)
+        {
+            std::memcpy(dst + group.keyOffset, group.key, sizeof(group.key));
+        }
     }
 }
 
@@ -785,6 +829,11 @@ void renderTexts(RenderPlan const& plan, Frame422& frame, std::string const& cap
     int const bandBottom = std::max(0, layout.plotY - 4 * s);
     for (int row = 0; row < bandBottom; ++row)
     {
+        if (!frame.a.empty())
+        {
+            std::fill(frame.a.begin() + static_cast<std::ptrdiff_t>(row) * width + layout.plotX, frame.a.begin() + static_cast<std::ptrdiff_t>(row + 1) * width,
+                plan.bgAlpha);
+        }
         std::fill(frame.y.begin() + static_cast<std::ptrdiff_t>(row) * width + layout.plotX, frame.y.begin() + static_cast<std::ptrdiff_t>(row + 1) * width,
             kBackgroundY);
         std::fill(frame.cb.begin() + static_cast<std::ptrdiff_t>(row) * cw + layout.plotX / 2, frame.cb.begin() + static_cast<std::ptrdiff_t>(row + 1) * cw,
@@ -809,6 +858,10 @@ void renderTexts(RenderPlan const& plan, Frame422& frame, std::string const& cap
             for (int col = std::max(0, even(x - pad)); col < std::min(width, x + w + pad); ++col)
             {
                 frame.y[static_cast<std::size_t>(row) * width + col] = kBackgroundY;
+                if (!frame.a.empty())
+                {
+                    frame.a[static_cast<std::size_t>(row) * width + col] = plan.bgAlpha;
+                }
                 if ((col & 1) == 0)
                 {
                     frame.cb[static_cast<std::size_t>(row) * cw + col / 2] = kBackgroundC;
@@ -825,7 +878,7 @@ int textWidth(std::string const& text, int scale)
     return static_cast<int>(text.size()) * 8 * scale;
 }
 
-void drawText(Frame422& frame, int x, int y, int scale, std::string const& text, std::uint16_t luma)
+void drawText(Frame422& frame, int x, int y, int scale, std::string const& text, std::uint16_t luma, std::uint16_t alpha)
 {
     int const width = frame.width;
     int const cw = frame.chromaWidth();
@@ -858,6 +911,10 @@ void drawText(Frame422& frame, int x, int y, int scale, std::string const& text,
                             continue;
                         }
                         frame.y[static_cast<std::size_t>(row) * width + col] = luma;
+                        if (!frame.a.empty())
+                        {
+                            frame.a[static_cast<std::size_t>(row) * width + col] = alpha;
+                        }
                         frame.cb[static_cast<std::size_t>(row) * cw + col / 2] = kBackgroundC;
                         frame.cr[static_cast<std::size_t>(row) * cw + col / 2] = kBackgroundC;
                     }

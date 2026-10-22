@@ -89,6 +89,7 @@ if(SCOPES_BUILD_TESTS)
         tests/unit/test_scheduler.cpp
         tests/unit/test_threads.cpp
         tests/unit/test_measure.cpp
+        tests/unit/test_key.cpp
         tests/unit/test_api.cpp
         tests/unit/test_http.cpp
     )

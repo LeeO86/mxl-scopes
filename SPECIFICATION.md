@@ -323,10 +323,11 @@ The cost is one NMOS node and one web endpoint per scope. If productions need ma
 - One video flow in this process's own output domain, as the siblings (§11 G2).
 - Format: `SCOPES_OUTPUT_FORMAT`, default `1920x1080`; width and height even, at most 3840×2160, progressive only. The output rate is `SCOPES_OUTPUT_RATE`: `input` (default: the routed input's rate, `50/1` before the first route) or a fixed rate token (`25`, `50`, `5994`, `N/D`). A change of the output format or rate mints a new flow id (flow token, as the multiviewer); the sender follows. With `input`, a re-route to a flow of another rate changes the output flow too (open question 3).
 - `SCOPES_OUTPUT_KEY=false` (default): `video/v210`, the background is limited-range black.
-- `SCOPES_OUTPUT_KEY=true`: `video/v210a`. The key plane is straight alpha, 0 transparent, 1023 opaque, the MXL layout used by mxl-multiviewer (§5.5 there). Key values:
+- `SCOPES_OUTPUT_KEY=true`: `video/v210a`. The key plane is straight alpha, 0 transparent, 1023 opaque, the MXL layout used by mxl-multiviewer (§5.5 there): after the v210 fill, three 10-bit samples per little-endian 32-bit word, ceil(width / 3) words per line. Key values:
   - background: `SCOPES_BG_ALPHA` (0–1023, default 0, fully transparent);
-  - trace: `max(SCOPES_BG_ALPHA, I)`, so a faint trace is faint over the picture;
-  - graticule: its own alpha × `SCOPES_GRATICULE_LEVEL`.
+  - trace: `max(SCOPES_BG_ALPHA, I)`, so a faint trace is faint over the picture (the overlays: the largest `I` of the three planes);
+  - graticule: its own alpha × `SCOPES_GRATICULE_LEVEL` (the larger of it and what is under it); the labels and units at the level;
+  - caption, panel names and state texts: opaque.
   The fill under transparent areas stays limited-range black, so a downstream that ignores the key still shows a correct scope.
 - The multiviewer uses a v210a tile's key as straight alpha. A scope tile with a higher z over the picture tile of the same input gives an overlay scope with no change to the multiviewer.
 - History: `MXL_HISTORY_DURATION_NS` (default 200 ms) for a new domain only.
@@ -342,7 +343,7 @@ The cost is one NMOS node and one web endpoint per scope. If productions need ma
 
 - `NMOS_TAGS` on the node and the device. The flow carries `description` = the mode title (for example `Luma waveform`), updated when the mode changes (same flow id).
 - The output flow and sender carry the tag `urn:x-mxl:tag:scope-mode/v1.0` = `[<mode>]` (`TODO_` confirm the tag namespace with the platform).
-- UUIDv5 ids from `NMOS_SEED` (RFC 4122 URL namespace) with the names `mxl-scopes/<seed>/node`, `/device`, `/domain`, `/in/video`, `/out/video/source`, `/out/video/sender`, `/out/video/flow/<format-token>`.
+- UUIDv5 ids from `NMOS_SEED` (RFC 4122 URL namespace) with the names `mxl-scopes/<seed>/node`, `/device`, `/domain`, `/in/video`, `/out/video/source`, `/out/video/sender`, `/out/video/flow/<format-token>`; the token is `<width>x<height>p<rate>`, with `a` appended for a v210a output, so format, rate and key each give their own flow id.
 - Senders report `mxl_domain_id` and the current `mxl_flow_id`; `master_enable` is true while the writer writes.
 - No audio flows. No output receivers.
 
