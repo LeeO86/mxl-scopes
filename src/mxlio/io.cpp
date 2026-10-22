@@ -403,7 +403,9 @@ struct MediaIo::Impl
         // The picture of a state without a trace; drawn again only when something it shows changed.
         auto showState = [&](DisplaySettings const& s) {
             auto const text = stateText(view.state);
-            auto const key = text + "\n" + caption(s) + "\n" + s.mode + "\n" + std::to_string(s.graticuleLevel) + s.graticuleUnits + (s.limitedRange ? "l" : "f");
+            auto const out = state.outputSettings();
+            auto const key = text + "\n" + caption(s) + "\n" + s.mode + "\n" + std::to_string(s.graticuleLevel) + s.graticuleUnits + (s.limitedRange ? "l" : "f") +
+                             std::to_string(out.width) + "x" + std::to_string(out.height) + (out.key ? "a" : "") + std::to_string(s.bgAlpha);
             if (key == shownKey && firstFrame.load())
             {
                 return;
@@ -422,6 +424,8 @@ struct MediaIo::Impl
         {
             auto const settingsPtr = state.settings();
             auto const& settings = *settingsPtr;
+            // The output raster and key (live, §7): the engine draws for the flow the writer opens.
+            auto const output = state.outputSettings();
             auto const route = state.route();
             state.beatRenderer(mxlGetTime());
             if (modeLabel[0].second != settings.mode)
@@ -446,7 +450,7 @@ struct MediaIo::Impl
                 view.state = "not_routed";
                 view.reason.clear();
                 publishView();
-                engine.configure({}, settings, config.outputWidth, config.outputHeight, config.outputKey);
+                engine.configure({}, settings, output.width, output.height, output.key);
                 showState(settings);
                 wait(50);
                 continue;
@@ -480,7 +484,7 @@ struct MediaIo::Impl
                 view.state = "waiting";
                 view.reason = reason;
                 publishView();
-                engine.configure({}, settings, config.outputWidth, config.outputHeight, config.outputKey);
+                engine.configure({}, settings, output.width, output.height, output.key);
                 showState(settings);
                 wait(backoff);
                 backoff = std::min(5000, backoff * 2);
@@ -558,7 +562,7 @@ struct MediaIo::Impl
                 view.state = "format_mismatch";
                 view.reason = problem;
                 publishView();
-                engine.configure({}, settings, config.outputWidth, config.outputHeight, config.outputKey);
+                engine.configure({}, settings, output.width, output.height, output.key);
                 showState(settings);
                 // Open the flow again in a second: a writer may re-create it in a format that fits.
                 closeReader();
@@ -575,7 +579,7 @@ struct MediaIo::Impl
             int const framesCapacity = accumulateAll ? static_cast<int>(std::ceil(frameHz / updateRate)) + 1 : 1;
             try
             {
-                if (engine.configure({meta.width, grainRows, v210RowBytes(meta.width), fields, framesCapacity}, settings, config.outputWidth, config.outputHeight, config.outputKey))
+                if (engine.configure({meta.width, grainRows, v210RowBytes(meta.width), fields, framesCapacity}, settings, output.width, output.height, output.key))
                 {
                     // New tables (the counts start again from zero); draw the new picture at once,
                     // also while the input holds (a mode change without new grains).
@@ -593,7 +597,7 @@ struct MediaIo::Impl
                 view.state = "format_mismatch";
                 view.reason = std::string("analyse: ") + ex.what();
                 publishView();
-                engine.configure({}, settings, config.outputWidth, config.outputHeight, config.outputKey);
+                engine.configure({}, settings, output.width, output.height, output.key);
                 showState(settings);
                 closeReader();
                 wait(1000);
@@ -848,11 +852,11 @@ struct MediaIo::Impl
         closeAll();
     }
 
-    [[nodiscard]] Rate desiredRate(Rate current) const
+    [[nodiscard]] Rate desiredRate(Rate current, std::optional<Rate> const& fixed) const
     {
-        if (config.outputRate)
+        if (fixed)
         {
-            return *config.outputRate;
+            return *fixed;
         }
         // SCOPES_OUTPUT_RATE=input: the routed flow's rate once known (§7).
         auto const in = state.input();
@@ -905,25 +909,27 @@ struct MediaIo::Impl
         std::uint8_t const* previous = nullptr;
         std::uint64_t previousIndex = 0;
         auto nextSnapshot = std::chrono::steady_clock::now();
-        Rate rate = config.outputRate.value_or(Rate{50, 1});
-        rate = desiredRate(rate);
+        // The output flow settings this flow was opened with; a change opens a new flow (§7).
+        OutputSettings output = state.outputSettings();
+        Rate rate = output.rate.value_or(Rate{50, 1});
+        rate = desiredRate(rate, output.rate);
         OutputView view;
         view.domainId = domainId;
-        view.width = config.outputWidth;
-        view.height = config.outputHeight;
-        view.key = config.outputKey;
         auto open = [&] {
+            view.width = output.width;
+            view.height = output.height;
+            view.key = output.key;
             if (writer != nullptr)
             {
                 mxlReleaseFlowWriter(instance, writer);
                 writer = nullptr;
             }
             // The flow token (§7.1): format, rate and key; a v210a output is another flow.
-            auto const token = std::to_string(config.outputWidth) + "x" + std::to_string(config.outputHeight) + "p" + rateToken(rate) + (config.outputKey ? "a" : "");
+            auto const token = std::to_string(output.width) + "x" + std::to_string(output.height) + "p" + rateToken(rate) + (output.key ? "a" : "");
             auto const flowId = ids.flow(token);
             announcedMode = state.settings()->mode;
             auto const description = modeTitle(announcedMode);
-            auto const def = videoFlowDefinition(flowId, description, announcedMode, config.outputWidth, config.outputHeight, rate, config.outputKey);
+            auto const def = videoFlowDefinition(flowId, description, announcedMode, output.width, output.height, rate, output.key);
             mxlFlowConfigInfo flowConfig{};
             if (mxlCreateFlowWriter(instance, def.c_str(), "{\"maxCommitBatchSizeHint\":1}", &writer, &flowConfig, nullptr) != MXL_STATUS_OK)
             {
@@ -947,7 +953,7 @@ struct MediaIo::Impl
             }
             if (callback && writer != nullptr)
             {
-                callback(OutputFlow{flowId, config.outputWidth, config.outputHeight, rate, description, announcedMode, config.outputKey});
+                callback(OutputFlow{flowId, output.width, output.height, rate, description, announcedMode, output.key});
             }
         };
         open();
@@ -956,7 +962,16 @@ struct MediaIo::Impl
         while (run.load())
         {
             state.beatWriter(mxlGetTime());
-            if (auto const wanted = desiredRate(rate); !(wanted == rate))
+            if (auto const next = state.outputSettings(); !(next == output))
+            {
+                // SCOPES_OUTPUT_FORMAT, _RATE or _KEY changed: a new output flow, a new flow id (§7).
+                output = next;
+                rate = desiredRate(output.rate.value_or(rate), output.rate);
+                open();
+                mxlRate = mxlRational{rate.num, rate.den};
+                index = mxlGetCurrentIndex(&mxlRate);
+            }
+            if (auto const wanted = desiredRate(rate, output.rate); !(wanted == rate))
             {
                 // A route to a flow of another rate: a new output flow, a new flow id (§7).
                 rate = wanted;
@@ -983,8 +998,8 @@ struct MediaIo::Impl
             {
                 mxlGrainInfo grain{};
                 std::uint8_t* payload = nullptr;
-                auto const fillBytes = v210RowBytes(config.outputWidth) * static_cast<std::size_t>(config.outputHeight);
-                auto const pictureBytes = fillBytes + (config.outputKey ? alphaRowBytes(config.outputWidth) * static_cast<std::size_t>(config.outputHeight) : 0);
+                auto const fillBytes = v210RowBytes(output.width) * static_cast<std::size_t>(output.height);
+                auto const pictureBytes = fillBytes + (output.key ? alphaRowBytes(output.width) * static_cast<std::size_t>(output.height) : 0);
                 if (mxlFlowWriterOpenGrain(writer, index, &grain, &payload) == MXL_STATUS_OK && payload != nullptr && grain.grainSize >= pictureBytes)
                 {
                     if (auto* job = jobs.take(); job != nullptr)
@@ -1005,7 +1020,7 @@ struct MediaIo::Impl
                         SlotRecord fresh;
                         auto& slot = grainCount > 0 ? slots[index % grainCount] : fresh;
                         auto const version = stillVersion;
-                        auto const deltaBytes = (slot.offsets.size() + current.size()) * (config.outputKey ? 24u : 16u);
+                        auto const deltaBytes = (slot.offsets.size() + current.size()) * (output.key ? 24u : 16u);
                         bool const previousCurrent = previous != nullptr && index > previousIndex && index - previousIndex < grainCount &&
                                                      slots[previousIndex % grainCount].still == version &&
                                                      slots[previousIndex % grainCount].generation == generation;
@@ -1060,8 +1075,8 @@ struct MediaIo::Impl
                     {
                         nextSnapshot = now + kSnapshotEvery;
                         auto shot = std::make_shared<Snapshot>();
-                        shot->width = config.outputWidth;
-                        shot->height = config.outputHeight;
+                        shot->width = output.width;
+                        shot->height = output.height;
                         shot->v210.assign(payload, payload + fillBytes);
                         state.setSnapshot(std::move(shot));
                     }
@@ -1103,7 +1118,7 @@ struct MediaIo::Impl
                 }
                 if (callback)
                 {
-                    callback(OutputFlow{view.flowId, config.outputWidth, config.outputHeight, rate, modeTitle(mode), mode, config.outputKey});
+                    callback(OutputFlow{view.flowId, output.width, output.height, rate, modeTitle(mode), mode, output.key});
                 }
             }
         }

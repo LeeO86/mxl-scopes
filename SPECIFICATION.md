@@ -450,7 +450,7 @@ The family look of the siblings: header with label, state and registration pills
 | GET | `/api/v1/snapshot.png` | SHOULD: the latest scope frame as PNG (full raster, key as PNG alpha when on) |
 | GET | `/api/v1/events` | WebSocket: state, settings changes, measurements at most 10 per second |
 | GET | `/widgets`, `/widget/{id}` | §9.3 |
-| GET/PUT | `/api/v1/config` | flat key update; `restart_required` when a restart key changes |
+| GET/PUT | `/api/v1/config` | flat key update; `restart_required` when a restart key changes; `flow_keys` lists the output flow keys that changed (they apply at once with a new flow id, §7) |
 | GET | `/api/v1/config/export` | one JSON document: `version`, `secrets: false`, `settings`, `routes` |
 | POST | `/api/v1/config/import` | restore it; env-set keys are skipped and listed |
 | GET | `/api/v1/config/env` | `KEY=value` text |

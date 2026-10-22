@@ -122,7 +122,7 @@ a { color: var(--accent); }
   </div></section>
   <section id="tab-settings" class="hidden"><div class="panel">
     <h3>Settings</h3>
-    <p class="muted">Environment settings are read-only. Restart and flow settings apply at the next start.
+    <p class="muted">Environment settings are read-only. Restart settings apply at the next start; the output flow settings (format, rate, key) open a new output flow at once.
       <a href="/api/v1/config/export" download="mxl-scopes-config.json">Export</a> ·
       <a href="/api/v1/config/env" target="_blank">KEY=value</a> ·
       <label style="display:inline"><a href="#" id="import-link">Import</a><input type="file" id="import-file" accept="application/json" class="hidden"></label></p>
@@ -268,7 +268,8 @@ async function loadSettings() {
         try {
           const result = await api("/api/v1/config", { method: "PUT", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ [el.dataset.key]: el.value === "" ? null : el.value }) });
-          $("settings-error").textContent = result.restart_required ? "Saved. Restart required for: " + result.keys.join(", ") : "Saved.";
+          $("settings-error").textContent = result.restart_required ? "Saved. Restart required for: " + result.keys.join(", ")
+            : result.flow_keys && result.flow_keys.length ? "Saved. New output flow for: " + result.flow_keys.join(", ") : "Saved.";
         } catch (e) {
           $("settings-error").textContent = e.message;
         }

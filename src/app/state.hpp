@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "config/config.hpp"
 #include "scope/measure.hpp"
 #include "scope/settings.hpp"
 
@@ -93,6 +94,9 @@ public:
 
     [[nodiscard]] std::shared_ptr<DisplaySettings const> settings() const;
     void setSettings(DisplaySettings settings);
+    // The output flow settings (SCOPES_OUTPUT_FORMAT, _RATE, _KEY), live with a new flow id.
+    [[nodiscard]] OutputSettings outputSettings() const;
+    void setOutputSettings(OutputSettings output);
 
     [[nodiscard]] Route route() const;
     // Applies and persists the route (IS-05 or the restored routes.json).
@@ -121,6 +125,7 @@ public:
 private:
     mutable std::mutex mutex_;
     std::shared_ptr<DisplaySettings const> settings_;
+    OutputSettings outputSettings_;
     Route route_;
     InputView input_;
     OutputView output_;

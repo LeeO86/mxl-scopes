@@ -46,6 +46,8 @@ cat > "$WORK/config/routes.json" <<EOF
 EOF
 echo "{\"id\":\"$DOMAIN_ID\",\"label\":\"src\",\"description\":\"test source\",\"tags\":{}}" > "$WORK/src/domain_def.json"
 echo '{"urn:x-mxl:option:history_duration/v1.0":200000000}' > "$WORK/src/options.json"
+# The output raster from the config file, not the environment, so PUT /api/v1/config can change it.
+echo '{"SCOPES_OUTPUT_FORMAT":"640x360"}' > "$WORK/config/config.json"
 
 python3 "$ROOT/tests/integration/registry_stub.py" "$REG_PORT" >"$WORK/registry.log" 2>&1 &
 REG_PID=$!
@@ -55,7 +57,6 @@ MXL_DOMAIN_SCAN_PATH="$WORK" \
 MXL_OUTPUT_DOMAIN_DIR="$WORK/scopes" \
 MXL_CLEANUP_ON_EXIT=true \
 SCOPES_STATE_DIR="$WORK/config" \
-SCOPES_OUTPUT_FORMAT=640x360 \
 SCOPES_UPDATE_RATE=25 \
 SCOPES_HOLD_MS=600 \
 SCOPES_PREVIEW_MODE=off \
@@ -235,6 +236,57 @@ grep -q '^mxl_scopes_rgb_out_of_gamut_ratio 0' <<<"$METRICS" || fail "no rgb_out
 ! grep -q '^mxl_scopes_luma_mean_code ' <<<"$METRICS" || fail "luma_mean_code still exported in rgb-parade"
 curl -sf -X PATCH -H 'Content-Type: application/json' -d '{"mode":"luma"}' "$API/api/v1/scope" >/dev/null || fail "PATCH mode luma"
 echo "measurements ok"
+
+# Live output flow changes (§7): the key, the rate and the format each mint a new flow id, the MXL
+# flow definition and the NMOS flow and sender follow; the first settings give the first flow id
+# again (UUIDv5 of the flow token).
+put_config() { curl -sf -X PUT -H 'Content-Type: application/json' -d "$1" "$API/api/v1/config"; }
+wait_flow() { # prints the output flow id once it differs from $1 and its flow_def.json exists
+  local f=""
+  for _ in $(seq 1 60); do
+    f="$(curl -sf "$API/api/v1/output" | json 'd["flow_id"]')"
+    [[ "$f" != "$1" && -f "$WORK/scopes/$f.mxl-flow/flow_def.json" ]] && { echo "$f"; return 0; }
+    sleep 0.1
+  done
+  return 1
+}
+flow_def() { python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["media_type"], d["frame_width"], d["frame_height"], d["grain_rate"]["numerator"], d["grain_rate"]["denominator"])' "$WORK/scopes/$1.mxl-flow/flow_def.json"; }
+SENDER="$(echo "$INFO" | json 'd["sender_id"]')"
+R="$(put_config '{"SCOPES_OUTPUT_KEY":"true"}')" || fail "PUT SCOPES_OUTPUT_KEY"
+echo "$R" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["restart_required"] is False and d["flow_keys"] == ["SCOPES_OUTPUT_KEY"], d' || fail "the key is not live: $R"
+FLOW_KEY="$(wait_flow "$FLOW_OUT")" || fail "no new flow for the key"
+[[ "$(flow_def "$FLOW_KEY")" == "video/v210a 640 360 50 1" ]] || fail "key flow_def: $(flow_def "$FLOW_KEY")"
+sleep 0.5
+[[ "$(curl -sf "http://127.0.0.1:${NMOS_PORT}/x-nmos/node/v1.3/flows/${FLOW_KEY}" | json 'd["media_type"]')" == "video/v210a" ]] || fail "NMOS flow is not v210a"
+[[ "$(curl -sf "http://127.0.0.1:${NMOS_PORT}/x-nmos/node/v1.3/senders/${SENDER}" | json 'd["flow_id"]')" == "$FLOW_KEY" ]] || fail "the sender does not follow the key flow"
+mapfile -t KEY < <("$SAMPLE" --domain "$WORK/scopes" --flow "$FLOW_KEY" --width 640 --key-height 360 --at "$COL,$ROW" --at "$COL,$((ROW - 12))")
+mapfile -t FILL < <("$SAMPLE" --domain "$WORK/scopes" --flow "$FLOW_KEY" --width 640 --at "$COL,$ROW" --at "$COL,$((ROW - 12))")
+echo "key: trace=${KEY[0]} background=${KEY[1]}; fill: trace=${FILL[0]} background=${FILL[1]}"
+(( KEY[0] > 400 && KEY[1] == 0 )) || fail "key plane: trace ${KEY[0]}, background ${KEY[1]}"
+(( FILL[0] > 400 && FILL[1] == 64 )) || fail "fill with a key: trace ${FILL[0]}, background ${FILL[1]}"
+curl -sf -X PATCH -H 'Content-Type: application/json' -d '{"bg_alpha":300}' "$API/api/v1/scope" >/dev/null || fail "PATCH bg_alpha"
+sleep 0.5
+[[ "$("$SAMPLE" --domain "$WORK/scopes" --flow "$FLOW_KEY" --width 640 --key-height 360 --at "$COL,$((ROW - 12))")" == "300" ]] || fail "SCOPES_BG_ALPHA not in the key"
+[[ "$(curl -sf "$API/api/v1/output" | json 'd["flow_id"]')" == "$FLOW_KEY" ]] || fail "bg_alpha minted a new flow id"
+curl -sf -X PATCH -H 'Content-Type: application/json' -d '{"bg_alpha":0}' "$API/api/v1/scope" >/dev/null
+put_config '{"SCOPES_OUTPUT_RATE":"25"}' >/dev/null || fail "PUT SCOPES_OUTPUT_RATE"
+FLOW_RATE="$(wait_flow "$FLOW_KEY")" || fail "no new flow for the rate"
+[[ "$(flow_def "$FLOW_RATE")" == "video/v210a 640 360 25 1" ]] || fail "rate flow_def: $(flow_def "$FLOW_RATE")"
+put_config '{"SCOPES_OUTPUT_FORMAT":"1280x720"}' >/dev/null || fail "PUT SCOPES_OUTPUT_FORMAT"
+FLOW_FMT="$(wait_flow "$FLOW_RATE")" || fail "no new flow for the format"
+[[ "$(flow_def "$FLOW_FMT")" == "video/v210a 1280 720 25 1" ]] || fail "format flow_def: $(flow_def "$FLOW_FMT")"
+sleep 0.5
+OUT2="$(curl -sf "$API/api/v1/output")"
+read -r PX2 PY2 PH2 <<<"$(echo "$OUT2" | json '"%d %d %d" % (d["plot"]["x"], d["plot"]["y"], d["plot"]["height"])')"
+ROW2=$(( PY2 + PH2 - 1 - (512 * PH2 >> 10) ))
+T2="$("$SAMPLE" --domain "$WORK/scopes" --flow "$FLOW_FMT" --width 1280 --at "$((PX2 + 101)),$ROW2")"
+echo "1280x720: trace=$T2"
+(( T2 > 400 )) || fail "no trace at 1280x720 ($T2)"
+put_config '{"SCOPES_OUTPUT_KEY":null,"SCOPES_OUTPUT_RATE":null,"SCOPES_OUTPUT_FORMAT":"640x360"}' >/dev/null || fail "PUT back"
+BACK="$(wait_flow "$FLOW_FMT")" || fail "no flow after the change back"
+[[ "$BACK" == "$FLOW_OUT" ]] || fail "the first settings gave flow $BACK, not $FLOW_OUT"
+[[ "$(flow_def "$BACK")" == "video/v210 640 360 50 1" ]] || fail "back flow_def: $(flow_def "$BACK")"
+echo "output flow changes ok"
 
 METRICS="$(curl -sf "$API/metrics")"
 for name in mxl_scopes_accumulate_dropped_total mxl_scopes_updates_total mxl_scopes_analyse_seconds_bucket mxl_scopes_output_frames_total 'mxl_scopes_input_state{state="running"} 1' mxl_scopes_simd_level; do
