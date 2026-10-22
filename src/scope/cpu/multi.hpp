@@ -18,7 +18,7 @@
 namespace scopes::cpu
 {
 template <class V, class C, ScopeKind K, int PS, bool TWO>
-static void analyseRowsMulti(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist)
+static void analyseRowsMulti(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range)
 {
     using R = typename V::Reg;
     constexpr int G = V::kGroups;
@@ -37,7 +37,7 @@ static void analyseRowsMulti(AnalysePlan const& plan, std::uint8_t const* v210, 
         // 16 bits and is not negative (code and bin ≤ 1023, bins ≤ 1024, columns ≤ 3840).
         return V::add(V::mulU16(V::srli(V::mulU16(value, bins), 10), columns), V::loadu(offsets));
     };
-    for (auto const& strip : plan.strips)
+    for (auto const& strip : stripsOf(plan, range))
     {
         int const fullEnd = std::min(strip.g1, plan.fullGroups);
         int const loads = fullEnd > strip.g0 ? (fullEnd - strip.g0) / G : 0;
@@ -140,63 +140,63 @@ static void analyseRowsMulti(AnalysePlan const& plan, std::uint8_t const* v210, 
 }
 
 template <class V, ScopeKind K, int PS, class C>
-static void analyseMultiCells(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist)
+static void analyseMultiCells(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range)
 {
     if (plan.twoSubs)
     {
-        analyseRowsMulti<V, C, K, PS, true>(plan, v210, hist);
+        analyseRowsMulti<V, C, K, PS, true>(plan, v210, hist, range);
     }
     else
     {
-        analyseRowsMulti<V, C, K, PS, false>(plan, v210, hist);
+        analyseRowsMulti<V, C, K, PS, false>(plan, v210, hist, range);
     }
 }
 
 template <class V, ScopeKind K, int PS>
-static void analyseMultiStep(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist)
+static void analyseMultiStep(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range)
 {
     if (plan.wide)
     {
-        analyseMultiCells<V, K, PS, std::uint32_t>(plan, v210, hist);
+        analyseMultiCells<V, K, PS, std::uint32_t>(plan, v210, hist, range);
     }
     else
     {
-        analyseMultiCells<V, K, PS, std::uint16_t>(plan, v210, hist);
+        analyseMultiCells<V, K, PS, std::uint16_t>(plan, v210, hist, range);
     }
 }
 
 template <class V, ScopeKind K>
-static void analyseMultiKind(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist)
+static void analyseMultiKind(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range)
 {
     switch (plan.pixelStep)
     {
     case 1:
-        analyseMultiStep<V, K, 1>(plan, v210, hist);
+        analyseMultiStep<V, K, 1>(plan, v210, hist, range);
         break;
     case 2:
-        analyseMultiStep<V, K, 2>(plan, v210, hist);
+        analyseMultiStep<V, K, 2>(plan, v210, hist, range);
         break;
     case 3:
-        analyseMultiStep<V, K, 3>(plan, v210, hist);
+        analyseMultiStep<V, K, 3>(plan, v210, hist, range);
         break;
     default:
-        analyseMultiStep<V, K, 6>(plan, v210, hist);
+        analyseMultiStep<V, K, 6>(plan, v210, hist, range);
         break;
     }
 }
 
 // Ycbcr or Rgb; false for Luma (the caller's own step).
 template <class V>
-static bool analyseMulti(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist)
+static bool analyseMulti(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range)
 {
     if (plan.kind == ScopeKind::Ycbcr)
     {
-        analyseMultiKind<V, ScopeKind::Ycbcr>(plan, v210, hist);
+        analyseMultiKind<V, ScopeKind::Ycbcr>(plan, v210, hist, range);
         return true;
     }
     if (plan.kind == ScopeKind::Rgb)
     {
-        analyseMultiKind<V, ScopeKind::Rgb>(plan, v210, hist);
+        analyseMultiKind<V, ScopeKind::Rgb>(plan, v210, hist, range);
         return true;
     }
     return false;

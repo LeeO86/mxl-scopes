@@ -159,7 +159,11 @@ struct TraceGroup
 
 // Histogram -> the plot groups with a trace (graticule blended over), row by row. Groups
 // without counts keep the still picture's bytes (background and graticule). Clears the counts.
-void collectTrace(RenderPlan const& plan, Histogram& hist, std::vector<TraceGroup>& trace);
+// Plot rows [rowBegin, rowEnd) only (rowEnd −1: to the last); the parts of traceRowSplit can run
+// on different threads and their traces, in order, are the whole trace.
+void collectTrace(RenderPlan const& plan, Histogram& hist, std::vector<TraceGroup>& trace, int rowBegin = 0, int rowEnd = -1);
+// `parts` + 1 row boundaries from 0 to plotH that never split the rows of one bin.
+std::vector<int> traceRowSplit(RenderPlan const& plan, int parts);
 void applyTrace(std::vector<TraceGroup> const& trace, std::uint8_t* dst);
 
 // 8×8 bitmap text (ASCII), `scale` pixels per font pixel, neutral chroma.

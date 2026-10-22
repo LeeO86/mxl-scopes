@@ -53,6 +53,23 @@ jobs:
       - name: Benchmark (informative)
         run: ./build/mxl-scopes-bench --iterations 30 --strips 64,512 --steps 1/1,2/1 --pattern bars75 --modes luma,ycbcr-parade,rgb-parade,rgb-overlay
 
+  tsan:
+    # The strip workers (SCOPES_THREADS) under ThreadSanitizer: the thread tests, fewer cases.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential cmake ninja-build
+      - name: Build with -fsanitize=thread
+        run: |
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_CXX_FLAGS=-fsanitize=thread -DCMAKE_EXE_LINKER_FLAGS=-fsanitize=thread
+          cmake --build build -j"$(nproc)" --target unit-tests
+      - name: Thread tests
+        # setarch -R: ThreadSanitizer does not run with the kernel's full address randomisation.
+        run: SCOPES_TEST_QUICK=1 TSAN_OPTIONS=halt_on_error=1 setarch "$(uname -m)" -R ./build/unit-tests -tc="*worker*,*strip workers*"
+
   build-and-test:
     runs-on: ubuntu-24.04
     env:

@@ -90,6 +90,28 @@ AnalysePlan makeAnalysePlan(int width, int height, std::size_t stride, int lineS
         {
             end = std::min(groups, end + 4);
         }
+        // End the strip where a new histogram column starts, so no column spans two strips and
+        // strip workers can split between any two strips (SCOPES_THREADS): a whole quad of
+        // groups if one fits, else any group.
+        auto const clean = [&](int e) { return e >= groups || col[static_cast<std::size_t>(6 * e - 1)] < col[static_cast<std::size_t>(6 * e)]; };
+        int cut = end;
+        while (cut - 4 > g && !clean(cut))
+        {
+            cut -= 4;
+        }
+        if (!clean(cut))
+        {
+            cut = end;
+            while (cut - 1 > g && !clean(cut))
+            {
+                --cut;
+            }
+            if (!clean(cut))
+            {
+                cut = end; // one column wider than the strip: shared (workers do not split here)
+            }
+        }
+        end = cut;
         strip.g1 = end;
         strip.col1 = lastCol(end - 1);
         plan.strips.push_back(strip);
@@ -179,11 +201,11 @@ AnalysePlan makeAnalysePlan(int width, int height, std::size_t stride, int lineS
 namespace
 {
 template <class C>
-void analyseScalarCells(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist)
+void analyseScalarCells(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range)
 {
     auto* counts = hist.data<C>();
     auto* scratch = hist.scratchData<C>();
-    for (auto const& strip : plan.strips)
+    for (auto const& strip : stripsOf(plan, range))
     {
         for (int y = 0; y < plan.height; y += plan.lineStep)
         {
@@ -202,15 +224,15 @@ void analyseScalarCells(AnalysePlan const& plan, std::uint8_t const* v210, Histo
 }
 } // namespace
 
-void analyseScalar(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist)
+void analyseScalar(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range)
 {
     if (plan.wide)
     {
-        analyseScalarCells<std::uint32_t>(plan, v210, hist);
+        analyseScalarCells<std::uint32_t>(plan, v210, hist, range);
     }
     else
     {
-        analyseScalarCells<std::uint16_t>(plan, v210, hist);
+        analyseScalarCells<std::uint16_t>(plan, v210, hist, range);
     }
 }
 } // namespace scopes

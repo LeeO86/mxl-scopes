@@ -264,7 +264,7 @@ struct MediaIo::Impl
 
     void rendererMain()
     {
-        ScopeEngine engine(level);
+        ScopeEngine engine(level, kDefaultStripColumns, config.threads);
         UpdateScheduler scheduler;
         mxlInstance instance = nullptr;
         mxlFlowReader reader = nullptr;

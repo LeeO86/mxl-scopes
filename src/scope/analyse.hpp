@@ -1,6 +1,8 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
+#include <span>
 #include <cstddef>
 #include <cstdint>
 #include <stdexcept>
@@ -172,16 +174,31 @@ struct CellOverflow : std::invalid_argument
 AnalysePlan makeAnalysePlan(int width, int height, std::size_t stride, int lineStep, int pixelStep, int columns, int bins,
     int stripColumns = kDefaultStripColumns, ScopeKind kind = ScopeKind::Luma, int grains = 1);
 
+// Strips [begin, end) of a plan; end −1 is the last. A strip worker analyses one range: the
+// ranges of the workers share no histogram column (ScopeEngine splits them so).
+struct StripRange
+{
+    int begin = 0;
+    int end = -1;
+};
+inline std::span<AnalysePlan::Strip const> stripsOf(AnalysePlan const& plan, StripRange range)
+{
+    auto const n = static_cast<int>(plan.strips.size());
+    int const end = range.end < 0 ? n : std::min(range.end, n);
+    int const begin = std::min(std::max(0, range.begin), end);
+    return std::span<AnalysePlan::Strip const>(plan.strips).subspan(static_cast<std::size_t>(begin), static_cast<std::size_t>(end - begin));
+}
+
 // Rows ahead of the current one that the analyse loops prefetch: a strip reads a few cache
 // lines per row with a stride above 4 KiB, which the hardware prefetcher does not follow.
 inline constexpr int kPrefetchRows = 6;
 
 // Adds one frame to `hist` (every kind; the plan says which). The counts must be zero before the first frame of an update.
-void analyseScalar(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist);
+void analyseScalar(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range = {});
 // AVX2 version, byte-identical counts. Only call it when the CPU has AVX2 (cpu/dispatch.hpp).
-void analyseAvx2(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist);
+void analyseAvx2(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range = {});
 bool avx2Compiled();
 // AVX-512 (F) version, four groups per load, byte-identical counts. Only with AVX-512.
-void analyseAvx512(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist);
+void analyseAvx512(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range = {});
 bool avx512Compiled();
 } // namespace scopes

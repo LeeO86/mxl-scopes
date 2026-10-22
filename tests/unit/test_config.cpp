@@ -99,6 +99,19 @@ TEST_CASE("invalid values are configuration errors (exit 78)")
     CHECK_THROWS_AS(loadConfig(base(), {{"NOT_A_KEY", "1"}}), ConfigError);
 }
 
+TEST_CASE("SCOPES_THREADS 1-8 (strip workers, M2)")
+{
+    for (auto const* value : {"1", "2", "8"})
+    {
+        auto env = base();
+        env["SCOPES_THREADS"] = value;
+        CHECK(loadConfig(env, {}).threads == std::stoi(value));
+    }
+    auto env = base();
+    env["SCOPES_THREADS"] = "0";
+    CHECK_THROWS_AS(loadConfig(env, {}), ConfigError);
+}
+
 TEST_CASE("ports must not collide; MediaMTX ports count only in own mode")
 {
     auto env = base();

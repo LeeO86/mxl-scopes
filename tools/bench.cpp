@@ -77,7 +77,7 @@ int main(int argc, char** argv)
         {
             std::cout << "mxl-scopes-bench [--rasters 1920x1080,3840x2160] [--output 1920x1080] [--simd scalar,avx2,avx512]\n"
                          "                 [--strips 32,64,128] [--steps 1/1,2/1,2/2] [--pattern random|bars75|ramp|flat]\n"
-                         "                 [--iterations 200] [--modes luma,ycbcr-parade,rgb-parade,rgb-overlay]\n"
+                         "                 [--iterations 200] [--modes luma,ycbcr-parade,rgb-parade,rgb-overlay] [--threads 1]\n"
                          "mxl-scopes-bench --golden DIR   (writes the golden pictures as PNG)\n";
             return 0;
         }
@@ -128,6 +128,7 @@ int main(int argc, char** argv)
     auto const steps = split(arg(argc, argv, "--steps", "1/1,2/1,2/2"));
     auto const pattern = arg(argc, argv, "--pattern", "random");
     auto const modes = split(arg(argc, argv, "--modes", "luma"));
+    int const threads = std::clamp(std::stoi(arg(argc, argv, "--threads", "1")), 1, 8);
     std::vector<std::pair<std::string, std::string>> runs;
     int const iterations = std::max(5, std::stoi(arg(argc, argv, "--iterations", "200")));
     // --frames N cycles through N copies of the picture (N × 5.5 MB at 1080p beats the caches,
@@ -175,7 +176,7 @@ int main(int argc, char** argv)
                     settings.mode = mode;
                     settings.lineStep = std::stoi(step.substr(0, step.find('/')));
                     settings.pixelStep = std::stoi(step.substr(step.find('/') + 1));
-                    ScopeEngine engine(simd == "avx512" ? SimdLevel::Avx512 : simd == "avx2" ? SimdLevel::Avx2 : SimdLevel::Scalar, std::stoi(strip));
+                    ScopeEngine engine(simd == "avx512" ? SimdLevel::Avx512 : simd == "avx2" ? SimdLevel::Avx2 : SimdLevel::Scalar, std::stoi(strip), threads);
                     engine.configure({w, h, v210RowBytes(w)}, settings, outW, outH);
                     std::vector<std::uint8_t> out(engine.packedSize());
                     std::vector<double> analyse;

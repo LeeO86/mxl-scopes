@@ -36,6 +36,7 @@ Environment > `SCOPES_CONFIG_FILE` (flat JSON, else `<SCOPES_STATE_DIR>/config.j
 | `SCOPES_INTENSITY`, `SCOPES_TRACE_MIN`, `SCOPES_TRACE_COLOR`, `SCOPES_CAPTION` | 100, 96, `green`, `true` | live; the trace colour applies to `luma` (the parades and the overlay colour each component) |
 | `SCOPES_OUTPUT_FORMAT`, `SCOPES_OUTPUT_RATE` | `1920x1080`, `input` | at start (`input` follows the routed flow live) |
 | `SCOPES_HOLD_MS`, `SCOPES_INPUT_OFFSET_GRAINS` | 1000, 0 | live |
+| `SCOPES_THREADS` | 1 | 1–8 at start: the renderer and `SCOPES_THREADS` − 1 strip workers share the analyse and trace steps (same picture for any count; `renderer.threads` in the status) |
 | `SCOPES_SIMD` | `auto` | `auto`, `avx512`, `avx2`, `scalar` (`auto` = AVX2; AVX-512 only when set to `avx512`, it measured slower so far) |
 | `SCOPES_STATE_DIR` | `/config` | `config.json`, `routes.json` |
 | `MXL_DOMAIN_SCAN_PATH`, `MXL_OUTPUT_DOMAIN_DIR`, `MXL_OUTPUT_DOMAIN_ID`, `MXL_HISTORY_DURATION_NS`, `MXL_CLEANUP_ON_EXIT` | `/Volumes/mxl`, `/Volumes/mxl/scopes-<id>`, UUIDv5 of the seed, 200 ms, `false` | |

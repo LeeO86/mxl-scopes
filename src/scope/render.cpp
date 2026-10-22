@@ -226,6 +226,25 @@ int histogramBins(Layout const& layout)
     return std::min(layout.plotH, 1024);
 }
 
+std::vector<int> traceRowSplit(RenderPlan const& plan, int parts)
+{
+    // Even shares of the plot rows, each boundary moved down to the next row that starts a bin:
+    // a bin's cells are cleared after its last row, so no two parts may share a bin.
+    int const rows = plan.layout.plotH;
+    std::vector<int> split{0};
+    for (int k = 1; k < parts; ++k)
+    {
+        int r = std::max(split.back(), static_cast<int>(static_cast<std::int64_t>(rows) * k / parts));
+        while (r > 0 && r < rows && plan.binOfRow[static_cast<std::size_t>(r)] == plan.binOfRow[static_cast<std::size_t>(r) - 1])
+        {
+            ++r;
+        }
+        split.push_back(std::min(r, rows));
+    }
+    split.push_back(rows);
+    return split;
+}
+
 int rowOfCode(RenderPlan const& plan, int code)
 {
     int const bin = (std::clamp(code, 0, 1023) * plan.bins) >> 10;
@@ -639,7 +658,7 @@ bool panelRow(RenderPlan const& plan, PanelPlan const& panel, C const* const* li
 namespace
 {
 template <class C>
-void collectTraceCells(RenderPlan const& plan, Histogram& hist, std::vector<TraceGroup>& trace)
+void collectTraceCells(RenderPlan const& plan, Histogram& hist, std::vector<TraceGroup>& trace, int rowBegin, int rowEnd)
 {
     auto const& layout = plan.layout;
     auto const planeCells = static_cast<std::size_t>(plan.columns) * static_cast<std::size_t>(plan.bins);
@@ -655,7 +674,7 @@ void collectTraceCells(RenderPlan const& plan, Histogram& hist, std::vector<Trac
     // Every plot row shows its own bin and column (the usual case up to 1080 lines): a row whose
     // cells are all zero need not be cleared.
     bool const inlineClear = plan.identityColumns && plan.bins == layout.plotH;
-    for (int r = 0; r < layout.plotH; ++r)
+    for (int r = rowBegin; r < rowEnd; ++r)
     {
         auto const row = static_cast<std::size_t>(layout.plotY + r);
         auto const bin = plan.binOfRow[static_cast<std::size_t>(r)];
@@ -712,9 +731,11 @@ void collectTraceCells(RenderPlan const& plan, Histogram& hist, std::vector<Trac
 }
 } // namespace
 
-void collectTrace(RenderPlan const& plan, Histogram& hist, std::vector<TraceGroup>& trace)
+void collectTrace(RenderPlan const& plan, Histogram& hist, std::vector<TraceGroup>& trace, int rowBegin, int rowEnd)
 {
     trace.clear();
+    rowEnd = rowEnd < 0 ? plan.layout.plotH : std::min(rowEnd, plan.layout.plotH);
+    rowBegin = std::clamp(rowBegin, 0, rowEnd);
     auto const planeCells = static_cast<std::size_t>(plan.columns) * static_cast<std::size_t>(plan.bins);
     bool const hasCounts = hist.cells() > 0 && hist.columns == plan.columns && hist.bins == plan.bins && hist.planes == plan.planes &&
                            hist.cells() == planeCells * static_cast<std::size_t>(plan.planes);
@@ -724,11 +745,11 @@ void collectTrace(RenderPlan const& plan, Histogram& hist, std::vector<TraceGrou
     }
     if (hist.wide)
     {
-        collectTraceCells<std::uint32_t>(plan, hist, trace);
+        collectTraceCells<std::uint32_t>(plan, hist, trace, rowBegin, rowEnd);
     }
     else
     {
-        collectTraceCells<std::uint16_t>(plan, hist, trace);
+        collectTraceCells<std::uint16_t>(plan, hist, trace, rowBegin, rowEnd);
     }
 }
 

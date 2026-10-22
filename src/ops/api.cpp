@@ -225,7 +225,7 @@ std::string Api::rendererJson() const
     auto const r = state_.renderer();
     std::ostringstream out;
     out << "{\"updates\":" << r.updates << ",\"skipped\":" << r.skipped << ",\"torn\":" << r.torn << ",\"update_rate_hz\":" << number(r.updateHz)
-        << ",\"analyse_ms\":" << number(r.analyseMs) << ",\"analyse_cpu_ms\":" << number(r.analyseCpuMs) << ",\"render_ms\":" << number(r.renderMs) << ",\"line_step\":" << r.lineStep << ",\"simd\":" << quote(simdName(build_.simd.level)) << "}";
+        << ",\"analyse_ms\":" << number(r.analyseMs) << ",\"analyse_cpu_ms\":" << number(r.analyseCpuMs) << ",\"render_ms\":" << number(r.renderMs) << ",\"line_step\":" << r.lineStep << ",\"simd\":" << quote(simdName(build_.simd.level)) << ",\"threads\":" << config_.threads << "}";
     return out.str();
 }
 

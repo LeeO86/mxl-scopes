@@ -46,7 +46,7 @@ struct Lanes<6>
 constexpr int kChunkPairs = 32;
 
 template <class C, int PS, bool TWO>
-void analyseRows(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist)
+void analyseRows(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range)
 {
     auto* counts = hist.data<C>();
     auto* scratch = hist.scratchData<C>();
@@ -57,7 +57,7 @@ void analyseRows(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& h
     __m256i const columns = _mm256_set1_epi32(plan.columns);
     auto const* offA = plan.simdOffA.data();
     auto const* offB = plan.simdOffB.data();
-    for (auto const& strip : plan.strips)
+    for (auto const& strip : stripsOf(plan, range))
     {
         // Whole pairs of full groups; the rest of the strip goes through the reference step.
         int const pairEnd = std::min(strip.g1, plan.fullGroups);
@@ -241,26 +241,26 @@ struct Avx2V
 };
 
 template <int PS>
-void analyseStep(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist)
+void analyseStep(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range)
 {
     if (plan.wide)
     {
         if (plan.twoSubs)
         {
-            analyseRows<std::uint32_t, PS, true>(plan, v210, hist);
+            analyseRows<std::uint32_t, PS, true>(plan, v210, hist, range);
         }
         else
         {
-            analyseRows<std::uint32_t, PS, false>(plan, v210, hist);
+            analyseRows<std::uint32_t, PS, false>(plan, v210, hist, range);
         }
     }
     else if (plan.twoSubs)
     {
-        analyseRows<std::uint16_t, PS, true>(plan, v210, hist);
+        analyseRows<std::uint16_t, PS, true>(plan, v210, hist, range);
     }
     else
     {
-        analyseRows<std::uint16_t, PS, false>(plan, v210, hist);
+        analyseRows<std::uint16_t, PS, false>(plan, v210, hist, range);
     }
 }
 } // namespace
@@ -270,25 +270,25 @@ bool avx2Compiled()
     return true;
 }
 
-void analyseAvx2(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist)
+void analyseAvx2(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range)
 {
-    if (cpu::analyseMulti<Avx2V>(plan, v210, hist))
+    if (cpu::analyseMulti<Avx2V>(plan, v210, hist, range))
     {
         return;
     }
     switch (plan.pixelStep)
     {
     case 1:
-        analyseStep<1>(plan, v210, hist);
+        analyseStep<1>(plan, v210, hist, range);
         break;
     case 2:
-        analyseStep<2>(plan, v210, hist);
+        analyseStep<2>(plan, v210, hist, range);
         break;
     case 3:
-        analyseStep<3>(plan, v210, hist);
+        analyseStep<3>(plan, v210, hist, range);
         break;
     default:
-        analyseStep<6>(plan, v210, hist);
+        analyseStep<6>(plan, v210, hist, range);
         break;
     }
 }

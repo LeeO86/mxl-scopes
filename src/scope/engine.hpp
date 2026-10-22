@@ -10,6 +10,7 @@
 #include "scope/cpu/dispatch.hpp"
 #include "scope/render.hpp"
 #include "scope/settings.hpp"
+#include "scope/workers.hpp"
 
 namespace scopes
 {
@@ -88,8 +89,23 @@ public:
     {
         return v210RowBytes(params_.outputWidth) * static_cast<std::size_t>(params_.outputHeight);
     }
+    // Strip workers for the trace step (plot rows split between them); null: one thread.
+    void setWorkers(WorkerPool* pool)
+    {
+        pool_ = pool;
+        configured_ = false;
+    }
 
 private:
+    WorkerPool* pool_ = nullptr;
+    std::vector<int> rowSplit_;
+    // One trace per worker, each on its own cache lines: the vector's end pointer changes with
+    // every group, and two workers on one line would slow each other down (false sharing).
+    struct alignas(64) Part
+    {
+        std::vector<TraceGroup> groups;
+    };
+    std::vector<Part> parts_;
     PaintParams params_;
     int grains_ = 1;
     bool configured_ = false;
@@ -108,7 +124,9 @@ private:
 class ScopeEngine
 {
 public:
-    explicit ScopeEngine(SimdLevel level, int stripColumns = kDefaultStripColumns);
+    // `threads` > 1: the renderer and threads − 1 strip workers share the analyse and trace
+    // steps (SCOPES_THREADS, §4.3); the result is the same for any thread count.
+    explicit ScopeEngine(SimdLevel level, int stripColumns = kDefaultStripColumns, int threads = 1);
 
     // Rebuilds the tables when the input format, the settings or the raster changed.
     // Returns true when it rebuilt them.
@@ -177,10 +195,23 @@ public:
     {
         return v210RowBytes(outputWidth_) * static_cast<std::size_t>(outputHeight_);
     }
+    [[nodiscard]] int threads() const
+    {
+        return pool_ ? pool_->threads() : 1;
+    }
+    // Strip boundaries of the workers (threads() + 1 indices into AnalysePlan::strips).
+    [[nodiscard]] std::vector<int> const& stripSplit() const
+    {
+        return stripSplit_;
+    }
 
 private:
+    void analyseRange(std::uint8_t const* v210, Histogram& hist, StripRange range) const;
+
     SimdLevel level_;
     int stripColumns_;
+    std::unique_ptr<WorkerPool> pool_;
+    std::vector<int> stripSplit_;
     bool configured_ = false;
     InputFormat input_;
     int maxGrains_ = 1;
