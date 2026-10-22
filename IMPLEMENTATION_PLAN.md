@@ -4,7 +4,7 @@ This plan comes before any code. It is updated as the work goes on: every decisi
 
 ## Status (2026-10-22)
 
-M1 done on `feat/m1` (PR in review): the stage-1 modes `ycbcr-parade`, `rgb-parade`, `rgb-overlay` end to end (pulled forward from M2, deviation 15), `SCOPES_ACCUMULATE=all`, the trace computed on the analysing thread (deviation 16), and the lab run with a camera picture and the multiviewer tiles; numbers in `docs/performance.md`. The maintainer's decisions of 2026-10-22 are applied: the RGB parade CPU every frame is accepted for M1 (deviation 25), `rgb-overlay` updates at most at 25 Hz from 50p (§4.6), deviation 16 is folded into the specification. What M1 leaves open is listed under M1 below.
+M1 done on `feat/m1` (PR in review): the stage-1 modes `ycbcr-parade`, `rgb-parade`, `rgb-overlay` end to end (pulled forward from M2, deviation 15), `SCOPES_ACCUMULATE=all`, the trace computed on the analysing thread (deviation 16), and the lab run with a camera picture and the multiviewer tiles; numbers in `docs/performance.md`. The maintainer's decisions of 2026-10-22 are applied: the RGB parade CPU every frame is accepted for M1 (deviation 25), `rgb-overlay` updates at most every n-th input frame, at most 30 Hz (25 Hz from 50p, §4.6), deviation 16 is folded into the specification. What M1 leaves open is listed under M1 below.
 
 M0 done (2026-10-15), PR #1 merged. The open questions of SPECIFICATION §16 are decided (§16 there). Process CPU on the lab class, 1080p50 in and out, AVX2: real picture (camera) about 0.25 core at 25 Hz and about 0.45 core every frame, bars 0.09–0.14 and 0.20–0.22 core; accepted by the maintainer as the §13 figures (§13 updated).
 
@@ -192,7 +192,7 @@ Most of this list was built in M0 (deviation 1). Progress (2026-10-16), with the
 - [x] `scope.sh`: `accumulate=all` at 10 Hz, each mode live on a grey input with the trace row checked in every panel, the flow id kept, the NMOS description followed, a stage-2 mode refused (400).
 - [x] Lab run (2026-10-16): the test player 1.2.1 playing a camera clip as 1080p50 and as 1080i50; scopes on both (luma, YCbCr parade, RGB parade); a multiviewer 1.4.3 with the 1080p50 picture and the three scope outputs as tiles (screenshot kept outside the repo). Process CPU per mode in `docs/performance.md`.
 - [ ] Desktop-class numbers (no desktop-class host in the lab).
-- [ ] The 1080i50 picture as a multiviewer tile: the multiviewer 1.4.3 exits with SIGSEGV (139) when the test player's 1080i50 flow is routed to it (CPU and CUDA backends); the scopes read that flow fine. Reported to the maintainer.
+- [x] The 1080i50 picture as a multiviewer tile: the multiviewer 1.4.3 exited with SIGSEGV (139) when the test player's 1080i50 flow was routed to it (CPU and CUDA backends); the scopes read that flow fine. Resolved in the multiviewer 1.4.4 (retested 2026-10-22 with 1080i25 tff and bff and 1080i29.97).
 - [x] RGB parade every frame on camera content is above §13 (0.67–0.74 core against < 0.4; analyse + render p99 11.8 ms against < 8 ms) on the lab class: accepted for M1 (2026-10-22, deviation 25); strip workers are M2.
 - [x] `rgb-overlay` updates at most every n-th input frame, at most 30 Hz: 25 Hz from 50p, 29.97 Hz from 59.94p (decided 2026-10-22, §4.6; `modeUpdateRate` in `src/scope/scheduler.cpp`). A fixed cap, not a setting: the overlay cannot update every frame at 1080p50 on the lab class, and the cap keeps all columns. Unit tests in `test_scheduler.cpp`; before and after in `docs/performance.md`.
 - [ ] Blend2D graticule labels (deviation 6) and `ycbcr-overlay` (a SHOULD).
@@ -328,8 +328,8 @@ Answered 2026-10-15: softer intensity curve (done, §4.4); AVX-512 added (done; 
 
 Answered (accepted 2026-10-15): the M0 process figures became §13.
 
-Answered 2026-10-22: the RGB parade CPU every frame is accepted for M1, `SCOPES_THREADS` stays M2 (deviation 25); the RGB overlay updates at 25 Hz from 50p when every frame cannot keep up, with all columns (§4.6); deviation 16 is folded into the specification.
+Answered 2026-10-22: the RGB parade CPU every frame is accepted for M1, `SCOPES_THREADS` stays M2 (deviation 25); the RGB overlay updates at most every n-th input frame, at most 30 Hz (25 Hz from 50p), with all columns (§4.6); deviation 16 is folded into the specification.
 
-Open (2026-10-16):
+Resolved 2026-10-22: the multiviewer 1.4.3 crash (exit 139) on the test player's 1080i50 flow is fixed in the multiviewer 1.4.4 (retested with 1080i25 tff and bff and 1080i29.97).
 
-1. The multiviewer 1.4.3 crashes (exit 139) when the test player's 1080i50 flow is routed to it. A ticket for the multiviewer?
+No open questions.

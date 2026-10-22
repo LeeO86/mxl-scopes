@@ -730,9 +730,11 @@ struct MediaIo::Impl
                 stats.skipped += decision.skipped;
                 metrics.inc("updates_skipped_total", {}, static_cast<double>(decision.skipped));
             }
-            if (decision.update && accumulateAll && accGrains > 0)
+            if ((decision.update || redraw) && accumulateAll && accGrains > 0)
             {
-                // `all`: the grains since the last update are in the counts already.
+                // `all`: the grains since the last update are in the counts already. A redraw
+                // after a settings change shows them at once instead of analysing the newest
+                // grain a second time.
                 ++stats.updates;
                 stats.analyseMs = accWallMs;
                 stats.analyseCpuMs = accCpuMs;
@@ -783,6 +785,9 @@ struct MediaIo::Impl
                         ++stats.torn;
                         metrics.inc("updates_torn_total", {});
                         engine.clear();
+                        accGrains = 0;
+                        accWallMs = 0;
+                        accCpuMs = 0;
                     }
                     else
                     {

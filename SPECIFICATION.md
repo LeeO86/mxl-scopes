@@ -171,7 +171,7 @@ The plot area has `C` columns and `B` bins (rows). Defaults: the plot's width an
 - Column of an input sample at `x`: `col = floor(x × C / width)`, from a per-x lookup table built at configure time. In a parade each component has its own panel and its own `C`.
 - Bin of a code value `v` (0–1023): `bin = floor((v − v_lo) × B / (v_hi − v_lo + 1))`, clamped to `[0, B−1]`, from a 1024-entry lookup table. `v_lo`/`v_hi` are the visible code range (default 0–1023, so super-black and super-white stay visible).
 - `hist[component][col][bin] += 1`. Layout: column-major, the `B` bins of one column contiguous.
-- Counter width: `uint16_t` when the largest possible count per cell (`ceil(width / C) / pixel_step × ceil(height / line_step) × frames accumulated`) fits in 65535, else `uint32_t`. The choice is made at configure time and is the same on every backend.
+- Counter width: `uint16_t`. When the largest possible count per cell (`ceil(width / C) / pixel_step × ceil(height / line_step) × frames accumulated`) would not fit in 65535, the engine raises the line step to the smallest that fits and normalises the intensity to the samples taken (`renderer.line_step` in `/api/v1/status`); `uint32_t` counters are planned for M2 (IMPLEMENTATION_PLAN.md deviation 23). The choice is made at configure time and is the same on every backend.
 - **Cache blocking.** A 1080p luma histogram of 1840 × 1000 cells is about 3.7 MB, larger than L2. The engine therefore walks the picture in **column strips**: a strip of input columns that maps to at most 64 plot columns (about 128 KB of counters at `B` = 1000), for all analysed lines, then the next strip. The input of one strip is 64 × ⌈width/C⌉ samples per line, so it streams with hardware prefetch. With `SCOPES_THREADS` > 1, workers take whole strips; strips never share counters, so the result is the same for any thread count.
 - **Store-forwarding hazard.** Flat picture areas send neighbouring samples of one column to the same bin, which chains load-add-store at about 5 cycles each. When `width / C ≥ 2`, the engine keeps two sub-histograms per strip (even and odd input `x`) and adds them when the strip is done. The sum is exact, so the result does not depend on the trick.
 - **Accumulation over time.** `SCOPES_ACCUMULATE=latest` (default) analyses only the newest grain at each update. `all` analyses every input grain between two updates into the same histogram (better statistics on noisy pictures, full analyse cost at any update rate).
@@ -486,10 +486,11 @@ Prefix `mxl_scopes_`.
 | `updates_total` | counter | `mode` |
 | `updates_skipped_total` | counter | |
 | `updates_torn_total` | counter | |
+| `accumulate_dropped_total` | counter | grains `SCOPES_ACCUMULATE=all` could not add (behind the ring, or more than 16-bit cells take) |
 | `update_rate_hz` | gauge | effective rate |
 | `analyse_seconds` | histogram | `mode` |
 | `analyse_cpu_seconds` | histogram | `mode` (thread CPU time of the analyse step; below `analyse_seconds` when the thread waited for its core) |
-| `render_seconds` | histogram | `mode` |
+| `render_seconds` | histogram | `mode` (building the trace groups on the renderer thread, §2.3; the writer's patching is not in it) |
 | `output_frames_total` | counter | |
 | `output_frames_late_total` | counter | |
 | `output_frames_missed_total` | counter | |
