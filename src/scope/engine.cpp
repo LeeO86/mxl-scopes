@@ -239,7 +239,8 @@ void ScopeEngine::measureUpdate(int grains)
 
 void ScopeEngine::render(std::string const& caption, std::string const& state, std::uint8_t* dst)
 {
-    if (painter_.render(hist_, caption, state, dst, grains_, analyse_.kind == ScopeKind::Rgb ? nullptr : &totals_))
+    // Without analysed grains (a redraw whose grain left the ring) the last measurements stay.
+    if (painter_.render(hist_, caption, state, dst, grains_, analyse_.kind == ScopeKind::Rgb ? nullptr : &totals_) && grains_ > 0)
     {
         measureUpdate(grains_);
     }
@@ -249,7 +250,8 @@ void ScopeEngine::render(std::string const& caption, std::string const& state, s
 
 void ScopeEngine::trace(std::string const& caption, std::string const& state, std::vector<TraceGroup>& out)
 {
-    if (painter_.trace(hist_, caption, state, out, grains_, analyse_.kind == ScopeKind::Rgb ? nullptr : &totals_))
+    // Without analysed grains (a redraw whose grain left the ring) the last measurements stay.
+    if (painter_.trace(hist_, caption, state, out, grains_, analyse_.kind == ScopeKind::Rgb ? nullptr : &totals_) && grains_ > 0)
     {
         measureUpdate(grains_);
     }

@@ -200,6 +200,10 @@ TEST_CASE("measurements: the same for any thread count, json, nothing before an 
     engine.analyse(frame.data());
     engine.trace("", "", trace);
     CHECK(engine.measurements().update == 1);
+    // A redraw without counts (the grain left the ring) keeps them.
+    auto const kept = engine.measurements();
+    engine.trace("", "", trace);
+    CHECK(engine.measurements() == kept);
     auto const json = measurementsJson(engine.measurements());
     CHECK(json.find("\"min_code\":") != std::string::npos);
     CHECK(json.find("\"chroma\":null") != std::string::npos);

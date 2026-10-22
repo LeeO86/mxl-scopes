@@ -12,6 +12,7 @@
 #include <atomic>
 #include <cstdlib>
 #include <random>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -62,6 +63,29 @@ TEST_CASE("worker pool: every part runs once per step, the caller runs part 0")
     }
 }
 
+TEST_CASE("worker pool: an exception in a part is rethrown after every part is done")
+{
+    WorkerPool pool(4);
+    for (int thrower : {0, 2})
+    {
+        CAPTURE(thrower);
+        std::atomic<int> done{0};
+        CHECK_THROWS_AS(pool.run([&](int k) {
+            if (k == thrower)
+            {
+                throw std::runtime_error("part failed");
+            }
+            done.fetch_add(1);
+        }),
+            std::runtime_error);
+        CHECK(done.load() == 3);
+        // The pool still works.
+        std::atomic<int> again{0};
+        pool.run([&](int) { again.fetch_add(1); });
+        CHECK(again.load() == 4);
+    }
+}
+
 TEST_CASE("strip workers: the ranges share no histogram column")
 {
     for (auto const* mode : kModes)
@@ -98,6 +122,45 @@ TEST_CASE("strip workers: the ranges share no histogram column")
                     CHECK(split[1] < static_cast<int>(strips.size()));
                 }
             }
+        }
+    }
+}
+
+TEST_CASE("strip workers: parts past the last strip are empty (2048 wide, 342 columns)")
+{
+    // A wide input on few columns: the first parts can take every strip, the rest stay empty.
+    for (int parts = 2; parts <= 8; ++parts)
+    {
+        CAPTURE(parts);
+        auto const plan = makeAnalysePlan(2048, 1080, v210RowBytes(2048), 1, 1, 342, 180, kDefaultStripColumns, ScopeKind::Luma, 1, parts);
+        REQUIRE(plan.partStart.size() == static_cast<std::size_t>(parts) + 1);
+        CHECK(plan.partStart.front() == 0);
+        CHECK(plan.partStart.back() == static_cast<int>(plan.strips.size()));
+        for (std::size_t k = 1; k < plan.partStart.size(); ++k)
+        {
+            CHECK(plan.partStart[k] >= plan.partStart[k - 1]);
+        }
+    }
+    auto const frame = packPattern(makePattern("random", 2048, 1080, 0, 61));
+    for (auto const* mode : {"luma", "rgb-overlay", "ycbcr-overlay"})
+    {
+        CAPTURE(mode);
+        DisplaySettings settings;
+        settings.mode = mode;
+        ScopeEngine one(SimdLevel::Scalar);
+        one.configure({2048, 1080, v210RowBytes(2048)}, settings, 384, 216);
+        std::vector<std::uint8_t> a(one.packedSize());
+        one.analyse(frame.data());
+        one.render("", "", a.data());
+        for (int threads = 3; threads <= 8; ++threads)
+        {
+            CAPTURE(threads);
+            ScopeEngine many(SimdLevel::Scalar, kDefaultStripColumns, threads);
+            many.configure({2048, 1080, v210RowBytes(2048)}, settings, 384, 216);
+            std::vector<std::uint8_t> b(many.packedSize());
+            many.analyse(frame.data());
+            many.render("", "", b.data());
+            CHECK(a == b);
         }
     }
 }

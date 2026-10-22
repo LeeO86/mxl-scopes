@@ -442,6 +442,7 @@ HttpResponse Api::importConfig(HttpRequest const& request)
     auto const& obj = root.get<picojson::object>();
     std::vector<std::string> skipped;
     std::vector<std::string> restart;
+    std::vector<std::string> flowKeys;
     if (auto const settings = obj.find("settings"); settings != obj.end())
     {
         if (!settings->second.is<picojson::object>())
@@ -475,6 +476,7 @@ HttpResponse Api::importConfig(HttpRequest const& request)
         auto const& ok = std::get<ConfigStore::UpdateResult>(result);
         applied(ok.config);
         restart = ok.restartRequired;
+        flowKeys = ok.flowKeys;
     }
     bool routesRestart = false;
     if (auto const routes = obj.find("routes"); routes != obj.end())
@@ -492,7 +494,7 @@ HttpResponse Api::importConfig(HttpRequest const& request)
         routesRestart = true;
     }
     return jsonResponse(200, "{\"ok\":true,\"secrets\":false,\"skipped\":" + stringList(skipped) + ",\"restart_required\":" +
-                                 boolean(!restart.empty() || routesRestart) + ",\"keys\":" + stringList(restart) + ",\"routes_restart\":" +
+                                 boolean(!restart.empty() || routesRestart) + ",\"keys\":" + stringList(restart) + ",\"flow_keys\":" + stringList(flowKeys) + ",\"routes_restart\":" +
                                  boolean(routesRestart) + "}");
 }
 

@@ -1,6 +1,7 @@
 #include "scope/workers.hpp"
 
 #include <algorithm>
+#include <utility>
 
 namespace scopes
 {
@@ -40,10 +41,29 @@ void WorkerPool::run(std::function<void(int)> const& task)
         ++generation_;
     }
     start_.notify_all();
-    task(0);
+    // An exception in any part is rethrown here, after every helper has finished its part.
+    std::exception_ptr error;
+    try
+    {
+        task(0);
+    }
+    catch (...)
+    {
+        error = std::current_exception();
+    }
     std::unique_lock lock(mu_);
     done_.wait(lock, [this] { return pending_ == 0; });
     task_ = nullptr;
+    if (!error)
+    {
+        error = std::exchange(helperError_, nullptr);
+    }
+    helperError_ = nullptr;
+    lock.unlock();
+    if (error)
+    {
+        std::rethrow_exception(error);
+    }
 }
 
 void WorkerPool::loop(int part)
@@ -62,9 +82,21 @@ void WorkerPool::loop(int part)
             seen = generation_;
             task = task_;
         }
-        (*task)(part);
+        std::exception_ptr error;
+        try
+        {
+            (*task)(part);
+        }
+        catch (...)
+        {
+            error = std::current_exception();
+        }
         {
             std::lock_guard lock(mu_);
+            if (error && !helperError_)
+            {
+                helperError_ = error;
+            }
             if (--pending_ == 0)
             {
                 done_.notify_one();

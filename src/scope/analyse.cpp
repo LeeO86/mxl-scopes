@@ -103,6 +103,12 @@ AnalysePlan makeAnalysePlan(int width, int height, std::size_t stride, int lineS
     plan.partStart.assign(1, 0);
     for (int k = 1; k < parts; ++k)
     {
+        if (static_cast<std::size_t>(plan.partStart.back()) >= plan.strips.size())
+        {
+            // The earlier parts took every strip: this one is empty.
+            plan.partStart.push_back(static_cast<int>(plan.strips.size()));
+            continue;
+        }
         int cut = std::max(groups * k / parts, plan.strips[static_cast<std::size_t>(plan.partStart.back())].g0);
         while (cut < groups && cut > 0 && col[static_cast<std::size_t>(6 * cut - 1)] == col[static_cast<std::size_t>(6 * cut)])
         {

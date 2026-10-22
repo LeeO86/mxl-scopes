@@ -42,8 +42,9 @@ jobs:
           sudo apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential cmake ninja-build
       - name: Configure and build
+        # Bounds-checked standard containers in the unit tests (-D_GLIBCXX_ASSERTIONS).
         run: |
-          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS=-D_GLIBCXX_ASSERTIONS
           cmake --build build -j"$(nproc)"
       - name: Unit tests
         run: |

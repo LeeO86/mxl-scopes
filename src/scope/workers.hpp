@@ -2,6 +2,7 @@
 
 #include <condition_variable>
 #include <cstdint>
+#include <exception>
 #include <functional>
 #include <mutex>
 #include <thread>
@@ -25,6 +26,7 @@ public:
         return threads_;
     }
     // Calls task(k) for k = 0 .. threads() − 1, part 0 on the calling thread, and waits for all.
+    // An exception of any part is rethrown after all parts are done (the first one).
     void run(std::function<void(int)> const& task);
 
 private:
@@ -38,6 +40,7 @@ private:
     int pending_ = 0;
     bool stop_ = false;
     std::function<void(int)> const* task_ = nullptr;
+    std::exception_ptr helperError_;
     std::vector<std::thread> helpers_;
 };
 } // namespace scopes

@@ -906,6 +906,7 @@ struct MediaIo::Impl
             std::vector<std::uint32_t> keyOffsets;
         };
         std::vector<SlotRecord> slots;
+        std::vector<std::uint8_t> black;
         std::uint8_t const* previous = nullptr;
         std::uint64_t previousIndex = 0;
         auto nextSnapshot = std::chrono::steady_clock::now();
@@ -939,6 +940,7 @@ struct MediaIo::Impl
             grainCount = writer != nullptr ? flowConfig.discrete.grainCount : 0;
             // A new flow: nothing is known about the contents of its slots.
             slots.assign(grainCount, SlotRecord{});
+            black.clear();
             previous = nullptr;
             view.flowId = flowId;
             view.rateNum = rate.num;
@@ -1066,7 +1068,21 @@ struct MediaIo::Impl
                     }
                     else
                     {
-                        std::memset(payload, 0, pictureBytes);
+                        // No picture for this raster yet (before the first one, or for a moment
+                        // after a live output change, until the renderer draws for it): limited-
+                        // range black, key 0; the slot holds nothing known.
+                        if (black.size() != pictureBytes)
+                        {
+                            Frame422 frame;
+                            frame.allocate(output.width, output.height);
+                            black.assign(pictureBytes, 0);
+                            packV210(frame, black.data(), v210RowBytes(output.width));
+                        }
+                        std::memcpy(payload, black.data(), pictureBytes);
+                        if (grainCount > 0)
+                        {
+                            slots[index % grainCount] = SlotRecord{};
+                        }
                     }
                     previous = payload;
                     previousIndex = index;

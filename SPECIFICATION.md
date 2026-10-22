@@ -172,7 +172,7 @@ The plot area has `C` columns and `B` bins (rows). Defaults: the plot's width an
 - Bin of a code value `v` (0–1023): `bin = floor((v − v_lo) × B / (v_hi − v_lo + 1))`, clamped to `[0, B−1]`, from a 1024-entry lookup table. `v_lo`/`v_hi` are the visible code range (default 0–1023, so super-black and super-white stay visible).
 - `hist[component][col][bin] += 1`. Layout: column-major, the `B` bins of one column contiguous.
 - Counter width: `uint16_t` when the largest possible count per cell (`ceil(width / C) / pixel_step × ceil(height / line_step) × frames accumulated`) fits in 65535, else `uint32_t`. The choice is made at configure time and is the same on every backend; the picture does not depend on it.
-- **Cache blocking.** A 1080p luma histogram of 1840 × 1000 cells is about 3.7 MB, larger than L2. The engine therefore walks the picture in **column strips**: a strip of input columns that maps to at most 64 plot columns (about 128 KB of counters at `B` = 1000), for all analysed lines, then the next strip. The input of one strip is 64 × ⌈width/C⌉ samples per line, so it streams with hardware prefetch. With `SCOPES_THREADS` > 1, workers take whole strips; strips never share counters, so the result is the same for any thread count.
+- **Cache blocking.** A 1080p luma histogram of 1840 × 1000 cells is about 3.7 MB, larger than L2. The engine therefore walks the picture in **column strips**: a strip of input columns that maps to at most 64 plot columns (about 128 KB of counters at `B` = 1000), for all analysed lines, then the next strip. The input of one strip is 64 × ⌈width/C⌉ samples per line, so it streams with hardware prefetch. With `SCOPES_THREADS` > 1, each worker takes a range of whole strips of about equal size. Where a range ends inside a strip, that strip is split at the next input x where a new histogram column starts, so no column spans two ranges and the workers never share a counter; the result is the same for any thread count. The trace step splits the plot rows the same way, at bin boundaries.
 - **Store-forwarding hazard.** Flat picture areas send neighbouring samples of one column to the same bin, which chains load-add-store at about 5 cycles each. When `width / C ≥ 2`, the engine keeps two sub-histograms per strip (even and odd input `x`) and adds them when the strip is done. The sum is exact, so the result does not depend on the trick.
 - **Accumulation over time.** `SCOPES_ACCUMULATE=latest` (default) analyses only the newest grain at each update. `all` analyses every input grain between two updates into the same histogram (better statistics on noisy pictures, full analyse cost at any update rate).
 
@@ -452,7 +452,7 @@ The family look of the siblings: header with label, state and registration pills
 | GET | `/widgets`, `/widget/{id}` | §9.3 |
 | GET/PUT | `/api/v1/config` | flat key update; `restart_required` when a restart key changes; `flow_keys` lists the output flow keys that changed (they apply at once with a new flow id, §7) |
 | GET | `/api/v1/config/export` | one JSON document: `version`, `secrets: false`, `settings`, `routes` |
-| POST | `/api/v1/config/import` | restore it; env-set keys are skipped and listed |
+| POST | `/api/v1/config/import` | restore it; env-set keys are skipped and listed; `restart_required`, `keys` and `flow_keys` as for `PUT /api/v1/config` |
 | GET | `/api/v1/config/env` | `KEY=value` text |
 
 A `PATCH /api/v1/scope` is saved to the config file, so the scope comes back the same after a restart.
