@@ -568,7 +568,7 @@ Measured on hardware, not in CI; recorded in `docs/performance.md`. Hosts: the p
 | Scope latency | input grain origin → first output grain that shows it ≤ one update interval + 2 output frames |
 | Memory | < 300 MB RSS at 1080p (`TODO_` confirm in M0) |
 
-Accepted deviation (the maintainer, 2026-10-22): the RGB parade every frame on camera content takes 0.67–0.74 core on the lab class (analyse + render p99 11.8 ms), above the targets of its row; bars meet them (0.40 core). At the default 25 Hz it takes 0.39–0.46 core. Strip workers (`SCOPES_THREADS`, M2) are the next step; IMPLEMENTATION_PLAN.md deviation 25.
+Accepted deviation (the maintainer, 2026-10-22): the RGB parade every frame on camera content takes 0.67–0.74 core on the lab class (analyse + render p99 11.8 ms), above the targets of its row; bars meet them (0.40 core). At the default 25 Hz it takes 0.39–0.46 core. With `SCOPES_THREADS=2` (M2) an update takes about 7 ms (p99 below 8 ms), the CPU stays the same; IMPLEMENTATION_PLAN.md deviation 25.
 
 The process figures are the M0 measurements on the lab class (Skylake-SP, 3 GHz; accepted by the maintainer 2026-10-15; IMPLEMENTATION_PLAN.md "Analyse in the process"). They include an idle-clock effect: the process is idle most of the time, so the host's power management runs its core at about two thirds of the clock (2.2 against 3.3 GHz measured), and the same work takes up to twice as long as in the busy benchmark. A performance power profile on the host lowers the figures; the desktop class is expected lower as well.
 

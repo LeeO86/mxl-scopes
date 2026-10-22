@@ -4,7 +4,9 @@ This plan comes before any code. It is updated as the work goes on: every decisi
 
 ## Status (2026-10-22)
 
-M1 done on `feat/m1` (PR in review): the stage-1 modes `ycbcr-parade`, `rgb-parade`, `rgb-overlay` end to end (pulled forward from M2, deviation 15), `SCOPES_ACCUMULATE=all`, the trace computed on the analysing thread (deviation 16), and the lab run with a camera picture and the multiviewer tiles; numbers in `docs/performance.md`. The maintainer's decisions of 2026-10-22 are applied: the RGB parade CPU every frame is accepted for M1 (deviation 25), `rgb-overlay` updates at most every n-th input frame, at most 30 Hz (25 Hz from 50p, §4.6), deviation 16 is folded into the specification. What M1 leaves open is listed under M1 below.
+M2 done on `feat/m2` (PR in review), decided by the maintainer on 2026-10-22 to come before the first release: 32-bit cells (deviation 23 closed), `SCOPES_THREADS` strip workers, the measurements (deviation 9 closed), the key output and live output flow changes (deviation 4 closed), `ycbcr-overlay` (deviation 5 closed); numbers in `docs/performance.md`. The keyed scope over a picture on the multiviewer 1.4.4 does not show the picture through the key: the multiviewer's CPU backend blends a tile's key into the tile, not into the canvas (question 1 below). What M2 leaves open is listed under M2 below.
+
+M1 merged (PR #2): the stage-1 modes `ycbcr-parade`, `rgb-parade`, `rgb-overlay` end to end (pulled forward from M2, deviation 15), `SCOPES_ACCUMULATE=all`, the trace computed on the analysing thread (deviation 16), and the lab run with a camera picture and the multiviewer tiles; numbers in `docs/performance.md`. The maintainer's decisions of 2026-10-22 are applied: the RGB parade CPU every frame is accepted for M1 (deviation 25), `rgb-overlay` updates at most every n-th input frame, at most 30 Hz (25 Hz from 50p, §4.6), deviation 16 is folded into the specification. What M1 leaves open is listed under M1 below.
 
 M0 done (2026-10-15), PR #1 merged. The open questions of SPECIFICATION §16 are decided (§16 there). Process CPU on the lab class, 1080p50 in and out, AVX2: real picture (camera) about 0.25 core at 25 Hz and about 0.45 core every frame, bars 0.09–0.14 and 0.20–0.22 core; accepted by the maintainer as the §13 figures (§13 updated).
 
@@ -216,6 +218,24 @@ Next for the RGB modes: strip workers (`SCOPES_THREADS`, M2); pack the half-empt
 
 Exit: all stage-1 modes bit-exact SIMD = scalar; keyed scope over a picture on the multiviewer in the lab.
 
+Progress (2026-10-22, `feat/m2`; the maintainer's decisions of 2026-10-22: M2 before the first release, measurements per mode from the histograms, `ycbcr-overlay` with raw codes on one axis):
+
+- [x] 32-bit cells when 16 bits do not hold an update (deviation 23 closed): the scalar, AVX2 and AVX-512 steps and the trace step for both widths; the picture is the same.
+- [x] `SCOPES_THREADS` 1–8: the renderer and the strip workers share the analyse step (ranges of strips, split where a new histogram column starts) and the trace step (plot rows split at bin boundaries). Counts and pictures equal one thread for 2, 3, 5 and 8 threads in every mode and SIMD level; a stress run; a CI job runs the thread tests under ThreadSanitizer.
+- [x] Measurements (§4.7, deviation 9 closed): per mode from the bin totals the trace step sums, exact to one bin; the R′G′B′ gamut share counted exactly per pixel in the RGB analyse step on every path; `GET /api/v1/measurements`, the WebSocket, the web page and the §10 gauges.
+- [x] Key output (`video/v210a`) and `SCOPES_BG_ALPHA`: the key plane in the MXL layout, carried by the still picture and the trace groups, so the writer stays copy-free.
+- [x] Output format, rate and key apply live with a new flow id (deviation 4 closed); `scope.sh` covers each, the key samples and the way back to the first flow id.
+- [x] `ycbcr-overlay` (deviation 5 closed: every value of §8 is built).
+- [x] Caption line and state texts: built in M0.
+- [x] Golden pictures of every mode (`docs/golden`, including `ycbcr-overlay`); `scope.sh` with v210a and every mode switched live without a new flow id.
+- [x] Benchmark of every mode with one and two threads, and the process CPU per mode before and after in the lab (`docs/performance.md`).
+- [ ] Desktop-class numbers (no desktop-class host in the lab).
+- [ ] Keyed scope over a picture on the multiviewer (M2 exit): the scope's `video/v210a` output is right (key samples checked in `scope.sh` and in the lab: 0 on the background, the trace opaque), and the multiviewer 1.4.4 reads it as v210a, but its CPU backend scales a keyed tile into an opaque tile image and copies that over the canvas, so the picture underneath does not show (lab 2026-10-22, layout with the picture at z 0 and the scope at z 1). The CUDA backend was not tried (the GPUs were in another test). Question 1 below.
+
+### M2 numbers
+
+See `docs/performance.md` "M2". In short, lab class, camera picture, 1080p50, AVX2, 25 Hz / every frame: one thread luma 0.23–0.24 / 0.36–0.37 core (M1 0.20 / 0.31), RGB parade 0.37–0.39 / 0.64–0.68 (M1 0.34–0.35 / 0.58–0.62); two threads add 0.05–0.1 core and halve the update time (RGB parade analyse + render 7 ms instead of 11, benchmark p99 7.1 ms < 8 ms of §13). 0 late, missed, torn and skipped everywhere.
+
 ### M3: web UI, preview, widget, export
 
 - Preview contract: NV12 scaler, encoder (NVENC, else x264), RTSP publisher with reconnect, MediaMTX supervisor (own mode), shared mode; path `<prefix>/scope`; preview metrics and status.
@@ -307,7 +327,7 @@ Exit: 1.0.0 released and deployable by the platform.
 22. **AVX-512 steps of the new modes use `vpmulld`** where AVX2 uses `vpmaddwd` (AVX-512F has no 16-bit multiply-add without AVX-512BW); same bytes, slower. AVX-512 stays selectable only (deviation 13).
 23. **Closed in M2 (2026-10-22): `uint32` counters as §4.3.** **The line step is raised when the counts would not fit 16 bits** (§4.3 plans `uint32` counters for that, M2). Many input samples per histogram column (a UHD input on a small output, the narrow panels of a parade, many frames with `all`) could overflow a cell; instead of failing, the engine analyses every n-th line, n the smallest step from `SCOPES_LINE_STEP` up that fits. The intensity is normalised to the samples taken, so the picture keeps its brightness; the step in use is `renderer.line_step` in `/api/v1/status`. Example: 2160p input, 384×216 output, a parade: step 2. Any other error while the tables are built shows `FORMAT` with the reason instead of ending the process.
 24. **A settings change redraws at once.** After a change of mode or another display setting the newest grain (if still in the ring) is analysed and drawn without waiting for the next tick, also while the input holds; `/api/v1/output` reports the mode of the picture on the output.
-25. **RGB parade every frame above §13, accepted** (the maintainer, 2026-10-22; also noted in §13): camera content at 1080p50 every frame takes 0.67–0.74 core on the lab class (§13: < 0.4) and analyse + render p99 11.8 ms (< 8 ms); bars meet both. At the default 25 Hz it takes 0.39–0.46 core. A second analysis thread (`SCOPES_THREADS`, strip workers) stays M2 work.
+25. **RGB parade every frame above §13, accepted** (the maintainer, 2026-10-22; also noted in §13; M2: with `SCOPES_THREADS=2` the time target is met, the CPU is not): camera content at 1080p50 every frame takes 0.67–0.74 core on the lab class (§13: < 0.4) and analyse + render p99 11.8 ms (< 8 ms); bars meet both. At the default 25 Hz it takes 0.39–0.46 core. A second analysis thread (`SCOPES_THREADS`, strip workers) stays M2 work.
 
 ## M0 review fixes (2026-10-16)
 
@@ -332,4 +352,6 @@ Answered 2026-10-22: the RGB parade CPU every frame is accepted for M1, `SCOPES_
 
 Resolved 2026-10-22: the multiviewer 1.4.3 crash (exit 139) on the test player's 1080i50 flow is fixed in the multiviewer 1.4.4 (retested with 1080i25 tff and bff and 1080i29.97).
 
-No open questions.
+Open (2026-10-22):
+
+1. The multiviewer 1.4.4 (CPU backend) does not key a `video/v210a` tile over the tiles below it: `scaleInto` blends the key into the tile's own image, which `blit` then copies opaque onto the canvas. A ticket for the multiviewer (key into the canvas, or keep the tile image's alpha for the blit)? The scope side is done; the M2 exit check waits for it.

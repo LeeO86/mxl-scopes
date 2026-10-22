@@ -1,6 +1,6 @@
 # Performance
 
-Measured on hardware, not in CI (SPECIFICATION §13). Lab class: Skylake-SP server CPU (Xeon Gold 6136, 3.0 GHz, AVX-512), one socket for the scopes and their sources, other work on the host. The desktop class (8-core AVX2 desktop CPU) is still to be measured.
+Measured on hardware, not in CI (SPECIFICATION §13). M2 figures at the end. Lab class: Skylake-SP server CPU (Xeon Gold 6136, 3.0 GHz, AVX-512), one socket for the scopes and their sources, other work on the host. The desktop class (8-core AVX2 desktop CPU) is still to be measured.
 
 The figures move with the host: the scope is idle most of the time, so the power management lowers its core's clock and the same work takes longer (IMPLEMENTATION_PLAN.md "Analyse in the process"). Runs of the same point on different cores or at different times differ by up to a quarter; compare figures from one session only.
 
@@ -70,3 +70,38 @@ Same session, same host and cores (test player 1.2.1 on two cores, the scope on 
 | `frame`, `accumulate=all` (10 s) | — | 0.68, 25.1, 0 (both frames analysed, 17.5 ms analyse per update) |
 
 Analyse about 7.5 ms and render about 10.8 ms per update in every point. In this session, before the cap, every frame skipped only 2 ticks in 20 s (the core ran at a higher clock than on 2026-10-16, when 2–4 % were skipped) but took 0.85–0.92 core; with the cap the overlay takes the 25 Hz figure (about half a core) and never skips. `luma` at `frame` still updates 50 times a second (0.31 core).
+
+## M2 (2026-10-22)
+
+### Engine
+
+`mxl-scopes-bench`, 1080p `scene`, 1920×1080 output, AVX2, strip width 64, median ms (p99 of analyse + render in brackets); two cores of the lab host with idle hyperthread siblings.
+
+| Mode | 1 thread: analyse / render / total | 2 threads: analyse / render / total |
+| --- | --- | --- |
+| `luma` | 1.70 / 2.28 / 3.99 (4.27) | 0.89 / 1.73 / 2.62 (2.87) |
+| `ycbcr-parade` | 4.04 / 1.93 / 5.98 (6.41) | 2.18 / 1.51 / 3.69 (4.30) |
+| `rgb-parade` | 7.70 / 2.45 / 10.1 (10.8) | 4.20 / 1.96 / 6.17 (7.08) |
+| `rgb-overlay` | 6.85 / 7.13 / 14.0 (14.7) | 3.51 / 4.88 / 8.44 (9.29) |
+| `ycbcr-overlay` | 3.31 / 6.55 / 9.86 (10.6) | 1.70 / 4.07 / 5.78 (6.42) |
+
+- Two strip workers halve the analyse step; the trace step gains less (its parts are joined in order, about 0.4 ms for the overlay's 130 000 groups). The RGB parade with two threads meets the §13 time target (p99 7.1 ms < 8 ms); its CPU does not change (below).
+- Against M1 on one thread (same session, interleaved): luma and YCbCr parade analyse unchanged; RGB analyse about +8 % (the exact gamut count of §4.7); the trace step +0.25–0.45 ms (the bin totals of the measurements, the key bytes of the trace groups). The RGB modes skip the bin totals (they measure only the gamut).
+- First M2 builds were slower on one thread: strips cut at every column boundary (now only at worker boundaries), a gamut count by movemask and popcount (now counted in vector lanes) and bin totals summed in 64 bits (now 32). Two workers' trace vectors on one cache line made two threads slower than one (false sharing; now each on its own line).
+
+### Process, before and after
+
+Lab host as in M1; the test player 1.2.1 playing the camera clip as 1080p50 on its own core; the scope on one core (one thread) or two cores (`SCOPES_THREADS=2`); 1080p50 out, AVX2; `measure.sh` of M1, 20 s per point after 5 s. Two rounds of main (M1), M2 one thread, M2 two threads, interleaved; the ranges cover both rounds (main `luma` from the second round only: in the first the player had just started). Core = CPU of all threads.
+
+| Mode | M1, 1 core: 25 Hz / every frame | M2, 1 thread | M2, 2 threads |
+| --- | --- | --- | --- |
+| `luma` | 0.20 / 0.31 | 0.23–0.24 / 0.36–0.37 | 0.29–0.30 / 0.43–0.44 |
+| `ycbcr-parade` | 0.22 / 0.35–0.36 | 0.24–0.25 / 0.39–0.42 | 0.29–0.30 / 0.43–0.44 |
+| `rgb-parade` | 0.34–0.35 / 0.58–0.62 | 0.37–0.39 / 0.64–0.68 | 0.46–0.47 / 0.71–0.72 |
+| `rgb-overlay` (at most 25 Hz) | 0.52 / 0.53 | 0.55 / 0.55 | 0.62 / 0.63 |
+| `ycbcr-overlay` (at most 25 Hz) | — | 0.41–0.42 / 0.42 | 0.48 / 0.47–0.48 |
+
+Analyse + render per update every frame (the process's own averages, ms): RGB parade M1 7.2–7.8 + 2.6, M2 one thread 7.8–8.4 + 3.0–3.1, two threads 4.4–4.6 + 2.4–2.5; RGB overlay M1 7.6–8.3 + 10.7–10.9, M2 one thread 8.7–9.1 + 10.4–10.5, two threads 5.5–5.8 + 7.0–7.1. Every point: 0 late, 0 missed, 0 torn; 0 skipped ticks.
+
+- M2 on one thread costs 0.02–0.06 core more than M1 (the measurements, the key-capable trace groups, the gamut count in the RGB modes).
+- Two threads cost 0.05–0.1 core more than one (the second thread's wake-ups and the split trace) and halve the time an update takes. They are for latency and the overlays' render time, not for CPU: the RGB parade every frame stays above the §13 "< 0.4 core" (deviation 25).

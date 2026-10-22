@@ -2,7 +2,7 @@
 
 Video scopes for MXL: a media function that reads one MXL video flow and writes a waveform monitor (luma first, then YCbCr and RGB parades) as an ordinary MXL video flow. The multiviewer or any other MXL function can show it, keyed over the picture if wanted. Operators also see it in a browser and on operator screens.
 
-**Status: M1 (pre-release, `0.1.0`).** The luma waveform, the YCbCr and RGB parades and the RGB overlay run end to end: MXL in, MXL out, NMOS, REST, metrics, a web page with a snapshot. The key output, measurements, strip workers, the WebRTC preview and the widget follow in M2–M3. CPU per mode: [docs/performance.md](docs/performance.md). What differs from the specification today is listed under "Deviations" in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md). Read [SPECIFICATION.md](SPECIFICATION.md) for the design.
+**Status: M2 (pre-release, `0.1.0`).** Every stage-1 mode (luma waveform, YCbCr and RGB parades, RGB and YCbCr overlays) runs end to end: MXL in, MXL out (with a key if wanted), NMOS, REST, metrics with the measurements, a web page with a snapshot; strip workers share the work over several cores. The WebRTC preview and the widget follow in M3. CPU per mode: [docs/performance.md](docs/performance.md). What differs from the specification today is listed under "Deviations" in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md). Read [SPECIFICATION.md](SPECIFICATION.md) for the design.
 
 ## At a glance
 
@@ -22,11 +22,11 @@ Video scopes for MXL: a media function that reads one MXL video flow and writes 
 | NMOS Node and Connection APIs | `NMOS_PORT` | 3322 (+1 reserved) |
 | Built-in MediaMTX RTSP / WHEP / HLS / ICE (only without `PREVIEW_PUBLISH_URL`) | `MEDIAMTX_*_PORT` | 8574 / 8579 / 8578 / 8279 |
 
-## Settings (M1)
+## Settings (M2)
 
-Environment > `SCOPES_CONFIG_FILE` (flat JSON, else `<SCOPES_STATE_DIR>/config.json`) > defaults. All keys and their meaning: SPECIFICATION §8. In M1:
+Environment > `SCOPES_CONFIG_FILE` (flat JSON, else `<SCOPES_STATE_DIR>/config.json`) > defaults. All keys and their meaning: SPECIFICATION §8. In M2:
 
-| Key | Default | M1 |
+| Key | Default | M2 |
 | --- | --- | --- |
 | `SCOPES_MODE` | `luma` | `luma`, `ycbcr-parade`, `rgb-parade`, `rgb-overlay`, `ycbcr-overlay`, live (stage-2 modes exit 78) |
 | `SCOPES_UPDATE_RATE` | `25` | `frame` or 1–60 Hz, live; the overlays run at most every n-th input frame, at most 30 Hz (25 Hz from 50p) |
@@ -43,7 +43,7 @@ Environment > `SCOPES_CONFIG_FILE` (flat JSON, else `<SCOPES_STATE_DIR>/config.j
 | `MXL_DOMAIN_SCAN_PATH`, `MXL_OUTPUT_DOMAIN_DIR`, `MXL_OUTPUT_DOMAIN_ID`, `MXL_HISTORY_DURATION_NS`, `MXL_CLEANUP_ON_EXIT` | `/Volumes/mxl`, `/Volumes/mxl/scopes-<id>`, UUIDv5 of the seed, 200 ms, `false` | |
 | `NMOS_*`, `WEB_*`, `LOG_LEVEL`, `LOG_FORMAT`, `SHUTDOWN_TIMEOUT_S` | as the sibling functions | |
 
-## API (M1)
+## API (M2)
 
 | Path | |
 | --- | --- |
