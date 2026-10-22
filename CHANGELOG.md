@@ -2,6 +2,8 @@
 
 ## Unreleased (M1, 2026-10-16)
 
+- Decisions of 2026-10-22: `rgb-overlay` updates at most every n-th input frame, at most 30 Hz (25 Hz from 50p, 29.97 Hz from 59.94p), instead of skipping ticks at `frame`; the RGB parade CPU every frame is accepted for M1; SPECIFICATION §2 describes the trace computed on the analysing thread.
+
 - Modes `ycbcr-parade`, `rgb-parade` and `rgb-overlay`: scalar reference, AVX2 and AVX-512 analyse steps, byte-exact; R′G′B′ in Q13 (§4.8); three-panel parade layout with a Cb/Cr graticule; the overlay adds R′, G′ and B′; a live mode change keeps the output flow id and updates the NMOS flow description and mode tag; metrics per mode.
 - `SCOPES_ACCUMULATE=all`: every frame (or field) between two updates goes into the update.
 - The trace is computed on the analysing thread; the writer only patches the groups that differ, so a slow update skips ticks and never delays an output grain.

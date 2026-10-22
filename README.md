@@ -29,7 +29,7 @@ Environment > `SCOPES_CONFIG_FILE` (flat JSON, else `<SCOPES_STATE_DIR>/config.j
 | Key | Default | M1 |
 | --- | --- | --- |
 | `SCOPES_MODE` | `luma` | `luma`, `ycbcr-parade`, `rgb-parade`, `rgb-overlay`, live (`ycbcr-overlay` and stage-2 modes exit 78) |
-| `SCOPES_UPDATE_RATE` | `25` | `frame` or 1–60 Hz, live |
+| `SCOPES_UPDATE_RATE` | `25` | `frame` or 1–60 Hz, live; `rgb-overlay` runs at most every n-th input frame, at most 30 Hz (25 Hz from 50p) |
 | `SCOPES_ACCUMULATE` | `latest` | `latest` or `all` (every frame between two updates), live |
 | `SCOPES_LINE_STEP`, `SCOPES_PIXEL_STEP` | 1, 1 | live; the line step is raised when the counts would not fit 16 bits (`renderer.line_step` in the status) |
 | `SCOPES_RANGE`, `SCOPES_GRATICULE_UNITS`, `SCOPES_GRATICULE_LEVEL` | `limited`, `mv`, 60 | live |

@@ -18,6 +18,17 @@ std::uint64_t tickTime(std::uint64_t tick, double rate)
 }
 } // namespace
 
+double modeUpdateRate(std::string_view mode, double rateHz, double inputHz)
+{
+    constexpr double maxOverlayHz = 30;
+    if (mode != "rgb-overlay" || inputHz <= maxOverlayHz)
+    {
+        return rateHz;
+    }
+    double const cap = inputHz / std::ceil(inputHz / maxOverlayHz);
+    return rateHz <= 0 || rateHz > cap ? cap : rateHz;
+}
+
 void UpdateScheduler::configure(double rateHz, double inputHz, std::uint64_t step)
 {
     step_ = step == 0 ? 1 : step;

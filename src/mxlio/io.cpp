@@ -344,7 +344,8 @@ struct MediaIo::Impl
             {
                 text += "  |  " + format;
             }
-            return text + "  |  " + rateLabel(s.updateRate);
+            double const inputHz = view.rateDen > 0 ? static_cast<double>(view.rateNum) / view.rateDen / (view.interlaced ? 2 : 1) : 0;
+            return text + "  |  " + rateLabel(modeUpdateRate(s.mode, s.updateRate, inputHz));
         };
         // Hands a picture to the writer: the trace of the analysed counts, or a state picture
         // (no trace). Clears the counts.
@@ -535,11 +536,12 @@ struct MediaIo::Impl
             }
             // The input's frame rate: for an interlaced flow two field grains make one frame.
             double const frameHz = static_cast<double>(meta.rateNum) / meta.rateDen / fields;
-            scheduler.configure(settings.updateRate, frameHz, static_cast<std::uint64_t>(fields));
+            double const updateRate = modeUpdateRate(settings.mode, settings.updateRate, frameHz);
+            scheduler.configure(updateRate, frameHz, static_cast<std::uint64_t>(fields));
             // §4.3: `all` adds every frame between two updates: room for input rate / update rate
             // frames, rounded up, and one more for jitter.
             bool const accumulateAll = settings.accumulate == "all" && !scheduler.frameMode();
-            int const framesCapacity = accumulateAll ? static_cast<int>(std::ceil(frameHz / settings.updateRate)) + 1 : 1;
+            int const framesCapacity = accumulateAll ? static_cast<int>(std::ceil(frameHz / updateRate)) + 1 : 1;
             try
             {
                 if (engine.configure({meta.width, grainRows, v210RowBytes(meta.width), fields, framesCapacity}, settings, config.outputWidth, config.outputHeight))

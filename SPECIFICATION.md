@@ -49,11 +49,11 @@ Out of scope for every stage here: audio scopes (the audio mixer and the multivi
 │        │ grain index + pointer, published at each update tick       │
 │  scope renderer thread (+ optional strip workers)                   │
 │    analyse:  v210 → samples → bin → per-column histogram (SIMD)     │
-│    render:   histogram → intensity → trace colour → graticule       │
-│              → v210 (+ key plane) into a free frame of a 3-buffer   │
-│        │ "latest scope frame" (atomic index)                        │
+│    trace:    histogram → intensity → trace colour → packed v210     │
+│              groups (+ key); still picture: background, graticule   │
+│        │ "latest picture" (3 slots, atomic index)                   │
 │  output writer thread (TAI paced, output rate)                      │
-│    mxlFlowWriter: copy latest scope frame into each output grain    │
+│    mxlFlowWriter: still + trace groups that differ into each grain  │
 │        │                                                            │
 │  preview thread (optional)                                          │
 │    latest scope frame → NV12 → H.264 (NVENC, else x264) → RTSP      │
@@ -71,9 +71,9 @@ Out of scope for every stage here: audio scopes (the audio mixer and the multivi
 | Thread | Job | Never waits for |
 | --- | --- | --- |
 | Input reader | Follows the routed flow. Holds the index of the newest complete grain. Handles `waiting`, `no_signal`, resync, flow re-creation, format change (as mxl-multiviewer §5.3) | renderer, writer |
-| Scope renderer | At each update tick (§4.6): analyse the newest grain, hand the histogram to the writer | writer, preview |
+| Scope renderer | At each update tick (§4.6): analyse the newest grain, turn the counts into the packed trace groups, hand them with the still picture to the writer (§2.3) | writer, preview |
 | Strip workers | `SCOPES_THREADS` − 1 helpers for the renderer; each owns a set of column strips (§4.3) | — |
-| Output writer | One grain per output index from TAI. Renders the newest histogram straight into the grain, else repeats the picture (§2.4) | renderer |
+| Output writer | One grain per output index from TAI. Writes the newest trace groups straight into the grain, else repeats the picture (§2.4) | renderer |
 | Preview | At `SCOPES_PREVIEW_FPS`: scale, encode, publish | renderer, writer |
 | MediaMTX supervisor | Own mode only (preview contract) | — |
 | HTTP, WebSocket, NMOS | nmos-cpp and the web server threads | media threads |
@@ -88,14 +88,15 @@ Out of scope for every stage here: audio scopes (the audio mixer and the multivi
 
 ### 2.3 Scope renderer
 
-- The renderer owns the engine (§3.2). One call per update: `analyse(grain) → histogram`, then `render(histogram) → frame`.
+- The renderer owns the engine (§3.2). One call per update: `analyse(grain) → histogram`, then `trace(histogram) → trace groups`: the packed 6-pixel v210 groups that carry a trace, with the intensity, colours and graticule of the settings applied.
 - Display settings are an immutable struct. REST and the UI build a new one and swap it atomically. The renderer takes it at the start of an update, so one scope frame never mixes two settings. A change of the settings rebuilds the lookup tables and the graticule layer on the renderer thread before the next update.
-- The renderer writes into one of three frame buffers (triple buffering): one the writer copies from, one being rendered, one spare. No locks on the media path.
+- The renderer hands each picture to the writer through three slots (triple buffering: one the writer reads, one being filled, one spare; no locks on the media path). A picture is the trace groups plus the still picture (background, graticule, texts), a shared buffer that never changes once built; a settings change builds a new one.
+- Because the renderer computes the trace, a slow update makes it skip ticks (§4.6); it never delays an output grain.
 
 ### 2.4 Output writer
 
 - TAI paced like the multiviewer composer (§5.4 there): for each output index `N`, sleep until `indexToTimestamp(rate, N)`, open the grain, write the latest scope picture into it (v210, and the key plane for v210a), commit with `validSlices = totalSlices`.
-- No render buffer and no full copy per grain (decided 2026-10-15): the writer renders the newest analysed histogram straight into the output grain. A picture is the still picture (background, graticule, texts) plus the packed 6-pixel groups that carry a trace. Each ring slot remembers which still picture and which trace groups it holds; a grain gets only the groups that differ (old trace groups back to the still bytes, new ones written). A large trace is one copy of the previous grain; a slot that already holds the picture (a still input, `NO SIGNAL`) is not written at all.
+- No render buffer and no full copy per grain (decided 2026-10-15): the writer writes the newest trace groups from the renderer straight into the output grain. A picture is the still picture (background, graticule, texts) plus the packed 6-pixel groups that carry a trace. Each ring slot remembers which still picture and which trace groups it holds; a grain gets only the groups that differ (old trace groups back to the still bytes, new ones written). A large trace is one copy of the previous grain; a slot that already holds the picture (a still input, `NO SIGNAL`) is not written at all.
 - Skipped indexes count as missed; a commit after the next index's time counts as late.
 - Before the first scope frame exists, the writer writes the empty graticule (with `NO SIGNAL` while the input is not running).
 - The bytes of a grain are those of the full render (the unit tests compare them).
@@ -212,6 +213,7 @@ Cb and Cr panels: centre line at 512 (0 mV), solid lines at 64 and 960 (∓350 m
 - Ticks run on TAI: tick `k` is at `k / rate`. At each tick the renderer analyses the newest grain (or, with `ACCUMULATE=all`, every grain since the last tick). A grain is analysed at most once.
 - With `frame`, the renderer waits for each new grain. A rate at or above the input rate behaves like `frame`.
 - If an update is still running when the next tick comes, that tick is skipped and counted (`mxl_scopes_updates_skipped_total`). The writer keeps writing the last frame.
+- `rgb-overlay` updates at most every n-th input frame, n the smallest that keeps it at or below 30 Hz: 25 Hz from 50p, 29.97 Hz from 59.94p, every frame from 25p, 29.97p and 1080i50 (decided 2026-10-22). `frame` and higher rates run at that rate; lower rates stay. The overlay draws three planes over the full plot width; on the lab class one update takes 18–20 ms at 1080p50, close to the 20 ms frame time, so every frame takes most of a core and skips ticks. The cap keeps the full horizontal resolution and an even cadence at about half a core. `/api/v1/status` (`renderer.update_rate_hz`) and the caption show the rate in use.
 - The output flow always runs at its own full rate (§7). Between updates it repeats the last scope frame.
 
 ### 4.7 Measurements
@@ -562,6 +564,8 @@ Measured on hardware, not in CI; recorded in `docs/performance.md`. Hosts: the p
 | Scope latency | input grain origin → first output grain that shows it ≤ one update interval + 2 output frames |
 | Memory | < 300 MB RSS at 1080p (`TODO_` confirm in M0) |
 
+Accepted deviation (the maintainer, 2026-10-22): the RGB parade every frame on camera content takes 0.67–0.74 core on the lab class (analyse + render p99 11.8 ms), above the targets of its row; bars meet them (0.40 core). At the default 25 Hz it takes 0.39–0.46 core. Strip workers (`SCOPES_THREADS`, M2) are the next step; IMPLEMENTATION_PLAN.md deviation 25.
+
 The process figures are the M0 measurements on the lab class (Skylake-SP, 3 GHz; accepted by the maintainer 2026-10-15; IMPLEMENTATION_PLAN.md "Analyse in the process"). They include an idle-clock effect: the process is idle most of the time, so the host's power management runs its core at about two thirds of the clock (2.2 against 3.3 GHz measured), and the same work takes up to twice as long as in the busy benchmark. A performance power profile on the host lowers the figures; the desktop class is expected lower as well.
 
 The Kubernetes default for the catalog (§15) comes from these numbers.
@@ -579,7 +583,7 @@ The Kubernetes default for the catalog (§15) comes from these numbers.
 - Intensity LUT: monotonic, `c = 0` is background, `c ≥ 1` is at least `SCOPES_TRACE_MIN`; normalisation keeps a flat field's intensity within ±1 code across line and pixel steps.
 - Graticule: lines at the computed rows for mV, %, code and full range; labels inside the margin.
 - Golden pictures: a luma ramp gives a diagonal; 75 % and 100 % colour bars give horizontal segments at the known codes in every mode; a flat grey gives one line at its code. Stored as hashes of the output plus PNGs for review.
-- Update scheduler: 25 Hz from 50p takes every second grain; 10 Hz from 59.94p never analyses a grain twice and never drifts; `frame` analyses each grain once; a slow update skips a tick.
+- Update scheduler: 25 Hz from 50p takes every second grain; 10 Hz from 59.94p never analyses a grain twice and never drifts; `frame` analyses each grain once; a slow update skips a tick; `rgb-overlay` at `frame` takes every second grain from 50p and 59.94p.
 - Measurements from known histograms.
 - Config precedence, validation (78), UUIDv5 ids, ports, widget list and pages (params, CSP, CORS, no `X-Frame-Options`), preview settings.
 

@@ -2,9 +2,9 @@
 
 This plan comes before any code. It is updated as the work goes on: every decision and every deviation from `SPECIFICATION.md` is recorded here, as in the sibling repos.
 
-## Status (2026-10-16)
+## Status (2026-10-22)
 
-M1 done on `feat/m1` (PR in review): the stage-1 modes `ycbcr-parade`, `rgb-parade`, `rgb-overlay` end to end (pulled forward from M2, deviation 15), `SCOPES_ACCUMULATE=all`, the trace computed on the analysing thread (deviation 16), and the lab run with a camera picture and the multiviewer tiles; numbers in `docs/performance.md`. What M1 leaves open is listed under M1 below.
+M1 done on `feat/m1` (PR in review): the stage-1 modes `ycbcr-parade`, `rgb-parade`, `rgb-overlay` end to end (pulled forward from M2, deviation 15), `SCOPES_ACCUMULATE=all`, the trace computed on the analysing thread (deviation 16), and the lab run with a camera picture and the multiviewer tiles; numbers in `docs/performance.md`. The maintainer's decisions of 2026-10-22 are applied: the RGB parade CPU every frame is accepted for M1 (deviation 25), `rgb-overlay` updates at most at 25 Hz from 50p (§4.6), deviation 16 is folded into the specification. What M1 leaves open is listed under M1 below.
 
 M0 done (2026-10-15), PR #1 merged. The open questions of SPECIFICATION §16 are decided (§16 there). Process CPU on the lab class, 1080p50 in and out, AVX2: real picture (camera) about 0.25 core at 25 Hz and about 0.45 core every frame, bars 0.09–0.14 and 0.20–0.22 core; accepted by the maintainer as the §13 figures (§13 updated).
 
@@ -193,14 +193,15 @@ Most of this list was built in M0 (deviation 1). Progress (2026-10-16), with the
 - [x] Lab run (2026-10-16): the test player 1.2.1 playing a camera clip as 1080p50 and as 1080i50; scopes on both (luma, YCbCr parade, RGB parade); a multiviewer 1.4.3 with the 1080p50 picture and the three scope outputs as tiles (screenshot kept outside the repo). Process CPU per mode in `docs/performance.md`.
 - [ ] Desktop-class numbers (no desktop-class host in the lab).
 - [ ] The 1080i50 picture as a multiviewer tile: the multiviewer 1.4.3 exits with SIGSEGV (139) when the test player's 1080i50 flow is routed to it (CPU and CUDA backends); the scopes read that flow fine. Reported to the maintainer.
-- [ ] RGB parade every frame on camera content is above §13 (0.67–0.74 core against < 0.4; analyse + render p99 11.8 ms against < 8 ms) on the lab class; next steps under "M1 numbers".
+- [x] RGB parade every frame on camera content is above §13 (0.67–0.74 core against < 0.4; analyse + render p99 11.8 ms against < 8 ms) on the lab class: accepted for M1 (2026-10-22, deviation 25); strip workers are M2.
+- [x] `rgb-overlay` updates at most every n-th input frame, at most 30 Hz: 25 Hz from 50p, 29.97 Hz from 59.94p (decided 2026-10-22, §4.6; `modeUpdateRate` in `src/scope/scheduler.cpp`). A fixed cap, not a setting: the overlay cannot update every frame at 1080p50 on the lab class, and the cap keeps all columns. Unit tests in `test_scheduler.cpp`; before and after in `docs/performance.md`.
 - [ ] Blend2D graticule labels (deviation 6) and `ycbcr-overlay` (a SHOULD).
 
 ### M1 numbers
 
 See `docs/performance.md` (engine per mode and SIMD level, process CPU per mode and update rate against §13, the A/B of the thread change). In short, lab class, camera picture, 1080p50, AVX2: luma 0.25–0.33 core at 25 Hz and 0.40–0.47 every frame (§13: about 0.25 and 0.45); YCbCr parade 0.34 and 0.44–0.51; RGB parade 0.39–0.46 and 0.67–0.74 (§13 every frame: < 0.4); RGB overlay 0.58–0.63 at 25 Hz, every frame not real time (ticks skipped). Bars: luma 0.08 / 0.18, RGB parade 0.20 / 0.40.
 
-Next for the RGB modes: strip workers (`SCOPES_THREADS`, M2); pack the half-empty B vector of the RGB step (two loads per iteration, about 10 % of the analyse); for the overlay, fewer histogram columns or a vector render step.
+Next for the RGB modes: strip workers (`SCOPES_THREADS`, M2); pack the half-empty B vector of the RGB step (two loads per iteration, about 10 % of the analyse); for the overlay, a vector render step (the maintainer keeps all columns, 2026-10-22).
 
 ### M2: parades, overlays, key, measurements
 
@@ -297,7 +298,7 @@ Exit: 1.0.0 released and deployable by the platform.
 14. **NMOS APIs only on `NMOS_PORT`.** §9.1 said they also answer on `WEB_PORT`; they do not (the spec text is corrected). The web page's NMOS tab shows state and ids; IS-05 activation from the page is M3.
 
 15. **Stage-1 modes in M1** (the plan had them in M2): the brief of 2026-10-16 asked for more modes in M1. `ycbcr-parade`, `rgb-parade` and `rgb-overlay` are built; the key output, measurements, strip workers and `ycbcr-overlay` stay in M2.
-16. **The analysing thread computes the trace** (§2.1 and §2.4 have the writer render the histogram into the grain). It now turns the counts into the packed trace groups right after the analyse step and hands them to the writer with the still picture (a shared, never changed buffer); the writer only writes the groups that differ into each grain, still without a render buffer or a full copy. Reason: the RGB overlay's render (10 ms in the process) made the writer late (412 late and 48 missed grains in 20 s every frame); now a slow update skips ticks (§4.6) and the output keeps its time. CPU is the same (A/B in `docs/performance.md`).
+16. **Closed: folded into SPECIFICATION §2, §2.1, §2.3 and §2.4 on 2026-10-22.** The analysing thread computes the trace (§2.1 and §2.4 had the writer render the histogram into the grain). It now turns the counts into the packed trace groups right after the analyse step and hands them to the writer with the still picture (a shared, never changed buffer); the writer only writes the groups that differ into each grain, still without a render buffer or a full copy. Reason: the RGB overlay's render (10 ms in the process) made the writer late (412 late and 48 missed grains in 20 s every frame); now a slow update skips ticks (§4.6) and the output keeps its time. CPU is the same (A/B in `docs/performance.md`).
 17. **Parade layout** (§5.2 says the label margin is "shared at three"): three equal panels with 4 % gaps; the Y′ or R′ labels sit in the left margin, the Cb and Cr labels in the gap left of their panel, the R′G′B′ panels 2 and 3 have none; each parade panel has its name (Y, Cb, Cr or R, G, B) under it when the bottom margin has room. `GET /api/v1/output` lists the panels.
 18. **Mode change and the MXL flow definition.** §7.1 has the flow's `description` follow the mode. The NMOS flow's description and the `scope-mode` tag of flow and sender follow a live mode change (same flow id); the MXL `flow_def.json` keeps what it was created with (MXL has no update of a flow definition), until the next new flow id.
 19. **`SCOPES_ACCUMULATE=all` details** (§4.3 says only "every input grain between two updates"): the reader takes every grain in turn (each field of an interlaced flow) while it is still in the ring and analyses it as it arrives, each checked for a torn read; a torn grain drops the counts of that update. Grains it cannot add (it fell behind the ring, or more grains than 16-bit cells can take) are counted in `mxl_scopes_accumulate_dropped_total`. The engine makes room for ceil(input frame rate / update rate) + 1 frames by raising the line step (deviation 23), and every update's intensity is normalised to the grains it actually holds, so 2 or 3 frames per update (50p at 20 Hz) look alike. `SCOPES_INPUT_OFFSET_GRAINS` does not apply; with `frame` (or a rate at or above the input's), `all` is `latest`.
@@ -306,6 +307,7 @@ Exit: 1.0.0 released and deployable by the platform.
 22. **AVX-512 steps of the new modes use `vpmulld`** where AVX2 uses `vpmaddwd` (AVX-512F has no 16-bit multiply-add without AVX-512BW); same bytes, slower. AVX-512 stays selectable only (deviation 13).
 23. **The line step is raised when the counts would not fit 16 bits** (§4.3 plans `uint32` counters for that, M2). Many input samples per histogram column (a UHD input on a small output, the narrow panels of a parade, many frames with `all`) could overflow a cell; instead of failing, the engine analyses every n-th line, n the smallest step from `SCOPES_LINE_STEP` up that fits. The intensity is normalised to the samples taken, so the picture keeps its brightness; the step in use is `renderer.line_step` in `/api/v1/status`. Example: 2160p input, 384×216 output, a parade: step 2. Any other error while the tables are built shows `FORMAT` with the reason instead of ending the process.
 24. **A settings change redraws at once.** After a change of mode or another display setting the newest grain (if still in the ring) is analysed and drawn without waiting for the next tick, also while the input holds; `/api/v1/output` reports the mode of the picture on the output.
+25. **RGB parade every frame above §13, accepted** (the maintainer, 2026-10-22; also noted in §13): camera content at 1080p50 every frame takes 0.67–0.74 core on the lab class (§13: < 0.4) and analyse + render p99 11.8 ms (< 8 ms); bars meet both. At the default 25 Hz it takes 0.39–0.46 core. A second analysis thread (`SCOPES_THREADS`, strip workers) stays M2 work.
 
 ## M0 review fixes (2026-10-16)
 
@@ -326,9 +328,8 @@ Answered 2026-10-15: softer intensity curve (done, §4.4); AVX-512 added (done; 
 
 Answered (accepted 2026-10-15): the M0 process figures became §13.
 
+Answered 2026-10-22: the RGB parade CPU every frame is accepted for M1, `SCOPES_THREADS` stays M2 (deviation 25); the RGB overlay updates at 25 Hz from 50p when every frame cannot keep up, with all columns (§4.6); deviation 16 is folded into the specification.
+
 Open (2026-10-16):
 
-1. RGB parade every frame on camera content is 0.67–0.74 core on the lab class (§13: < 0.4). Accept for now (the default 25 Hz is 0.39–0.46), or make strip workers (`SCOPES_THREADS`, two cores) the next step before M2's other items?
-2. RGB overlay every frame is not real time at 1080p on the lab class (ticks skipped, output on time). Acceptable as a 25 Hz mode, or should its histogram use fewer columns (half the horizontal resolution, about half the render)?
-3. Deviation 16 (the analysing thread computes the trace) changes §2.4 as decided on 2026-10-15: fold it into the specification?
-4. The multiviewer 1.4.3 crashes (exit 139) when the test player's 1080i50 flow is routed to it. A ticket for the multiviewer?
+1. The multiviewer 1.4.3 crashes (exit 139) when the test player's 1080i50 flow is routed to it. A ticket for the multiviewer?

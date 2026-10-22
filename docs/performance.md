@@ -41,7 +41,7 @@ The figures move with the host: the scope is idle most of the time, so the power
 | Camera 1080p50 | `luma` | 0.25–0.33 (2.8 / 2.5) | 0.40–0.47 (2.8 / 2.6) |
 | Camera 1080p50 | `ycbcr-parade` | 0.34 (5.0 / 1.5) | 0.44–0.51 (5.1 / 1.5) |
 | Camera 1080p50 | `rgb-parade` | 0.39–0.46 (8.3 / 2.8) | 0.67–0.74 (8.3 / 2.6) |
-| Camera 1080p50 | `rgb-overlay` | 0.58–0.63 (9.4 / 10.5) | 0.99, 2–4 % of the ticks skipped (9 / 10.5) |
+| Camera 1080p50 | `rgb-overlay` | 0.58–0.63 (9.4 / 10.5) | 0.99, 2–4 % of the ticks skipped (9 / 10.5); since 2026-10-22 at most 25 Hz, see below |
 | Camera 1080p50 | `luma`, `SCOPES_ACCUMULATE=all` | 0.32 (5.4 for two frames / 2.6) | — |
 | Camera 1080i50 | `luma` | 0.26 (3.4 / 2.5) | 0.26 (`frame` = 25 updates/s on 1080i50) |
 | Camera 1080i50 | `ycbcr-parade` | 0.30 (6.3 / 1.6) | — |
@@ -51,6 +51,22 @@ The figures move with the host: the scope is idle most of the time, so the power
 | Bars 1080p50 | `rgb-parade` | 0.20 (6.8 / 0.4) | 0.40 (6.9 / 0.4) |
 | Bars 1080p50 | `rgb-overlay` | 0.19 (5.4 / 1.3) | 0.38 (5.5 / 1.3) |
 
-Against §13 (lab class): the luma waveform meets "about 0.25 core at 25 Hz and about 0.45 core every frame for a real picture" within the host's spread, and stays at 0.1–0.2 core for bars. The RGB parade every frame meets "< 0.4 core" for bars (0.40) and not for camera content (0.67–0.74); its analyse + render p99 is 9.9 ms (bars) and 11.8 ms (scene) against < 8 ms. At the default 25 Hz the RGB parade takes 0.39–0.46 core on camera content. Options, in order of expected gain: strip workers (`SCOPES_THREADS`, M2) to spread the analyse over two cores; packing the half-empty second vector of the RGB step (about 10 % of the analyse); the desktop class, expected about 1.5 times faster per update.
+Against §13 (lab class): the luma waveform meets "about 0.25 core at 25 Hz and about 0.45 core every frame for a real picture" within the host's spread, and stays at 0.1–0.2 core for bars. The RGB parade every frame meets "< 0.4 core" for bars (0.40) and not for camera content (0.67–0.74; accepted for M1 by the maintainer on 2026-10-22, IMPLEMENTATION_PLAN.md deviation 25); its analyse + render p99 is 9.9 ms (bars) and 11.8 ms (scene) against < 8 ms. At the default 25 Hz the RGB parade takes 0.39–0.46 core on camera content. Options, in order of expected gain: strip workers (`SCOPES_THREADS`, M2) to spread the analyse over two cores; packing the half-empty second vector of the RGB step (about 10 % of the analyse); the desktop class, expected about 1.5 times faster per update.
 
 A/B of the M1 thread change (the trace groups computed by the analysing thread, not the writer; same session, cores swapped between runs): M0 image 0.29 core at 25 Hz and 0.45 every frame, M1 image 0.29 and 0.40. The total work is the same; the writer no longer runs late when an update takes long (`rgb-overlay` every frame: 412 late and 48 missed output grains in 20 s before, 0 now; the analysing thread skips ticks instead, §4.6).
+
+## RGB overlay at most 25 Hz (2026-10-22)
+
+Decided by the maintainer: when the overlay cannot update every frame, it updates at 25 Hz from 50p with all its columns instead of skipping ticks. Built as a fixed cap, not a setting (SPECIFICATION §4.6): `rgb-overlay` updates at most every n-th input frame, n the smallest that keeps it at or below 30 Hz (25 Hz from 50p, 29.97 Hz from 59.94p, every frame from 25p, 29.97p and 1080i50). `frame` and higher rates run at that rate, lower rates stay; `accumulate=all` adds both frames of an update.
+
+Same session, same host and cores (test player 1.2.1 on two cores, the scope on one core, camera clip 1080p50, 1080p50 out, AVX2, 20 s per point after 5 s settling; `measure.sh` of the M1 lab). Before = PR head 2ea01f4, after = this change. 0 late and 0 missed output grains and 0 torn reads in every point.
+
+| `rgb-overlay`, update rate | Before: core, updates/s, skipped in 20 s | After: core, updates/s, skipped in 20 s |
+| --- | --- | --- |
+| `frame` | 0.85 and 0.92, 50.0, 2 | 0.51, 25.1, 0 |
+| 30 Hz | 0.59, 30.1, 0 | 0.52, 25.1, 0 |
+| 25 Hz | 0.51 and 0.52, 25.1, 0 | 0.51, 25.1, 0 |
+| 10 Hz | — | 0.26, 10.0, 0 |
+| `frame`, `accumulate=all` (10 s) | — | 0.68, 25.1, 0 (both frames analysed, 17.5 ms analyse per update) |
+
+Analyse about 7.5 ms and render about 10.8 ms per update in every point. In this session, before the cap, every frame skipped only 2 ticks in 20 s (the core ran at a higher clock than on 2026-10-16, when 2–4 % were skipped) but took 0.85–0.92 core; with the cap the overlay takes the 25 Hz figure (about half a core) and never skips. `luma` at `frame` still updates 50 times a second (0.31 core).

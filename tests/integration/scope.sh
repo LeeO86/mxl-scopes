@@ -201,6 +201,12 @@ for mode in rgb-parade ycbcr-parade rgb-overlay; do
   echo "$mode: NMOS flow description $DESC"
   [[ "$DESC" == "$(curl -sf "$API/api/v1/scope" | json 'd["title"]')" ]] || fail "NMOS flow description $DESC does not follow $mode"
 done
+# rgb-overlay updates at most every second frame from 50p (§4.6): `frame` runs at 25 Hz.
+curl -sf -X PATCH -H 'Content-Type: application/json' -d '{"mode":"rgb-overlay","update_rate":"frame"}' "$API/api/v1/scope" >/dev/null || fail "PATCH overlay frame"
+sleep 1
+HZ="$(curl -sf "$API/api/v1/status" | json 'd["renderer"]["update_rate_hz"]')"
+echo "rgb-overlay at frame from 50p: $HZ Hz"
+[[ "$HZ" == "25" ]] || fail "rgb-overlay at frame from 50p runs at $HZ Hz, not 25"
 curl -sf -X PATCH -H 'Content-Type: application/json' -d '{"update_rate":10}' "$API/api/v1/scope" >/dev/null || fail "PATCH 10 Hz"
 grep -q 'mxl_scopes_updates_total{mode="rgb-parade"}' <<<"$(curl -sf "$API/metrics")" || fail "no updates_total for rgb-parade"
 curl -sf -X PATCH -H 'Content-Type: application/json' -d '{"mode":"luma"}' "$API/api/v1/scope" >/dev/null || fail "PATCH mode luma"
