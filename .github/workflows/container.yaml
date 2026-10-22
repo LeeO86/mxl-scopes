@@ -33,9 +33,17 @@ jobs:
 
       - id: version
         name: Image version
+        # A v* tag must match the version the binary reports (src/version.hpp, CMakeLists.txt).
         run: |
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+            tag="${GITHUB_REF#refs/tags/v}"
+            code="$(sed -n 's/^#define SCOPES_VERSION "\(.*\)"/\1/p' src/version.hpp)"
+            cmake="$(sed -n 's/^project(mxl-scopes VERSION \([0-9.]*\) .*/\1/p' CMakeLists.txt)"
+            if [[ "$tag" != "$code" || "$tag" != "$cmake" ]]; then
+              echo "::error::tag v$tag does not match SCOPES_VERSION $code / CMake $cmake"
+              exit 1
+            fi
+            echo "version=$tag" >> "$GITHUB_OUTPUT"
           else
             echo "version=nightly-dev" >> "$GITHUB_OUTPUT"
           fi

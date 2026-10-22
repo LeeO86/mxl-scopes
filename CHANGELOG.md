@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased (M2, 2026-10-22)
+## 1.0.0
+
+First release: the stage-1 scopes of SPECIFICATION.md as milestones M0–M2 of IMPLEMENTATION_PLAN.md (released after M2 by the maintainer's decision of 2026-10-23; the WebRTC preview, the widget and the hardening of M3–M4 follow). Release notes for the platform: `docs/release-notes-1.0.0.md`.
+
+### M2 (2026-10-22)
 
 - 32-bit histogram cells when 16 bits do not hold an update (UHD on a small output, a parade, `all`): every line is analysed; the line step is no longer raised.
 - `SCOPES_THREADS` 1–8: strip workers share the analyse and the trace step; the same picture for any thread count. RGB parade every frame at 1080p50: about 6 ms per update on two cores instead of 10 (lab), the CPU in all about the same.
@@ -9,8 +13,9 @@
 - `SCOPES_OUTPUT_FORMAT`, `SCOPES_OUTPUT_RATE` and `SCOPES_OUTPUT_KEY` apply live with a new output flow id (`PUT /api/v1/config` lists them as `flow_keys`).
 - Mode `ycbcr-overlay`: Y′ white, Cb blue, Cr red on one code axis; capped like the RGB overlay.
 - `renderer.threads` in the status; `mxl-scopes-bench --threads`; `mxl-scopes-sample --key-height`; a CI job runs the thread tests under ThreadSanitizer.
+- Review fixes: a strip-worker split past the last strip (a wide input on few columns, 3–8 threads) no longer reads out of bounds; a grain without a picture for the current raster is black with key 0 instead of zeros; the worker pool rethrows a part's exception after all parts are done; a redraw without counts keeps the last measurements; the config import lists `flow_keys`. CI builds the unit tests with `-D_GLIBCXX_ASSERTIONS`.
 
-## Unreleased (M1, 2026-10-16)
+### M1 (2026-10-16)
 
 - Decisions of 2026-10-22: `rgb-overlay` updates at most every n-th input frame, at most 30 Hz (25 Hz from 50p, 29.97 Hz from 59.94p), instead of skipping ticks at `frame`; the RGB parade CPU every frame is accepted for M1; SPECIFICATION §2 describes the trace computed on the analysing thread.
 
@@ -21,7 +26,7 @@
 - No cell overflow can end the process: the line step is raised when the counts would not fit 16 bits (a UHD input on a small output, a parade, `all`), shown as `renderer.line_step`; other table errors show `FORMAT`. A settings change is drawn at once. `all` takes every grain in turn, counts what it cannot add (`mxl_scopes_accumulate_dropped_total`) and normalises to the grains of each update.
 - `mxl-scopes-bench --modes`, the `scene` pattern, golden pictures of every mode, `docs/performance.md` with the CPU per mode.
 
-## Unreleased (M0, done 2026-10-15)
+### M0 (2026-10-15)
 
 - Review fixes (2026-10-16): interlaced input (MXL field grains, 1080i50 tff and bff) with grain-size checks; the reader no longer spins on invalid or partial head grains; non-blocking HTTP server that drops a stalled WebSocket client; a taken NMOS port exits 75; counters print as integers; a stricter torn-read check; cleanup removes only our own domain; config import needs JSON and validates routes.
 
