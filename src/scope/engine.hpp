@@ -23,7 +23,7 @@ struct InputFormat
     // Grains analysed into one update: 2 for interlaced (both fields of a frame), else 1.
     int fields = 1;
     // Frames one update must be able to hold: SCOPES_ACCUMULATE=all adds every frame between two
-    // updates; `latest` 1. The engine raises the line step until they fit 16-bit cells.
+    // updates; `latest` 1. The engine takes 32-bit cells when they would not fit 16 bits.
     int frames = 1;
     [[nodiscard]] bool operator==(InputFormat const&) const = default;
 };
@@ -157,7 +157,7 @@ public:
     {
         return level_;
     }
-    // Grains (frames, or fields of an interlaced flow) one update can hold without a 16-bit cell
+    // Grains (frames, or fields of an interlaced flow) one update can hold without a cell
     // overflowing; at least InputFormat::frames × fields.
     [[nodiscard]] int maxGrains() const
     {
@@ -168,8 +168,7 @@ public:
     {
         return grains_;
     }
-    // The line step in use: SCOPES_LINE_STEP, raised when the counts would not fit 16 bits
-    // (many input samples per column: a small output, a parade, a UHD input, `all`).
+    // The line step in use: SCOPES_LINE_STEP (32-bit cells take what does not fit 16 bits).
     [[nodiscard]] int lineStep() const
     {
         return lineStep_;

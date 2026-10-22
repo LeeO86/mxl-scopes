@@ -99,35 +99,78 @@ struct AnalysePlan
     std::array<std::uint32_t, 3> planeMaxCell{};
     std::uint64_t samples = 0;
     std::uint32_t maxCellCount = 0;
+    // 32-bit cells: the counts of the grains one update holds could pass 16 bits (§4.3).
+    bool wide = false;
 };
 
-// Integer counts only (§3.2). `scratch` is the odd-x sub-histogram, all zero between calls.
+// Integer counts only (§3.2). 16-bit cells, or 32-bit ones when the plan is `wide`; only the
+// vectors of the plan's width are used. `scratch` is the odd-x sub-histogram, all zero between
+// calls.
 struct Histogram
 {
     int columns = 0;
     int bins = 0;
     int planes = 1;
+    bool wide = false;
     std::vector<std::uint16_t> counts;
     std::vector<std::uint16_t> scratch;
+    std::vector<std::uint32_t> counts32;
+    std::vector<std::uint32_t> scratch32;
 
     void reset(AnalysePlan const& plan);
-    [[nodiscard]] std::uint16_t at(int column, int bin, int plane = 0) const
+    // All cells (and sub-histograms) to zero.
+    void clear();
+    [[nodiscard]] std::size_t cells() const
     {
-        return counts[(static_cast<std::size_t>(plane) * static_cast<std::size_t>(bins) + static_cast<std::size_t>(bin)) * static_cast<std::size_t>(columns) +
-                      static_cast<std::size_t>(column)];
+        return wide ? counts32.size() : counts.size();
+    }
+    [[nodiscard]] std::size_t scratchCells() const
+    {
+        return wide ? scratch32.size() : scratch.size();
+    }
+    template <class C>
+    [[nodiscard]] C* data()
+    {
+        if constexpr (sizeof(C) == 4)
+        {
+            return counts32.data();
+        }
+        else
+        {
+            return counts.data();
+        }
+    }
+    template <class C>
+    [[nodiscard]] C* scratchData()
+    {
+        if constexpr (sizeof(C) == 4)
+        {
+            return scratch32.data();
+        }
+        else
+        {
+            return scratch.data();
+        }
+    }
+    [[nodiscard]] std::uint32_t at(int column, int bin, int plane = 0) const
+    {
+        auto const i = (static_cast<std::size_t>(plane) * static_cast<std::size_t>(bins) + static_cast<std::size_t>(bin)) * static_cast<std::size_t>(columns) +
+                       static_cast<std::size_t>(column);
+        return wide ? counts32[i] : counts[i];
     }
 };
 
-// A plan whose cells could pass 16 bits (too many samples per column for one grain).
+// A plan whose cells could pass 32 bits.
 struct CellOverflow : std::invalid_argument
 {
     using std::invalid_argument::invalid_argument;
 };
 
-// Throws CellOverflow when the counts of one grain could overflow 16 bits, std::invalid_argument
-// for other invalid values.
+// `grains`: the grains one update adds up; the plan is `wide` when their counts could pass 16
+// bits. Throws CellOverflow when they could pass 32 bits, std::invalid_argument for other
+// invalid values.
 AnalysePlan makeAnalysePlan(int width, int height, std::size_t stride, int lineStep, int pixelStep, int columns, int bins,
-    int stripColumns = kDefaultStripColumns, ScopeKind kind = ScopeKind::Luma);
+    int stripColumns = kDefaultStripColumns, ScopeKind kind = ScopeKind::Luma, int grains = 1);
 
 // Rows ahead of the current one that the analyse loops prefetch: a strip reads a few cache
 // lines per row with a stride above 4 KiB, which the hardware prefetcher does not follow.

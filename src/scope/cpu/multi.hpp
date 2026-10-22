@@ -17,7 +17,7 @@
 
 namespace scopes::cpu
 {
-template <class V, ScopeKind K, int PS, bool TWO>
+template <class V, class C, ScopeKind K, int PS, bool TWO>
 static void analyseRowsMulti(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist)
 {
     using R = typename V::Reg;
@@ -26,8 +26,8 @@ static void analyseRowsMulti(AnalysePlan const& plan, std::uint8_t const* v210, 
     constexpr int kPer = K == ScopeKind::Rgb ? 6 * N : 3 * N;
     constexpr int kChunk = V::kChunk;
     static constexpr LaneList kLanes = makeLanes(K, G, PS);
-    auto* counts = hist.counts.data();
-    auto* scratch = hist.scratch.data();
+    auto* counts = hist.data<C>();
+    auto* scratch = hist.scratchData<C>();
     alignas(64) std::uint32_t buffer[kPer * kChunk];
     R const mask = V::set1(0x3ff);
     R const bins = V::set1(plan.bins);
@@ -139,16 +139,29 @@ static void analyseRowsMulti(AnalysePlan const& plan, std::uint8_t const* v210, 
     }
 }
 
-template <class V, ScopeKind K, int PS>
-static void analyseMultiStep(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist)
+template <class V, ScopeKind K, int PS, class C>
+static void analyseMultiCells(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist)
 {
     if (plan.twoSubs)
     {
-        analyseRowsMulti<V, K, PS, true>(plan, v210, hist);
+        analyseRowsMulti<V, C, K, PS, true>(plan, v210, hist);
     }
     else
     {
-        analyseRowsMulti<V, K, PS, false>(plan, v210, hist);
+        analyseRowsMulti<V, C, K, PS, false>(plan, v210, hist);
+    }
+}
+
+template <class V, ScopeKind K, int PS>
+static void analyseMultiStep(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist)
+{
+    if (plan.wide)
+    {
+        analyseMultiCells<V, K, PS, std::uint32_t>(plan, v210, hist);
+    }
+    else
+    {
+        analyseMultiCells<V, K, PS, std::uint16_t>(plan, v210, hist);
     }
 }
 

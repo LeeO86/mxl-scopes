@@ -679,7 +679,7 @@ struct MediaIo::Impl
             };
             if (accumulateAll && fresh && live && accGrains >= engine.maxGrains())
             {
-                // More grains than 16-bit cells can take (jitter beyond the capacity): not added.
+                // More grains than the cells were sized for (jitter beyond the capacity): not added.
                 metrics.inc("accumulate_dropped_total", {});
             }
             else if (accumulateAll && fresh && live)

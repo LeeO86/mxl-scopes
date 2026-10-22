@@ -42,35 +42,53 @@ std::vector<std::uint8_t> randomFrame(int width, int height, std::uint32_t seed)
     return packPattern(makePattern("random", width, height, 0, seed));
 }
 
-void compareCounts(AnalysePlan const& plan, std::vector<std::uint8_t> const& frame)
+// Every SIMD path gives the scalar counts, with 16-bit cells and with 32-bit cells (the plan's
+// own width first).
+void compareCounts(AnalysePlan const& given, std::vector<std::uint8_t> const& frame)
 {
-    Histogram scalar;
-    scalar.reset(plan);
-    analyseScalar(plan, frame.data(), scalar);
-    for (int p = 0; p < plan.planes; ++p)
+    for (bool const wideCells : {given.wide, !given.wide})
     {
-        std::uint64_t total = 0;
-        auto const begin = scalar.counts.begin() + static_cast<std::ptrdiff_t>(plan.planeCells * static_cast<std::size_t>(p));
-        std::for_each(begin, begin + static_cast<std::ptrdiff_t>(plan.planeCells), [&](std::uint16_t c) { total += c; });
-        CAPTURE(p);
-        CHECK(total == plan.planeSamples[static_cast<std::size_t>(p)]);
-    }
-    CHECK(std::all_of(scalar.scratch.begin(), scalar.scratch.end(), [](std::uint16_t c) { return c == 0; }));
-    if (haveAvx2())
-    {
-        Histogram simd;
-        simd.reset(plan);
-        analyseAvx2(plan, frame.data(), simd);
-        REQUIRE(simd.counts == scalar.counts);
-        CHECK(std::all_of(simd.scratch.begin(), simd.scratch.end(), [](std::uint16_t c) { return c == 0; }));
-    }
-    if (haveAvx512())
-    {
-        Histogram wide;
-        wide.reset(plan);
-        analyseAvx512(plan, frame.data(), wide);
-        REQUIRE(wide.counts == scalar.counts);
-        CHECK(std::all_of(wide.scratch.begin(), wide.scratch.end(), [](std::uint16_t c) { return c == 0; }));
+        CAPTURE(wideCells);
+        auto plan = given;
+        plan.wide = wideCells;
+        Histogram scalar;
+        scalar.reset(plan);
+        analyseScalar(plan, frame.data(), scalar);
+        REQUIRE(scalar.wide == wideCells);
+        for (int p = 0; p < plan.planes; ++p)
+        {
+            std::uint64_t total = 0;
+            for (std::size_t i = 0; i < plan.planeCells; ++i)
+            {
+                auto const at = plan.planeCells * static_cast<std::size_t>(p) + i;
+                total += wideCells ? scalar.counts32[at] : scalar.counts[at];
+            }
+            CAPTURE(p);
+            CHECK(total == plan.planeSamples[static_cast<std::size_t>(p)]);
+        }
+        auto const clean = [](Histogram const& h) {
+            return std::all_of(h.scratch.begin(), h.scratch.end(), [](std::uint16_t c) { return c == 0; }) &&
+                   std::all_of(h.scratch32.begin(), h.scratch32.end(), [](std::uint32_t c) { return c == 0; });
+        };
+        CHECK(clean(scalar));
+        if (haveAvx2())
+        {
+            Histogram simd;
+            simd.reset(plan);
+            analyseAvx2(plan, frame.data(), simd);
+            REQUIRE(simd.counts == scalar.counts);
+            REQUIRE(simd.counts32 == scalar.counts32);
+            CHECK(clean(simd));
+        }
+        if (haveAvx512())
+        {
+            Histogram simd;
+            simd.reset(plan);
+            analyseAvx512(plan, frame.data(), simd);
+            REQUIRE(simd.counts == scalar.counts);
+            REQUIRE(simd.counts32 == scalar.counts32);
+            CHECK(clean(simd));
+        }
     }
 }
 
@@ -384,18 +402,21 @@ TEST_CASE("golden hashes of the other modes")
     }
 }
 
-TEST_CASE("accumulate: the intensity follows the grains analysed; the capacity raises the line step")
+TEST_CASE("accumulate: the intensity follows the grains analysed; 32-bit cells when 16 bits do not hold the update")
 {
     DisplaySettings settings;
     ScopeEngine engine(SimdLevel::Scalar);
     engine.configure({1920, 1080, v210RowBytes(1920), 1, 2}, settings, 1920, 1080);
     CHECK(engine.lineStep() == 1);
+    CHECK_FALSE(engine.analysePlan().wide);
     CHECK(engine.maxGrains() >= 2);
-    // 51 frames (1 Hz from 50p, plus one) do not fit 16-bit cells at every line: every n-th line.
+    // 51 frames (1 Hz from 50p, plus one) do not fit 16-bit cells: 32-bit cells, every line.
     engine.configure({1920, 1080, v210RowBytes(1920), 1, 51}, settings, 1920, 1080);
-    CHECK(engine.lineStep() > 1);
+    CHECK(engine.lineStep() == 1);
+    CHECK(engine.analysePlan().wide);
+    CHECK(engine.histogram().wide);
     CHECK(engine.maxGrains() >= 51);
-    CHECK(static_cast<std::uint64_t>(engine.analysePlan().maxCellCount) * static_cast<std::uint64_t>(engine.maxGrains()) <= 65535);
+    CHECK(static_cast<std::uint64_t>(engine.analysePlan().maxCellCount) * static_cast<std::uint64_t>(engine.maxGrains()) <= 0xffffffffull);
     // One, two or three frames of a flat field render alike: normalised to the grains analysed
     // (a 50p input at 12.5 Hz gives 4, at 20 Hz 2 or 3 frames per update; no flicker).
     auto const frame = packPattern(makePattern("flat", 1920, 1080, 512));
@@ -417,10 +438,10 @@ TEST_CASE("accumulate: the intensity follows the grains analysed; the capacity r
     }
 }
 
-TEST_CASE("modes: a UHD input on a small output never overflows a cell (every mode, line step raised)")
+TEST_CASE("modes: a UHD input on a small output never overflows a cell (every mode, 32-bit cells, every line)")
 {
     // A parade panel of a 384×216 output has 66 columns: 3840 / 66 × 2160 samples per cell
-    // would pass 16 bits. The engine raises the line step instead of failing.
+    // would pass 16 bits. The engine takes 32-bit cells and keeps every line (deviation 23 closed).
     auto const uhd = packPattern(makePattern("random", 3840, 2160, 0, 21));
     auto const fields = packPattern(makePattern("random", 1920, 540, 0, 22));
     for (auto const* mode : {"luma", "ycbcr-parade", "rgb-parade", "rgb-overlay"})
@@ -437,7 +458,8 @@ TEST_CASE("modes: a UHD input on a small output never overflows a cell (every mo
                 ScopeEngine engine(SimdLevel::Scalar);
                 REQUIRE_NOTHROW(engine.configure({3840, 2160, v210RowBytes(3840), 1, frames}, settings, w, h));
                 auto const& plan = engine.analysePlan();
-                CHECK(static_cast<std::uint64_t>(plan.maxCellCount) * static_cast<std::uint64_t>(engine.maxGrains()) <= 65535);
+                CHECK(engine.lineStep() == 1);
+                CHECK(static_cast<std::uint64_t>(plan.maxCellCount) * static_cast<std::uint64_t>(engine.maxGrains()) <= (plan.wide ? 0xffffffffull : 65535ull));
                 CHECK(engine.maxGrains() >= frames);
                 compareCounts(plan, uhd);
                 std::vector<std::uint8_t> out(engine.packedSize());
@@ -449,5 +471,31 @@ TEST_CASE("modes: a UHD input on a small output never overflows a cell (every mo
                 CHECK(fieldEngine.maxGrains() >= 2 * frames);
             }
         }
+    }
+}
+
+TEST_CASE("modes: 32-bit cells give the picture of 16-bit cells")
+{
+    // The same grain in an engine sized for one frame per update (16-bit cells) and in one sized
+    // for 200 (32-bit cells): normalised to the grains analysed, the pictures are equal.
+    auto const frame = packPattern(makePattern("scene", 1920, 1080, 512));
+    for (auto const* mode : {"luma", "ycbcr-parade", "rgb-parade", "rgb-overlay"})
+    {
+        CAPTURE(mode);
+        DisplaySettings settings;
+        settings.mode = mode;
+        ScopeEngine narrow(SimdLevel::Scalar);
+        ScopeEngine wide(chooseSimd("auto").level);
+        narrow.configure({1920, 1080, v210RowBytes(1920), 1, 1}, settings, 1920, 1080);
+        wide.configure({1920, 1080, v210RowBytes(1920), 1, 200}, settings, 1920, 1080);
+        REQUIRE_FALSE(narrow.analysePlan().wide);
+        REQUIRE(wide.analysePlan().wide);
+        std::vector<std::uint8_t> a(narrow.packedSize());
+        std::vector<std::uint8_t> b(wide.packedSize());
+        narrow.analyse(frame.data());
+        wide.analyse(frame.data());
+        narrow.render("", "", a.data());
+        wide.render("", "", b.data());
+        CHECK(a == b);
     }
 }

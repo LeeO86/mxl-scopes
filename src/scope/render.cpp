@@ -491,8 +491,8 @@ namespace
 // The cells of one panel row -> its trace groups (graticule blended over). Groups without
 // counts keep the still picture's bytes. `lines` holds the plane rows of the panel: one, or
 // three for the overlay. Returns true when the row got a trace group.
-template <bool OVERLAY>
-bool panelRow(RenderPlan const& plan, PanelPlan const& panel, std::uint16_t const* const* lines, std::uint32_t& gi, std::uint32_t gend, std::size_t rowOffset,
+template <bool OVERLAY, class C>
+bool panelRow(RenderPlan const& plan, PanelPlan const& panel, C const* const* lines, std::uint32_t& gi, std::uint32_t gend, std::size_t rowOffset,
     std::vector<TraceGroup>& trace)
 {
     auto const& layout = plan.layout;
@@ -508,7 +508,7 @@ bool panelRow(RenderPlan const& plan, PanelPlan const& panel, std::uint16_t cons
         std::uint64_t any = 0;
         for (int p = 0; p < (OVERLAY ? 3 : 1); ++p)
         {
-            std::uint64_t words[12];
+            std::uint64_t words[6 * sizeof(C)];
             std::memcpy(words, lines[p] + 6 * g, sizeof(words));
             for (auto const word : words)
             {
@@ -519,11 +519,20 @@ bool panelRow(RenderPlan const& plan, PanelPlan const& panel, std::uint16_t cons
     };
     // The six cells of group g of plane p are zero.
     auto const groupEmpty = [&](int p, int g) {
-        std::uint64_t head = 0;
-        std::uint32_t tail = 0;
-        std::memcpy(&head, lines[p] + 6 * g, sizeof(head));
-        std::memcpy(&tail, lines[p] + 6 * g + 4, sizeof(tail));
-        return (head | tail) == 0;
+        if constexpr (sizeof(C) == 2)
+        {
+            std::uint64_t head = 0;
+            std::uint32_t tail = 0;
+            std::memcpy(&head, lines[p] + 6 * g, sizeof(head));
+            std::memcpy(&tail, lines[p] + 6 * g + 4, sizeof(tail));
+            return (head | tail) == 0;
+        }
+        else
+        {
+            std::uint64_t words[3];
+            std::memcpy(words, lines[p] + 6 * g, sizeof(words));
+            return (words[0] | words[1] | words[2]) == 0;
+        }
     };
     for (int g = 0; g < groups; ++g)
     {
@@ -627,19 +636,15 @@ bool panelRow(RenderPlan const& plan, PanelPlan const& panel, std::uint16_t cons
 }
 } // namespace
 
-void collectTrace(RenderPlan const& plan, Histogram& hist, std::vector<TraceGroup>& trace)
+namespace
 {
-    trace.clear();
+template <class C>
+void collectTraceCells(RenderPlan const& plan, Histogram& hist, std::vector<TraceGroup>& trace)
+{
     auto const& layout = plan.layout;
     auto const planeCells = static_cast<std::size_t>(plan.columns) * static_cast<std::size_t>(plan.bins);
-    bool const hasCounts = !hist.counts.empty() && hist.columns == plan.columns && hist.bins == plan.bins && hist.planes == plan.planes &&
-                           hist.counts.size() == planeCells * static_cast<std::size_t>(plan.planes);
-    if (!hasCounts)
-    {
-        return;
-    }
     auto const rowBytes = v210RowBytes(layout.width);
-    std::array<std::vector<std::uint16_t>, 3> sampled;
+    std::array<std::vector<C>, 3> sampled;
     if (!plan.identityColumns)
     {
         for (int p = 0; p < plan.planes; ++p)
@@ -654,12 +659,12 @@ void collectTrace(RenderPlan const& plan, Histogram& hist, std::vector<TraceGrou
     {
         auto const row = static_cast<std::size_t>(layout.plotY + r);
         auto const bin = plan.binOfRow[static_cast<std::size_t>(r)];
-        std::uint16_t* rows[3] = {nullptr, nullptr, nullptr};
-        std::uint16_t const* lines[3] = {nullptr, nullptr, nullptr};
+        C* rows[3] = {nullptr, nullptr, nullptr};
+        C const* lines[3] = {nullptr, nullptr, nullptr};
         for (int p = 0; p < plan.planes; ++p)
         {
             auto const i = static_cast<std::size_t>(p);
-            rows[i] = hist.counts.data() + i * planeCells + static_cast<std::size_t>(bin) * static_cast<std::size_t>(plan.columns);
+            rows[i] = hist.data<C>() + i * planeCells + static_cast<std::size_t>(bin) * static_cast<std::size_t>(plan.columns);
             lines[i] = rows[i];
             if (!plan.identityColumns)
             {
@@ -681,12 +686,12 @@ void collectTrace(RenderPlan const& plan, Histogram& hist, std::vector<TraceGrou
             }
             if (plan.overlay)
             {
-                if (panelRow<true>(plan, panel, lines, gi, gend, rowBytes * row, trace))
+                if (panelRow<true, C>(plan, panel, lines, gi, gend, rowBytes * row, trace))
                 {
                     had[0] = had[1] = had[2] = true;
                 }
             }
-            else if (panelRow<false>(plan, panel, lines + panel.plane, gi, gend, rowBytes * row, trace))
+            else if (panelRow<false, C>(plan, panel, lines + panel.plane, gi, gend, rowBytes * row, trace))
             {
                 had[panel.plane] = true;
             }
@@ -699,10 +704,31 @@ void collectTrace(RenderPlan const& plan, Histogram& hist, std::vector<TraceGrou
             {
                 if (!inlineClear || had[p])
                 {
-                    std::memset(rows[p], 0, sizeof(std::uint16_t) * static_cast<std::size_t>(plan.columns));
+                    std::memset(rows[p], 0, sizeof(C) * static_cast<std::size_t>(plan.columns));
                 }
             }
         }
+    }
+}
+} // namespace
+
+void collectTrace(RenderPlan const& plan, Histogram& hist, std::vector<TraceGroup>& trace)
+{
+    trace.clear();
+    auto const planeCells = static_cast<std::size_t>(plan.columns) * static_cast<std::size_t>(plan.bins);
+    bool const hasCounts = hist.cells() > 0 && hist.columns == plan.columns && hist.bins == plan.bins && hist.planes == plan.planes &&
+                           hist.cells() == planeCells * static_cast<std::size_t>(plan.planes);
+    if (!hasCounts)
+    {
+        return;
+    }
+    if (hist.wide)
+    {
+        collectTraceCells<std::uint32_t>(plan, hist, trace);
+    }
+    else
+    {
+        collectTraceCells<std::uint16_t>(plan, hist, trace);
     }
 }
 

@@ -26,14 +26,26 @@ void Histogram::reset(AnalysePlan const& plan)
     columns = plan.columns;
     bins = plan.bins;
     planes = plan.planes;
+    wide = plan.wide;
     auto const cells = plan.planeCells * static_cast<std::size_t>(plan.planes);
-    counts.assign(cells, 0);
-    scratch.assign(plan.twoSubs ? cells : 0, 0);
+    counts.assign(wide ? 0 : cells, 0);
+    scratch.assign(!wide && plan.twoSubs ? cells : 0, 0);
+    counts32.assign(wide ? cells : 0, 0);
+    scratch32.assign(wide && plan.twoSubs ? cells : 0, 0);
 }
 
-AnalysePlan makeAnalysePlan(int width, int height, std::size_t stride, int lineStep, int pixelStep, int columns, int bins, int stripColumns, ScopeKind kind)
+void Histogram::clear()
 {
-    if (width < 1 || height < 1 || columns < 1 || bins < 1 || bins > 1024 || stride < v210RowBytes(width) || lineStep < 1 || pixelStep < 1 ||
+    std::fill(counts.begin(), counts.end(), std::uint16_t{0});
+    std::fill(scratch.begin(), scratch.end(), std::uint16_t{0});
+    std::fill(counts32.begin(), counts32.end(), 0u);
+    std::fill(scratch32.begin(), scratch32.end(), 0u);
+}
+
+AnalysePlan makeAnalysePlan(int width, int height, std::size_t stride, int lineStep, int pixelStep, int columns, int bins, int stripColumns, ScopeKind kind,
+    int grains)
+{
+    if (grains < 1 || width < 1 || height < 1 || columns < 1 || bins < 1 || bins > 1024 || stride < v210RowBytes(width) || lineStep < 1 || pixelStep < 1 ||
         6 % pixelStep != 0 || stripColumns < 1)
     {
         throw std::invalid_argument("invalid analyse plan");
@@ -147,10 +159,12 @@ AnalysePlan makeAnalysePlan(int width, int height, std::size_t stride, int lineS
     }
     auto const maxLuma = static_cast<std::uint64_t>(*std::max_element(perColumn.begin(), perColumn.end())) * rows;
     auto const maxChroma = static_cast<std::uint64_t>(*std::max_element(perColumnChroma.begin(), perColumnChroma.end())) * rows;
-    if (maxLuma > 65535)
+    auto const maxUpdate = maxLuma * static_cast<std::uint64_t>(grains);
+    if (maxUpdate > 0xffffffffull)
     {
-        throw CellOverflow("a histogram cell could exceed 16 bits (" + std::to_string(maxLuma) + ")");
+        throw CellOverflow("a histogram cell could exceed 32 bits (" + std::to_string(maxUpdate) + ")");
     }
+    plan.wide = maxUpdate > 65535;
     for (int p = 0; p < plan.planes; ++p)
     {
         bool const chroma = kind == ScopeKind::Ycbcr && p > 0;
@@ -162,10 +176,13 @@ AnalysePlan makeAnalysePlan(int width, int height, std::size_t stride, int lineS
     return plan;
 }
 
-void analyseScalar(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist)
+namespace
 {
-    auto* counts = hist.counts.data();
-    auto* scratch = hist.scratch.data();
+template <class C>
+void analyseScalarCells(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist)
+{
+    auto* counts = hist.data<C>();
+    auto* scratch = hist.scratchData<C>();
     for (auto const& strip : plan.strips)
     {
         for (int y = 0; y < plan.height; y += plan.lineStep)
@@ -181,6 +198,19 @@ void analyseScalar(AnalysePlan const& plan, std::uint8_t const* v210, Histogram&
         {
             cpu::foldStrip(plan, strip, counts, scratch);
         }
+    }
+}
+} // namespace
+
+void analyseScalar(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist)
+{
+    if (plan.wide)
+    {
+        analyseScalarCells<std::uint32_t>(plan, v210, hist);
+    }
+    else
+    {
+        analyseScalarCells<std::uint16_t>(plan, v210, hist);
     }
 }
 } // namespace scopes

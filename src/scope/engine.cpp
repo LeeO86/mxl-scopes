@@ -41,7 +41,7 @@ void ScopePainter::trace(Histogram& hist, std::string const& caption, std::strin
     if (!state.empty() || !params_.hasInput)
     {
         out.clear();
-        std::fill(hist.counts.begin(), hist.counts.end(), std::uint16_t{0});
+        hist.clear();
         return;
     }
     grains = std::max(1, grains);
@@ -87,35 +87,13 @@ bool ScopeEngine::configure(InputFormat const& input, DisplaySettings const& set
     lineStep_ = settings.lineStep;
     if (input.width > 0)
     {
-        // The counts of an update must fit 16-bit cells (§4.3): `frames` frames of `fields` grains.
-        // Many samples per column (a UHD input on a small output, a parade's narrow panels) can
-        // pass that; then every n-th line is analysed instead, raising the line step until it
-        // fits (the intensity is normalised to the samples taken, so the picture stays the same).
-        auto const grainsWanted = static_cast<std::uint64_t>(std::max(1, input.fields)) * static_cast<std::uint64_t>(std::max(1, input.frames));
-        auto const kind = scopeKindOf(settings.mode);
-        for (int step = std::max(1, settings.lineStep);; ++step)
-        {
-            try
-            {
-                auto plan = makeAnalysePlan(input.width, input.height, input.stride, step, settings.pixelStep, columns, bins, stripColumns_, kind);
-                auto const perGrain = std::max<std::uint64_t>(1, plan.maxCellCount);
-                bool const fits = perGrain * grainsWanted <= 65535;
-                if (fits || step >= input.height)
-                {
-                    analyse_ = std::move(plan);
-                    lineStep_ = step;
-                    maxGrains_ = static_cast<int>(std::max<std::uint64_t>(1, 65535 / perGrain));
-                    break;
-                }
-            }
-            catch (CellOverflow const&)
-            {
-                if (step >= input.height)
-                {
-                    throw;
-                }
-            }
-        }
+        // The counts of an update hold `frames` frames of `fields` grains (§4.3): 16-bit cells
+        // when they fit, else 32-bit cells (AnalysePlan::wide).
+        auto const grainsWanted = std::max(1, input.fields) * std::max(1, input.frames);
+        analyse_ = makeAnalysePlan(input.width, input.height, input.stride, std::max(1, settings.lineStep), settings.pixelStep, columns, bins, stripColumns_,
+            scopeKindOf(settings.mode), grainsWanted);
+        auto const perGrain = std::max<std::uint64_t>(1, analyse_.maxCellCount);
+        maxGrains_ = static_cast<int>(std::min<std::uint64_t>(1u << 20, std::max<std::uint64_t>(1, (analyse_.wide ? 0xffffffffull : 65535ull) / perGrain)));
         hist_.reset(analyse_);
     }
     else
@@ -148,9 +126,9 @@ PaintParams ScopeEngine::paintParams() const
 
 void ScopeEngine::fit(Histogram& hist) const
 {
-    bool const sized = hist.columns == analyse_.columns && hist.bins == analyse_.bins && hist.planes == analyse_.planes &&
-                       hist.scratch.size() == (analyse_.twoSubs ? hist.counts.size() : 0) &&
-                       hist.counts.size() == analyse_.planeCells * static_cast<std::size_t>(analyse_.planes);
+    bool const sized = hist.columns == analyse_.columns && hist.bins == analyse_.bins && hist.planes == analyse_.planes && hist.wide == analyse_.wide &&
+                       hist.scratchCells() == (analyse_.twoSubs ? hist.cells() : 0) &&
+                       hist.cells() == analyse_.planeCells * static_cast<std::size_t>(analyse_.planes);
     if (!sized)
     {
         hist.reset(analyse_);
@@ -190,8 +168,7 @@ void ScopeEngine::analyse(std::uint8_t const* v210)
 void ScopeEngine::clear()
 {
     grains_ = 0;
-    std::fill(hist_.counts.begin(), hist_.counts.end(), std::uint16_t{0});
-    std::fill(hist_.scratch.begin(), hist_.scratch.end(), std::uint16_t{0});
+    hist_.clear();
 }
 
 void ScopeEngine::render(std::string const& caption, std::string const& state, std::uint8_t* dst)

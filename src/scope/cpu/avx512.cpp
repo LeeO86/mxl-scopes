@@ -44,11 +44,11 @@ struct Lanes<6>
 
 constexpr int kChunkQuads = 16;
 
-template <int PS, bool TWO>
+template <class C, int PS, bool TWO>
 void analyseRows(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist)
 {
-    auto* counts = hist.counts.data();
-    auto* scratch = hist.scratch.data();
+    auto* counts = hist.data<C>();
+    auto* scratch = hist.scratchData<C>();
     alignas(64) std::uint32_t buffer[32 * kChunkQuads];
     __m512i const mask = _mm512_set1_epi32(0x3ff);
     __m512i const shiftA = _mm512_setr_epi32(10, 0, 10, 0, 10, 0, 10, 0, 10, 0, 10, 0, 10, 0, 10, 0);
@@ -240,13 +240,24 @@ struct Avx512V
 template <int PS>
 void analyseStep(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist)
 {
-    if (plan.twoSubs)
+    if (plan.wide)
     {
-        analyseRows<PS, true>(plan, v210, hist);
+        if (plan.twoSubs)
+        {
+            analyseRows<std::uint32_t, PS, true>(plan, v210, hist);
+        }
+        else
+        {
+            analyseRows<std::uint32_t, PS, false>(plan, v210, hist);
+        }
+    }
+    else if (plan.twoSubs)
+    {
+        analyseRows<std::uint16_t, PS, true>(plan, v210, hist);
     }
     else
     {
-        analyseRows<PS, false>(plan, v210, hist);
+        analyseRows<std::uint16_t, PS, false>(plan, v210, hist);
     }
 }
 } // namespace
