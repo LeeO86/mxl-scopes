@@ -2,9 +2,11 @@
 
 This plan comes before any code. It is updated as the work goes on: every decision and every deviation from `SPECIFICATION.md` is recorded here, as in the sibling repos.
 
-## Status (2026-10-22)
+## Status (2026-10-23)
 
-M2 done on `feat/m2` (PR in review), decided by the maintainer on 2026-10-22 to come before the first release: 32-bit cells (deviation 23 closed), `SCOPES_THREADS` strip workers, the measurements (deviation 9 closed), the key output and live output flow changes (deviation 4 closed), `ycbcr-overlay` (deviation 5 closed); numbers in `docs/performance.md`. The keyed scope over a picture on the multiviewer 1.4.4 does not show the picture through the key: the multiviewer's CPU backend blends a tile's key into the tile, not into the canvas (question 1 below). What M2 leaves open is listed under M2 below.
+1.0.0 is the first release, made after M2 (the maintainer's decision of 2026-10-23, deviation 26): the release notes are `docs/release-notes-1.0.0.md`. M3 and M4 follow as minor releases.
+
+M2 merged (PR #4), decided by the maintainer on 2026-10-22 to come before the first release: 32-bit cells (deviation 23 closed), `SCOPES_THREADS` strip workers, the measurements (deviation 9 closed), the key output and live output flow changes (deviation 4 closed), `ycbcr-overlay` (deviation 5 closed); numbers in `docs/performance.md`. The keyed scope over a picture on the multiviewer 1.4.4 does not show the picture through the key: the multiviewer's CPU backend blends a tile's key into the tile, not into the canvas (question 1 below). What M2 leaves open is listed under M2 below.
 
 M1 merged (PR #2): the stage-1 modes `ycbcr-parade`, `rgb-parade`, `rgb-overlay` end to end (pulled forward from M2, deviation 15), `SCOPES_ACCUMULATE=all`, the trace computed on the analysing thread (deviation 16), and the lab run with a camera picture and the multiviewer tiles; numbers in `docs/performance.md`. The maintainer's decisions of 2026-10-22 are applied: the RGB parade CPU every frame is accepted for M1 (deviation 25), `rgb-overlay` updates at most every n-th input frame, at most 30 Hz (25 Hz from 50p, §4.6), deviation 16 is folded into the specification. What M1 leaves open is listed under M1 below.
 
@@ -328,6 +330,7 @@ Exit: 1.0.0 released and deployable by the platform.
 23. **Closed in M2 (2026-10-22): `uint32` counters as §4.3.** M1 raised the line step when the counts of an update would not fit 16 bits (a UHD input on a small output, a parade's narrow panels, many frames with `all`), so such inputs were analysed on every n-th line only. Since M2 the plan takes 32-bit cells instead and keeps `SCOPES_LINE_STEP`; any other error while the tables are built still shows `FORMAT`.
 24. **A settings change redraws at once.** After a change of mode or another display setting the newest grain (if still in the ring) is analysed and drawn without waiting for the next tick, also while the input holds; `/api/v1/output` reports the mode of the picture on the output.
 25. **RGB parade every frame above §13, accepted** (the maintainer, 2026-10-22; also noted in §13; M2: with `SCOPES_THREADS=2` the time target is met, the CPU is not): camera content at 1080p50 every frame takes 0.67–0.74 core on the lab class (§13: < 0.4) and analyse + render p99 11.8 ms (< 8 ms); bars meet both. At the default 25 Hz it takes 0.39–0.46 core. A second analysis thread (`SCOPES_THREADS`, strip workers) stays M2 work.
+26. **1.0.0 after M2** (the maintainer, 2026-10-23; the plan has 1.0.0 at the end of M4): the stage-1 scopes, the key output, the measurements and the strip workers make 1.0.0. Of M3 and M4 the WebRTC preview, the `scope` widget, the Vue UI, the 1 h soak, the AMWA tests, `deploy/k8s/deployment.yaml` and the Grafana dashboard are not in it; they follow as 1.x releases. The image is tagged `1.0.0`, `1.0` and `1` (G11); the Container workflow refuses a `v*` tag that differs from `SCOPES_VERSION` and the CMake project version.
 
 ## M0 review fixes (2026-10-16)
 
