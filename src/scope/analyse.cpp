@@ -32,6 +32,7 @@ void Histogram::reset(AnalysePlan const& plan)
     scratch.assign(!wide && plan.twoSubs ? cells : 0, 0);
     counts32.assign(wide ? cells : 0, 0);
     scratch32.assign(wide && plan.twoSubs ? cells : 0, 0);
+    outOfGamut = 0;
 }
 
 void Histogram::clear()
@@ -40,6 +41,7 @@ void Histogram::clear()
     std::fill(scratch.begin(), scratch.end(), std::uint16_t{0});
     std::fill(counts32.begin(), counts32.end(), 0u);
     std::fill(scratch32.begin(), scratch32.end(), 0u);
+    outOfGamut = 0;
 }
 
 AnalysePlan makeAnalysePlan(int width, int height, std::size_t stride, int lineStep, int pixelStep, int columns, int bins, int stripColumns, ScopeKind kind,
@@ -201,8 +203,9 @@ AnalysePlan makeAnalysePlan(int width, int height, std::size_t stride, int lineS
 namespace
 {
 template <class C>
-void analyseScalarCells(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range)
+std::uint64_t analyseScalarCells(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range)
 {
+    std::uint64_t out = 0;
     auto* counts = hist.data<C>();
     auto* scratch = hist.scratchData<C>();
     for (auto const& strip : stripsOf(plan, range))
@@ -213,7 +216,7 @@ void analyseScalarCells(AnalysePlan const& plan, std::uint8_t const* v210, Histo
             cpu::prefetchStrip(plan, strip, v210, y);
             for (int g = strip.g0; g < strip.g1; ++g)
             {
-                cpu::analyseGroupAny(plan, row, g, counts, scratch);
+                out += static_cast<std::uint64_t>(cpu::analyseGroupAny(plan, row, g, counts, scratch));
             }
         }
         if (plan.twoSubs)
@@ -221,18 +224,12 @@ void analyseScalarCells(AnalysePlan const& plan, std::uint8_t const* v210, Histo
             cpu::foldStrip(plan, strip, counts, scratch);
         }
     }
+    return out;
 }
 } // namespace
 
-void analyseScalar(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range)
+std::uint64_t analyseScalar(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range)
 {
-    if (plan.wide)
-    {
-        analyseScalarCells<std::uint32_t>(plan, v210, hist, range);
-    }
-    else
-    {
-        analyseScalarCells<std::uint16_t>(plan, v210, hist, range);
-    }
+    return plan.wide ? analyseScalarCells<std::uint32_t>(plan, v210, hist, range) : analyseScalarCells<std::uint16_t>(plan, v210, hist, range);
 }
 } // namespace scopes

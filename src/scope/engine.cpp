@@ -1,6 +1,7 @@
 #include "scope/engine.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <stdexcept>
 
@@ -24,7 +25,7 @@ bool ScopePainter::configure(PaintParams const& params)
     return true;
 }
 
-void ScopePainter::trace(Histogram& hist, std::string const& caption, std::string const& state, std::vector<TraceGroup>& out, int grains)
+bool ScopePainter::trace(Histogram& hist, std::string const& caption, std::string const& state, std::vector<TraceGroup>& out, int grains, BinTotals* totals)
 {
     if (!stillValid_ || caption != caption_ || state != state_)
     {
@@ -45,7 +46,7 @@ void ScopePainter::trace(Histogram& hist, std::string const& caption, std::strin
     {
         out.clear();
         hist.clear();
-        return;
+        return false;
     }
     grains = std::max(1, grains);
     if (grains != grains_)
@@ -60,28 +61,34 @@ void ScopePainter::trace(Histogram& hist, std::string const& caption, std::strin
         setIntensity(render_, params_.settings, counts);
         grains_ = grains;
     }
+    if (totals != nullptr)
+    {
+        totals->reset(render_.bins, render_.planes);
+    }
     if (pool_ == nullptr || pool_->threads() == 1)
     {
-        collectTrace(render_, hist, out);
-        return;
+        collectTrace(render_, hist, out, 0, -1, totals);
+        return true;
     }
     // Strip workers: each draws its share of the plot rows; in order, the parts are the trace.
     pool_->run([&](int k) {
         auto const i = static_cast<std::size_t>(k);
-        collectTrace(render_, hist, parts_[i].groups, rowSplit_[i], rowSplit_[i + 1]);
+        collectTrace(render_, hist, parts_[i].groups, rowSplit_[i], rowSplit_[i + 1], totals);
     });
     out.clear();
     for (auto const& part : parts_)
     {
         out.insert(out.end(), part.groups.begin(), part.groups.end());
     }
+    return true;
 }
 
-void ScopePainter::render(Histogram& hist, std::string const& caption, std::string const& state, std::uint8_t* dst, int grains)
+bool ScopePainter::render(Histogram& hist, std::string const& caption, std::string const& state, std::uint8_t* dst, int grains, BinTotals* totals)
 {
-    trace(hist, caption, state, trace_, grains);
+    bool const drawn = trace(hist, caption, state, trace_, grains, totals);
     std::memcpy(dst, stillPacked_->data(), stillPacked_->size());
     applyTrace(trace_, dst);
+    return drawn;
 }
 
 ScopeEngine::ScopeEngine(SimdLevel level, int stripColumns, int threads)
@@ -90,7 +97,7 @@ ScopeEngine::ScopeEngine(SimdLevel level, int stripColumns, int threads)
 {
     if (threads > 1)
     {
-        pool_ = std::make_unique<WorkerPool>(threads);
+        pool_ = std::make_unique<WorkerPool>(std::min(threads, 8));
         painter_.setWorkers(pool_.get());
     }
 }
@@ -188,20 +195,17 @@ void ScopeEngine::fit(Histogram& hist) const
     }
 }
 
-void ScopeEngine::analyseRange(std::uint8_t const* v210, Histogram& hist, StripRange range) const
+std::uint64_t ScopeEngine::analyseRange(std::uint8_t const* v210, Histogram& hist, StripRange range) const
 {
     if (level_ == SimdLevel::Avx512)
     {
-        analyseAvx512(analyse_, v210, hist, range);
+        return analyseAvx512(analyse_, v210, hist, range);
     }
-    else if (level_ == SimdLevel::Avx2)
+    if (level_ == SimdLevel::Avx2)
     {
-        analyseAvx2(analyse_, v210, hist, range);
+        return analyseAvx2(analyse_, v210, hist, range);
     }
-    else
-    {
-        analyseScalar(analyse_, v210, hist, range);
-    }
+    return analyseScalar(analyse_, v210, hist, range);
 }
 
 void ScopeEngine::analyse(std::uint8_t const* v210, Histogram& hist) const
@@ -213,14 +217,24 @@ void ScopeEngine::analyse(std::uint8_t const* v210, Histogram& hist) const
     fit(hist);
     if (pool_ == nullptr)
     {
-        analyseRange(v210, hist, {});
+        hist.outOfGamut += analyseRange(v210, hist, {});
         return;
     }
-    // Strip workers: each analyses its strips; their columns are disjoint (splitStrips).
+    // Strip workers: each analyses its strips; their columns are disjoint (splitStrips). Each
+    // gamut count on its own cache line.
+    struct alignas(64) Count
+    {
+        std::uint64_t value = 0;
+    };
+    std::array<Count, 8> outOfGamut{};
     pool_->run([&](int k) {
         auto const i = static_cast<std::size_t>(k);
-        analyseRange(v210, hist, {stripSplit_[i], stripSplit_[i + 1]});
+        outOfGamut[i].value = analyseRange(v210, hist, {stripSplit_[i], stripSplit_[i + 1]});
     });
+    for (auto const& count : outOfGamut)
+    {
+        hist.outOfGamut += count.value;
+    }
 }
 
 void ScopeEngine::analyse(std::uint8_t const* v210)
@@ -238,15 +252,31 @@ void ScopeEngine::clear()
     hist_.clear();
 }
 
+void ScopeEngine::measureUpdate(int grains)
+{
+    auto const pixels = analyse_.planeSamples[0] * static_cast<std::uint64_t>(std::max(1, grains));
+    measurements_ = measure(analyse_.kind, totals_, hist_.outOfGamut, pixels);
+    measurements_.update = ++measuredUpdates_;
+    measurements_.mode = settings_.mode;
+}
+
 void ScopeEngine::render(std::string const& caption, std::string const& state, std::uint8_t* dst)
 {
-    painter_.render(hist_, caption, state, dst, grains_);
+    if (painter_.render(hist_, caption, state, dst, grains_, &totals_))
+    {
+        measureUpdate(grains_);
+    }
+    hist_.outOfGamut = 0;
     grains_ = 0;
 }
 
 void ScopeEngine::trace(std::string const& caption, std::string const& state, std::vector<TraceGroup>& out)
 {
-    painter_.trace(hist_, caption, state, out, grains_);
+    if (painter_.trace(hist_, caption, state, out, grains_, &totals_))
+    {
+        measureUpdate(grains_);
+    }
+    hist_.outOfGamut = 0;
     grains_ = 0;
 }
 } // namespace scopes

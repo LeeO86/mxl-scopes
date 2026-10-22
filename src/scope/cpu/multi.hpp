@@ -14,12 +14,16 @@
 #include "scope/cpu/lanes.hpp"
 
 #include <algorithm>
+#include <bit>
 
 namespace scopes::cpu
 {
 template <class V, class C, ScopeKind K, int PS, bool TWO>
-static void analyseRowsMulti(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range)
+static std::uint64_t analyseRowsMulti(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range)
 {
+    std::uint64_t outOfGamut = 0;
+    constexpr std::uint32_t kValidA = validLanesA(V::kGroups, PS);
+    constexpr std::uint32_t kValidB = validLanesB(V::kGroups, PS);
     using R = typename V::Reg;
     constexpr int G = V::kGroups;
     constexpr int N = 4 * G;
@@ -79,19 +83,28 @@ static void analyseRowsMulti(AnalysePlan const& plan, std::uint8_t const* v210, 
                         R const round = V::set1(4096);
                         R const centre = V::set1(512);
                         auto const clamp = [&](R v) { return V::min(V::max(v, zero), top); };
+                        R const low = V::set1(kGamutLow);
+                        R const high = V::set1(kGamutHigh);
                         // §4.8 in 32-bit lanes; the chroma differences (−512..511) and the Q13
-                        // coefficients fit signed 16 bits, so mulSmall and dot2 are exact.
+                        // coefficients fit signed 16 bits, so mulSmall and dot2 are exact. The
+                        // unclamped values give the gamut count (§4.7): a bit per lane outside.
                         auto const rgb = [&](R yv, R cbv, R crv, R& r, R& gv, R& b) {
                             R const yy = V::add(V::slli(yv, 13), round);
                             R const db = V::sub(cbv, centre);
                             R const dr = V::sub(crv, centre);
-                            r = clamp(V::srai(V::add(yy, V::mulSmall(dr, V::set1(kQ13CrR))), 13));
-                            gv = clamp(V::srai(V::add(yy, V::dot2(db, dr, -kQ13CbG, -kQ13CrG)), 13));
-                            b = clamp(V::srai(V::add(yy, V::mulSmall(db, V::set1(kQ13CbB))), 13));
+                            r = V::srai(V::add(yy, V::mulSmall(dr, V::set1(kQ13CrR))), 13);
+                            gv = V::srai(V::add(yy, V::dot2(db, dr, -kQ13CbG, -kQ13CrG)), 13);
+                            b = V::srai(V::add(yy, V::mulSmall(db, V::set1(kQ13CbB))), 13);
+                            std::uint32_t const outside = V::outside(r, low, high) | V::outside(gv, low, high) | V::outside(b, low, high);
+                            r = clamp(r);
+                            gv = clamp(gv);
+                            b = clamp(b);
+                            return outside;
                         };
                         R rA, gA, bA, rB, gB, bB;
-                        rgb(yA, cbA, crA, rA, gA, bA);
-                        rgb(yB, cbB, crB, rB, gB, bB);
+                        std::uint32_t const outA = rgb(yA, cbA, crA, rA, gA, bA);
+                        std::uint32_t const outB = rgb(yB, cbB, crB, rB, gB, bB);
+                        outOfGamut += static_cast<std::uint64_t>(std::popcount(outA & kValidA) + std::popcount(outB & kValidB));
                         auto const* offA = plan.simdOffA.data() + at;
                         auto const* offB = plan.simdOffB.data() + at;
                         auto const plane = static_cast<int>(plan.planeCells);
@@ -129,7 +142,7 @@ static void analyseRowsMulti(AnalysePlan const& plan, std::uint8_t const* v210, 
             }
             for (int g = tail; g < strip.g1; ++g)
             {
-                analyseGroupAny(plan, row, g, counts, scratch);
+                outOfGamut += static_cast<std::uint64_t>(analyseGroupAny(plan, row, g, counts, scratch));
             }
         }
         if constexpr (TWO)
@@ -137,66 +150,50 @@ static void analyseRowsMulti(AnalysePlan const& plan, std::uint8_t const* v210, 
             foldStrip(plan, strip, counts, scratch);
         }
     }
+    return outOfGamut;
 }
 
 template <class V, ScopeKind K, int PS, class C>
-static void analyseMultiCells(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range)
+static std::uint64_t analyseMultiCells(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range)
 {
-    if (plan.twoSubs)
-    {
-        analyseRowsMulti<V, C, K, PS, true>(plan, v210, hist, range);
-    }
-    else
-    {
-        analyseRowsMulti<V, C, K, PS, false>(plan, v210, hist, range);
-    }
+    return plan.twoSubs ? analyseRowsMulti<V, C, K, PS, true>(plan, v210, hist, range) : analyseRowsMulti<V, C, K, PS, false>(plan, v210, hist, range);
 }
 
 template <class V, ScopeKind K, int PS>
-static void analyseMultiStep(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range)
+static std::uint64_t analyseMultiStep(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range)
 {
-    if (plan.wide)
-    {
-        analyseMultiCells<V, K, PS, std::uint32_t>(plan, v210, hist, range);
-    }
-    else
-    {
-        analyseMultiCells<V, K, PS, std::uint16_t>(plan, v210, hist, range);
-    }
+    return plan.wide ? analyseMultiCells<V, K, PS, std::uint32_t>(plan, v210, hist, range) : analyseMultiCells<V, K, PS, std::uint16_t>(plan, v210, hist, range);
 }
 
 template <class V, ScopeKind K>
-static void analyseMultiKind(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range)
+static std::uint64_t analyseMultiKind(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range)
 {
     switch (plan.pixelStep)
     {
     case 1:
-        analyseMultiStep<V, K, 1>(plan, v210, hist, range);
-        break;
+        return analyseMultiStep<V, K, 1>(plan, v210, hist, range);
     case 2:
-        analyseMultiStep<V, K, 2>(plan, v210, hist, range);
-        break;
+        return analyseMultiStep<V, K, 2>(plan, v210, hist, range);
     case 3:
-        analyseMultiStep<V, K, 3>(plan, v210, hist, range);
-        break;
+        return analyseMultiStep<V, K, 3>(plan, v210, hist, range);
     default:
-        analyseMultiStep<V, K, 6>(plan, v210, hist, range);
-        break;
+        return analyseMultiStep<V, K, 6>(plan, v210, hist, range);
     }
 }
 
-// Ycbcr or Rgb; false for Luma (the caller's own step).
+// Ycbcr or Rgb (true, with the gamut count in `outOfGamut`); false for Luma (the caller's own
+// step).
 template <class V>
-static bool analyseMulti(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range)
+static bool analyseMulti(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range, std::uint64_t& outOfGamut)
 {
     if (plan.kind == ScopeKind::Ycbcr)
     {
-        analyseMultiKind<V, ScopeKind::Ycbcr>(plan, v210, hist, range);
+        outOfGamut = analyseMultiKind<V, ScopeKind::Ycbcr>(plan, v210, hist, range);
         return true;
     }
     if (plan.kind == ScopeKind::Rgb)
     {
-        analyseMultiKind<V, ScopeKind::Rgb>(plan, v210, hist, range);
+        outOfGamut = analyseMultiKind<V, ScopeKind::Rgb>(plan, v210, hist, range);
         return true;
     }
     return false;

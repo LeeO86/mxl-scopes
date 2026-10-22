@@ -35,6 +35,7 @@ add_library(scopes-core STATIC
     src/scope/render.cpp
     src/scope/engine.cpp
     src/scope/workers.cpp
+    src/scope/measure.cpp
     src/scope/scheduler.cpp
     src/scope/cpu/dispatch.cpp
     src/app/state.cpp
@@ -87,6 +88,7 @@ if(SCOPES_BUILD_TESTS)
         tests/unit/test_render.cpp
         tests/unit/test_scheduler.cpp
         tests/unit/test_threads.cpp
+        tests/unit/test_measure.cpp
         tests/unit/test_api.cpp
         tests/unit/test_http.cpp
     )

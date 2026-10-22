@@ -265,7 +265,7 @@ std::string Api::scopeJson() const
 
 std::string Api::eventsJson() const
 {
-    return "{\"type\":\"status\",\"status\":" + statusJson() + ",\"scope\":" + scopeJson() + "}";
+    return "{\"type\":\"status\",\"status\":" + statusJson() + ",\"scope\":" + scopeJson() + ",\"measurements\":" + measurementsJson(state_.measurements()) + "}";
 }
 
 void Api::applied(Config const& config)
@@ -578,6 +578,10 @@ HttpResponse Api::handle(HttpRequest const& request)
     if (path == "/api/v1/input" && method == "GET")
     {
         return jsonResponse(200, inputJson());
+    }
+    if (path == "/api/v1/measurements" && method == "GET")
+    {
+        return jsonResponse(200, measurementsJson(state_.measurements()));
     }
     if (path == "/api/v1/output" && method == "GET")
     {

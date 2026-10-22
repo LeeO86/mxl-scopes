@@ -121,7 +121,13 @@ void analyseRows(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& h
 // Vector traits of the three-plane kernels (cpu/multi.hpp): four groups per load.
 struct Avx512V
 {
+
     using Reg = __m512i;
+    // Bit per lane: the lane is below `low` or above `high` (signed).
+    static std::uint32_t outside(Reg v, Reg low, Reg high)
+    {
+        return static_cast<std::uint32_t>(_mm512_cmpgt_epi32_mask(low, v) | _mm512_cmpgt_epi32_mask(v, high));
+    }
     static constexpr int kGroups = 4;
     static constexpr int kChunk = 16;
     static Reg set1(int v)
@@ -267,11 +273,11 @@ bool avx512Compiled()
     return true;
 }
 
-void analyseAvx512(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range)
+std::uint64_t analyseAvx512(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range)
 {
-    if (cpu::analyseMulti<Avx512V>(plan, v210, hist, range))
+    if (std::uint64_t outOfGamut = 0; cpu::analyseMulti<Avx512V>(plan, v210, hist, range, outOfGamut))
     {
-        return;
+        return outOfGamut;
     }
     switch (plan.pixelStep)
     {
@@ -288,5 +294,6 @@ void analyseAvx512(AnalysePlan const& plan, std::uint8_t const* v210, Histogram&
         analyseStep<6>(plan, v210, hist, range);
         break;
     }
+    return 0;
 }
 } // namespace scopes

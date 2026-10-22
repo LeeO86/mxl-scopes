@@ -49,6 +49,7 @@ Environment > `SCOPES_CONFIG_FILE` (flat JSON, else `<SCOPES_STATE_DIR>/config.j
 | `GET /api/v1/info`, `/api/v1/status` (`/statusz`), `/api/v1/input`, `/api/v1/output` | state, SIMD level, ids, counters, the modes built; the output's plot and panels |
 | `GET`, `PATCH /api/v1/scope` | display settings, live; 400 on an invalid value |
 | `GET /api/v1/snapshot.png` | the latest scope picture |
+| `GET /api/v1/measurements` | luma min, max, mean and legal shares; chroma out of range; R′G′B′ out of gamut (per mode, null where the mode has no plane; also on the WebSocket and as metrics) |
 | `GET /api/v1/events` | WebSocket, status and settings five times a second |
 | `GET`, `PUT /api/v1/config`; `GET /api/v1/config/export`, `POST /api/v1/config/import`, `GET /api/v1/config/env` | settings with their origin |
 | `/livez`, `/readyz`, `/metrics` | probes; Prometheus, prefix `mxl_scopes_` |

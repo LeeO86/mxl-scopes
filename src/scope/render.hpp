@@ -7,6 +7,7 @@
 
 #include "media/v210.hpp"
 #include "scope/analyse.hpp"
+#include "scope/measure.hpp"
 #include "scope/settings.hpp"
 
 namespace scopes
@@ -161,7 +162,9 @@ struct TraceGroup
 // without counts keep the still picture's bytes (background and graticule). Clears the counts.
 // Plot rows [rowBegin, rowEnd) only (rowEnd −1: to the last); the parts of traceRowSplit can run
 // on different threads and their traces, in order, are the whole trace.
-void collectTrace(RenderPlan const& plan, Histogram& hist, std::vector<TraceGroup>& trace, int rowBegin = 0, int rowEnd = -1);
+// With `totals` (sized plan.bins × plan.planes), the samples of each bin of these rows are added
+// to it on the way (the measurements, §4.7).
+void collectTrace(RenderPlan const& plan, Histogram& hist, std::vector<TraceGroup>& trace, int rowBegin = 0, int rowEnd = -1, BinTotals* totals = nullptr);
 // `parts` + 1 row boundaries from 0 to plotH that never split the rows of one bin.
 std::vector<int> traceRowSplit(RenderPlan const& plan, int parts);
 void applyTrace(std::vector<TraceGroup> const& trace, std::uint8_t* dst);

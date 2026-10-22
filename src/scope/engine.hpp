@@ -53,10 +53,12 @@ public:
     // Writes the packed picture (packedSize() bytes) into `dst` and clears the counts. With a
     // state text (NOT ROUTED, NO SIGNAL, ...) or without an input the plot shows no trace.
     // `grains` is the number of grains in the counts; the intensity is normalised to it (§4.4).
-    void render(Histogram& hist, std::string const& caption, std::string const& state, std::uint8_t* dst, int grains = 1);
+    bool render(Histogram& hist, std::string const& caption, std::string const& state, std::uint8_t* dst, int grains = 1, BinTotals* totals = nullptr);
     // The same picture as the still picture plus trace groups: the output writer rewrites only
     // the groups that differ from what an output grain already holds (§2.4).
-    void trace(Histogram& hist, std::string const& caption, std::string const& state, std::vector<TraceGroup>& trace, int grains = 1);
+    // With `totals`, the bin totals of the counts for the measurements (§4.7); returns true when
+    // the counts were drawn (an input and no state text), so `totals` holds them.
+    bool trace(Histogram& hist, std::string const& caption, std::string const& state, std::vector<TraceGroup>& trace, int grains = 1, BinTotals* totals = nullptr);
     [[nodiscard]] std::uint8_t const* stillPacked() const
     {
         return stillPacked_->data();
@@ -153,6 +155,12 @@ public:
     }
     // Drops the counts of an analysed frame (a torn read, §2.2).
     void clear();
+    // The measurements of the last render or trace that drew counts (§4.7); `update` is 0 and
+    // every value empty before the first.
+    [[nodiscard]] Measurements const& measurements() const
+    {
+        return measurements_;
+    }
 
     [[nodiscard]] PaintParams paintParams() const;
     [[nodiscard]] Frame422 const& still() const
@@ -206,7 +214,7 @@ public:
     }
 
 private:
-    void analyseRange(std::uint8_t const* v210, Histogram& hist, StripRange range) const;
+    std::uint64_t analyseRange(std::uint8_t const* v210, Histogram& hist, StripRange range) const;
 
     SimdLevel level_;
     int stripColumns_;
@@ -223,5 +231,9 @@ private:
     AnalysePlan analyse_;
     Histogram hist_;
     ScopePainter painter_;
+    BinTotals totals_;
+    Measurements measurements_;
+    std::uint64_t measuredUpdates_ = 0;
+    void measureUpdate(int grains);
 };
 } // namespace scopes

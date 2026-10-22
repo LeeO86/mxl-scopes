@@ -41,6 +41,10 @@ inline constexpr int kQ13CrR = 12613;
 inline constexpr int kQ13CbG = 1500;
 inline constexpr int kQ13CrG = 3749;
 inline constexpr int kQ13CbB = 14862;
+// §4.7, EBU R 103: an R′G′B′ component is in gamut from −5 % to 105 % of 64..940, codes 20..984
+// (rounded).
+inline constexpr int kGamutLow = 20;
+inline constexpr int kGamutHigh = 984;
 static inline void rgbOfYcbcr(int y, int cb, int cr, int& r, int& g, int& b)
 {
     int const yy = y << 13;
@@ -118,6 +122,8 @@ struct Histogram
     std::vector<std::uint16_t> scratch;
     std::vector<std::uint32_t> counts32;
     std::vector<std::uint32_t> scratch32;
+    // Pixels of the counted grains with an R′G′B′ component out of gamut (`Rgb`, §4.7).
+    std::uint64_t outOfGamut = 0;
 
     void reset(AnalysePlan const& plan);
     // All cells (and sub-histograms) to zero.
@@ -193,12 +199,14 @@ inline std::span<AnalysePlan::Strip const> stripsOf(AnalysePlan const& plan, Str
 // lines per row with a stride above 4 KiB, which the hardware prefetcher does not follow.
 inline constexpr int kPrefetchRows = 6;
 
-// Adds one frame to `hist` (every kind; the plan says which). The counts must be zero before the first frame of an update.
-void analyseScalar(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range = {});
+// Adds one frame to `hist` (every kind; the plan says which). The counts must be zero before the
+// first frame of an update. Returns the pixels with an R′G′B′ component out of gamut (`Rgb`; §4.7),
+// else 0.
+std::uint64_t analyseScalar(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range = {});
 // AVX2 version, byte-identical counts. Only call it when the CPU has AVX2 (cpu/dispatch.hpp).
-void analyseAvx2(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range = {});
+std::uint64_t analyseAvx2(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range = {});
 bool avx2Compiled();
 // AVX-512 (F) version, four groups per load, byte-identical counts. Only with AVX-512.
-void analyseAvx512(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range = {});
+std::uint64_t analyseAvx512(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range = {});
 bool avx512Compiled();
 } // namespace scopes

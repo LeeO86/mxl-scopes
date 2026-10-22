@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "scope/measure.hpp"
 #include "scope/settings.hpp"
 
 namespace scopes
@@ -71,7 +72,7 @@ struct RendererView
     double analyseCpuMs = 0;
     double renderMs = 0;
     std::uint64_t lastIndex = 0;
-    // The line step in use (SCOPES_LINE_STEP, raised when the counts would not fit 16 bits).
+    // The line step in use (SCOPES_LINE_STEP).
     int lineStep = 1;
 };
 
@@ -104,6 +105,9 @@ public:
     [[nodiscard]] RendererView renderer() const;
     void setRenderer(RendererView view);
 
+    // The measurements of the latest update (§4.7).
+    void setMeasurements(Measurements measurements);
+    [[nodiscard]] Measurements measurements() const;
     void setSnapshot(std::shared_ptr<Snapshot const> snapshot);
     [[nodiscard]] std::shared_ptr<Snapshot const> snapshot() const;
 
@@ -122,6 +126,7 @@ private:
     OutputView output_;
     RendererView renderer_;
     std::shared_ptr<Snapshot const> snapshot_;
+    Measurements measurements_;
     std::uint64_t rendererBeat_ = 0;
     std::uint64_t writerBeat_ = 0;
     bool nmosUp_ = false;

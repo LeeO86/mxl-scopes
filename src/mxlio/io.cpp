@@ -349,6 +349,7 @@ struct MediaIo::Impl
         };
         // Hands a picture to the writer: the trace of the analysed counts, or a state picture
         // (no trace). Clears the counts.
+        Measurements publishedMeasurements;
         auto publishJob = [&](std::string const& captionText, std::string const& stateText) {
             redraw = false;
             accGrains = 0;
@@ -367,6 +368,36 @@ struct MediaIo::Impl
             {
                 stats.renderMs = seconds * 1000.0;
                 metrics.observe("render_seconds", modeLabel, seconds);
+            }
+            // §4.7: the measurements of this update; none while a state text shows.
+            Measurements measured = engine.measurements();
+            if (!stateText.empty())
+            {
+                measured = Measurements{};
+                measured.update = engine.measurements().update;
+                measured.mode = engine.paintParams().settings.mode;
+            }
+            if (!(measured == publishedMeasurements))
+            {
+                publishedMeasurements = measured;
+                state.setMeasurements(measured);
+                auto const gauge = [&](char const* name, auto const& value) {
+                    if (value)
+                    {
+                        metrics.set(name, {}, static_cast<double>(*value));
+                    }
+                    else
+                    {
+                        metrics.remove(name, {});
+                    }
+                };
+                gauge("luma_min_code", measured.lumaMin);
+                gauge("luma_max_code", measured.lumaMax);
+                gauge("luma_mean_code", measured.lumaMean);
+                gauge("luma_below_legal_ratio", measured.lumaBelow);
+                gauge("luma_above_legal_ratio", measured.lumaAbove);
+                gauge("chroma_out_of_range_ratio", measured.chromaOut);
+                gauge("rgb_out_of_gamut_ratio", measured.rgbOutOfGamut);
             }
         };
         // The picture of a state without a trace; drawn again only when something it shows changed.

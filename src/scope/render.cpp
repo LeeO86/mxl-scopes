@@ -658,7 +658,7 @@ bool panelRow(RenderPlan const& plan, PanelPlan const& panel, C const* const* li
 namespace
 {
 template <class C>
-void collectTraceCells(RenderPlan const& plan, Histogram& hist, std::vector<TraceGroup>& trace, int rowBegin, int rowEnd)
+void collectTraceCells(RenderPlan const& plan, Histogram& hist, std::vector<TraceGroup>& trace, int rowBegin, int rowEnd, BinTotals* totals)
 {
     auto const& layout = plan.layout;
     auto const planeCells = static_cast<std::size_t>(plan.columns) * static_cast<std::size_t>(plan.bins);
@@ -692,6 +692,20 @@ void collectTraceCells(RenderPlan const& plan, Histogram& hist, std::vector<Trac
                     sampled[i][static_cast<std::size_t>(px)] = rows[i][plan.columnOf[static_cast<std::size_t>(px)]];
                 }
                 lines[i] = sampled[i].data();
+            }
+        }
+        if (totals != nullptr && (r == 0 || plan.binOfRow[static_cast<std::size_t>(r) - 1] != bin))
+        {
+            // The first plot row of this bin: its samples over all columns (§4.7).
+            for (int p = 0; p < plan.planes; ++p)
+            {
+                std::uint64_t sum = 0;
+                auto const* cells = rows[static_cast<std::size_t>(p)];
+                for (int c = 0; c < plan.columns; ++c)
+                {
+                    sum += cells[c];
+                }
+                totals->plane[static_cast<std::size_t>(p)][bin] = sum;
             }
         }
         auto gi = plan.graticuleStart[static_cast<std::size_t>(r)];
@@ -731,7 +745,7 @@ void collectTraceCells(RenderPlan const& plan, Histogram& hist, std::vector<Trac
 }
 } // namespace
 
-void collectTrace(RenderPlan const& plan, Histogram& hist, std::vector<TraceGroup>& trace, int rowBegin, int rowEnd)
+void collectTrace(RenderPlan const& plan, Histogram& hist, std::vector<TraceGroup>& trace, int rowBegin, int rowEnd, BinTotals* totals)
 {
     trace.clear();
     rowEnd = rowEnd < 0 ? plan.layout.plotH : std::min(rowEnd, plan.layout.plotH);
@@ -745,11 +759,11 @@ void collectTrace(RenderPlan const& plan, Histogram& hist, std::vector<TraceGrou
     }
     if (hist.wide)
     {
-        collectTraceCells<std::uint32_t>(plan, hist, trace, rowBegin, rowEnd);
+        collectTraceCells<std::uint32_t>(plan, hist, trace, rowBegin, rowEnd, totals);
     }
     else
     {
-        collectTraceCells<std::uint16_t>(plan, hist, trace, rowBegin, rowEnd);
+        collectTraceCells<std::uint16_t>(plan, hist, trace, rowBegin, rowEnd, totals);
     }
 }
 

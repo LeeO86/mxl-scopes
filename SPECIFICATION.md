@@ -218,13 +218,15 @@ Cb and Cr panels: centre line at 512 (0 mV), solid lines at 64 and 960 (∓350 m
 
 ### 4.7 Measurements
 
-From the same histograms, at no extra pass over the picture, each update computes:
+From the same histograms, at no extra pass over the picture, each update computes (decided 2026-10-22):
 
-- luma min, max and mean code; share of samples below 64 and above 940 (limited range);
-- Cb/Cr share outside 64–960;
-- with an RGB mode: share of pixels with any R′G′B′ component outside the EBU R 103 tolerance (−5 % to 105 %).
+- luma min, max and mean code; share of samples below 64 and above 940 — in `luma` and the YCbCr modes (plane Y′);
+- Cb/Cr share outside 64–960 — in the YCbCr modes;
+- in the RGB modes: share of pixels with any R′G′B′ component outside the EBU R 103 tolerance (−5 % to 105 %, codes 20–984 rounded), from the unclamped values of §4.8.
 
-They are exported as metrics and on the WebSocket (§9, §10). They raise no alarms in v1 (open question 12).
+A value the mode has no plane for is null (and its metric is not exported). The luma and chroma values come from the bin totals of each plane, summed by the trace step while it reads the counts: a bin counts as its centre code, so they are exact to one bin, `codes_per_bin` = 1024 / bins (about 1 code at a 1080-line output, about 6 at 180 lines). The R′G′B′ share is counted exactly per pixel in the RGB analyse step (a compare per component, on every SIMD path). No per-code histogram is kept. The thresholds are the BT.709 limits whatever `SCOPES_RANGE` is. While a state text shows (no input), every value is null.
+
+They are exported as metrics, at `GET /api/v1/measurements` and on the WebSocket (§9, §10). They raise no alarms in v1 (open question 12).
 
 ### 4.8 R′G′B′ from Y′CbCr
 
@@ -443,7 +445,7 @@ The family look of the siblings: header with label, state and registration pills
 | PATCH | `/api/v1/scope` | any subset of the live display settings; 400 on an invalid value, nothing changes |
 | GET | `/api/v1/input` | state, route, format, colorimetry, counters |
 | GET | `/api/v1/output` | flow id, format, key, frames, late, missed |
-| GET | `/api/v1/measurements` | the latest measurements (§4.7) with the update index |
+| GET | `/api/v1/measurements` | the latest measurements (§4.7) with the update index: `{"update", "mode", "codes_per_bin", "luma": {"min_code", "max_code", "mean_code", "below_64_ratio", "above_940_ratio"} \| null, "chroma": {"out_of_range_ratio"} \| null, "rgb": {"out_of_gamut_ratio"} \| null}` |
 | GET | `/api/v1/snapshot.png` | SHOULD: the latest scope frame as PNG (full raster, key as PNG alpha when on) |
 | GET | `/api/v1/events` | WebSocket: state, settings changes, measurements at most 10 per second |
 | GET | `/widgets`, `/widget/{id}` | §9.3 |
@@ -489,12 +491,12 @@ Prefix `mxl_scopes_`.
 | `accumulate_dropped_total` | counter | grains `SCOPES_ACCUMULATE=all` could not add (behind the ring, or more than the update was sized for) |
 | `update_rate_hz` | gauge | effective rate |
 | `analyse_seconds` | histogram | `mode` |
-| `analyse_cpu_seconds` | histogram | `mode` (thread CPU time of the analyse step; below `analyse_seconds` when the thread waited for its core) |
+| `analyse_cpu_seconds` | histogram | `mode` (CPU time of the renderer thread in the analyse step, strip workers not included; below `analyse_seconds` when the thread waited for its core) |
 | `render_seconds` | histogram | `mode` (building the trace groups on the renderer thread, §2.3; the writer's patching is not in it) |
 | `output_frames_total` | counter | |
 | `output_frames_late_total` | counter | |
 | `output_frames_missed_total` | counter | |
-| `luma_min_code`, `luma_max_code`, `luma_mean_code` | gauge | |
+| `luma_min_code`, `luma_max_code`, `luma_mean_code` | gauge | the measurements of §4.7; absent while null |
 | `luma_below_legal_ratio`, `luma_above_legal_ratio` | gauge | |
 | `chroma_out_of_range_ratio` | gauge | |
 | `rgb_out_of_gamut_ratio` | gauge (RGB modes) | |

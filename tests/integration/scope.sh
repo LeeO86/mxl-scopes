@@ -214,6 +214,28 @@ curl -s -X PATCH -H 'Content-Type: application/json' -d '{"mode":"vectorscope"}'
   || fail "a mode that is not built was accepted"
 echo "modes ok"
 
+# Measurements (§4.7) of the flat grey (Y 512, Cb Cr 512): luma at 512, nothing outside; the
+# chroma share only in a YCbCr mode, the gamut share only in an RGB mode.
+sleep 0.5
+M="$(curl -sf "$API/api/v1/measurements")" || fail "GET /api/v1/measurements"
+echo "measurements (luma): $M"
+echo "$M" | python3 -c 'import json,sys; d=json.load(sys.stdin); l=d["luma"]; assert d["mode"]=="luma" and d["update"]>0 and abs(l["min_code"]-512)<=4 and l["max_code"]==l["min_code"] and l["below_64_ratio"]==0 and l["above_940_ratio"]==0 and d["chroma"] is None and d["rgb"] is None, d' \
+  || fail "luma measurements"
+grep -q '^mxl_scopes_luma_mean_code ' <<<"$(curl -sf "$API/metrics")" || fail "no luma_mean_code metric"
+for mode in ycbcr-parade rgb-parade; do
+  curl -sf -X PATCH -H 'Content-Type: application/json' -d "{\"mode\":\"$mode\"}" "$API/api/v1/scope" >/dev/null || fail "PATCH mode $mode"
+  sleep 0.6
+  M="$(curl -sf "$API/api/v1/measurements")"
+  echo "measurements ($mode): $M"
+  echo "$M" | MODE="$mode" python3 -c 'import json,os,sys; d=json.load(sys.stdin); m=os.environ["MODE"]; assert d["mode"]==m, d; assert (d["chroma"] is not None and d["chroma"]["out_of_range_ratio"]==0 and d["rgb"] is None) if m=="ycbcr-parade" else (d["rgb"]["out_of_gamut_ratio"]==0 and d["luma"] is None and d["chroma"] is None), d' \
+    || fail "$mode measurements"
+done
+METRICS="$(curl -sf "$API/metrics")"
+grep -q '^mxl_scopes_rgb_out_of_gamut_ratio 0' <<<"$METRICS" || fail "no rgb_out_of_gamut_ratio metric"
+! grep -q '^mxl_scopes_luma_mean_code ' <<<"$METRICS" || fail "luma_mean_code still exported in rgb-parade"
+curl -sf -X PATCH -H 'Content-Type: application/json' -d '{"mode":"luma"}' "$API/api/v1/scope" >/dev/null || fail "PATCH mode luma"
+echo "measurements ok"
+
 METRICS="$(curl -sf "$API/metrics")"
 for name in mxl_scopes_accumulate_dropped_total mxl_scopes_updates_total mxl_scopes_analyse_seconds_bucket mxl_scopes_output_frames_total 'mxl_scopes_input_state{state="running"} 1' mxl_scopes_simd_level; do
   grep -q "$name" <<<"$METRICS" || fail "metric $name missing"

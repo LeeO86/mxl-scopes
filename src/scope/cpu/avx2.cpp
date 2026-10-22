@@ -123,7 +123,14 @@ void analyseRows(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& h
 // Vector traits of the three-plane kernels (cpu/multi.hpp): two groups per load.
 struct Avx2V
 {
+
     using Reg = __m256i;
+    // Bit per lane: the lane is below `low` or above `high` (signed).
+    static std::uint32_t outside(Reg v, Reg low, Reg high)
+    {
+        Reg const out = _mm256_or_si256(_mm256_cmpgt_epi32(low, v), _mm256_cmpgt_epi32(v, high));
+        return static_cast<std::uint32_t>(_mm256_movemask_ps(_mm256_castsi256_ps(out)));
+    }
     static constexpr int kGroups = 2;
     static constexpr int kChunk = 32;
     static Reg set1(int v)
@@ -270,11 +277,11 @@ bool avx2Compiled()
     return true;
 }
 
-void analyseAvx2(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range)
+std::uint64_t analyseAvx2(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range)
 {
-    if (cpu::analyseMulti<Avx2V>(plan, v210, hist, range))
+    if (std::uint64_t outOfGamut = 0; cpu::analyseMulti<Avx2V>(plan, v210, hist, range, outOfGamut))
     {
-        return;
+        return outOfGamut;
     }
     switch (plan.pixelStep)
     {
@@ -291,5 +298,6 @@ void analyseAvx2(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& h
         analyseStep<6>(plan, v210, hist, range);
         break;
     }
+    return 0;
 }
 } // namespace scopes
