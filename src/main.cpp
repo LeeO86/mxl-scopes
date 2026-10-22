@@ -120,6 +120,7 @@ int main(int argc, char** argv)
         metrics.inc("updates_total", {{"mode", config.display.mode}}, 0);
 
         scopes::AppState state(config.display);
+        state.setOutputSettings(scopes::outputSettingsOf(config));
         if (auto const restored = scopes::loadRoute(config.stateDir))
         {
             state.setRoute(*restored);

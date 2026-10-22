@@ -463,12 +463,8 @@ Config loadConfig(std::map<std::string, std::string> const& env, std::map<std::s
 
     Config cfg;
     auto& d = cfg.display;
-    // The stage-1 modes (§5.1); ycbcr-overlay (a SHOULD) is not built; stage-2 modes are not in v1.
+    // The stage-1 modes (§5.1); stage-2 modes are not in v1.
     d.mode = requireEnum("SCOPES_MODE", raw("SCOPES_MODE"), {"luma", "ycbcr-parade", "rgb-parade", "rgb-overlay", "ycbcr-overlay"});
-    if (d.mode == "ycbcr-overlay")
-    {
-        throw ConfigError("SCOPES_MODE ycbcr-overlay is not implemented in this build");
-    }
     d.updateRate = parseUpdateRate(raw("SCOPES_UPDATE_RATE"));
     d.accumulate = requireEnum("SCOPES_ACCUMULATE", raw("SCOPES_ACCUMULATE"), {"latest", "all"});
     d.lineStep = requireInt("SCOPES_LINE_STEP", raw("SCOPES_LINE_STEP"), 1, 8);
@@ -514,15 +510,7 @@ Config loadConfig(std::map<std::string, std::string> const& env, std::map<std::s
         }
     }
     cfg.outputKey = requireBool("SCOPES_OUTPUT_KEY", raw("SCOPES_OUTPUT_KEY"));
-    if (cfg.outputKey)
-    {
-        throw ConfigError("SCOPES_OUTPUT_KEY=true is not implemented in this build (M2)");
-    }
     cfg.threads = requireInt("SCOPES_THREADS", raw("SCOPES_THREADS"), 1, 8);
-    if (cfg.threads != 1)
-    {
-        throw ConfigError("SCOPES_THREADS above 1 is not implemented in this build (M2)");
-    }
     cfg.backend = requireEnum("SCOPES_BACKEND", raw("SCOPES_BACKEND"), {"auto", "cpu", "cuda"});
     if (cfg.backend == "cuda")
     {

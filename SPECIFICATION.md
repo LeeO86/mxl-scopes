@@ -171,8 +171,8 @@ The plot area has `C` columns and `B` bins (rows). Defaults: the plot's width an
 - Column of an input sample at `x`: `col = floor(x × C / width)`, from a per-x lookup table built at configure time. In a parade each component has its own panel and its own `C`.
 - Bin of a code value `v` (0–1023): `bin = floor((v − v_lo) × B / (v_hi − v_lo + 1))`, clamped to `[0, B−1]`, from a 1024-entry lookup table. `v_lo`/`v_hi` are the visible code range (default 0–1023, so super-black and super-white stay visible).
 - `hist[component][col][bin] += 1`. Layout: column-major, the `B` bins of one column contiguous.
-- Counter width: `uint16_t`. When the largest possible count per cell (`ceil(width / C) / pixel_step × ceil(height / line_step) × frames accumulated`) would not fit in 65535, the engine raises the line step to the smallest that fits and normalises the intensity to the samples taken (`renderer.line_step` in `/api/v1/status`); `uint32_t` counters are planned for M2 (IMPLEMENTATION_PLAN.md deviation 23). The choice is made at configure time and is the same on every backend.
-- **Cache blocking.** A 1080p luma histogram of 1840 × 1000 cells is about 3.7 MB, larger than L2. The engine therefore walks the picture in **column strips**: a strip of input columns that maps to at most 64 plot columns (about 128 KB of counters at `B` = 1000), for all analysed lines, then the next strip. The input of one strip is 64 × ⌈width/C⌉ samples per line, so it streams with hardware prefetch. With `SCOPES_THREADS` > 1, workers take whole strips; strips never share counters, so the result is the same for any thread count.
+- Counter width: `uint16_t` when the largest possible count per cell (`ceil(width / C) / pixel_step × ceil(height / line_step) × frames accumulated`) fits in 65535, else `uint32_t`. The choice is made at configure time and is the same on every backend; the picture does not depend on it.
+- **Cache blocking.** A 1080p luma histogram of 1840 × 1000 cells is about 3.7 MB, larger than L2. The engine therefore walks the picture in **column strips**: a strip of input columns that maps to at most 64 plot columns (about 128 KB of counters at `B` = 1000), for all analysed lines, then the next strip. The input of one strip is 64 × ⌈width/C⌉ samples per line, so it streams with hardware prefetch. With `SCOPES_THREADS` > 1, each worker takes a range of whole strips of about equal size. Where a range ends inside a strip, that strip is split at the next input x where a new histogram column starts, so no column spans two ranges and the workers never share a counter; the result is the same for any thread count. The trace step splits the plot rows the same way, at bin boundaries.
 - **Store-forwarding hazard.** Flat picture areas send neighbouring samples of one column to the same bin, which chains load-add-store at about 5 cycles each. When `width / C ≥ 2`, the engine keeps two sub-histograms per strip (even and odd input `x`) and adds them when the strip is done. The sum is exact, so the result does not depend on the trick.
 - **Accumulation over time.** `SCOPES_ACCUMULATE=latest` (default) analyses only the newest grain at each update. `all` analyses every input grain between two updates into the same histogram (better statistics on noisy pictures, full analyse cost at any update rate).
 
@@ -213,18 +213,20 @@ Cb and Cr panels: centre line at 512 (0 mV), solid lines at 64 and 960 (∓350 m
 - Ticks run on TAI: tick `k` is at `k / rate`. At each tick the renderer analyses the newest grain (or, with `ACCUMULATE=all`, every grain since the last tick). A grain is analysed at most once.
 - With `frame`, the renderer waits for each new grain. A rate at or above the input rate behaves like `frame`.
 - If an update is still running when the next tick comes, that tick is skipped and counted (`mxl_scopes_updates_skipped_total`). The writer keeps writing the last frame.
-- `rgb-overlay` updates at most every n-th input frame, n the smallest that keeps it at or below 30 Hz: 25 Hz from 50p, 29.97 Hz from 59.94p, every frame from 25p, 29.97p and 1080i50 (decided 2026-10-22). `frame` and higher rates run at that rate; lower rates stay. The overlay draws three planes over the full plot width; on the lab class one update takes 18–20 ms at 1080p50, close to the 20 ms frame time, so every frame takes most of a core and skips ticks. The cap keeps the full horizontal resolution and an even cadence at about half a core. `/api/v1/status` (`renderer.update_rate_hz`) and the caption show the rate in use.
+- `rgb-overlay` and `ycbcr-overlay` update at most every n-th input frame, n the smallest that keeps it at or below 30 Hz: 25 Hz from 50p, 29.97 Hz from 59.94p, every frame from 25p, 29.97p and 1080i50 (decided 2026-10-22). `frame` and higher rates run at that rate; lower rates stay. The overlay draws three planes over the full plot width; on the lab class one update takes 18–20 ms at 1080p50, close to the 20 ms frame time, so every frame takes most of a core and skips ticks. The cap keeps the full horizontal resolution and an even cadence at about half a core. `/api/v1/status` (`renderer.update_rate_hz`) and the caption show the rate in use.
 - The output flow always runs at its own full rate (§7). Between updates it repeats the last scope frame.
 
 ### 4.7 Measurements
 
-From the same histograms, at no extra pass over the picture, each update computes:
+From the same histograms, at no extra pass over the picture, each update computes (decided 2026-10-22):
 
-- luma min, max and mean code; share of samples below 64 and above 940 (limited range);
-- Cb/Cr share outside 64–960;
-- with an RGB mode: share of pixels with any R′G′B′ component outside the EBU R 103 tolerance (−5 % to 105 %).
+- luma min, max and mean code; share of samples below 64 and above 940 — in `luma` and the YCbCr modes (plane Y′);
+- Cb/Cr share outside 64–960 — in the YCbCr modes;
+- in the RGB modes: share of pixels with any R′G′B′ component outside the EBU R 103 tolerance (−5 % to 105 %, codes 20–984 rounded), from the unclamped values of §4.8.
 
-They are exported as metrics and on the WebSocket (§9, §10). They raise no alarms in v1 (open question 12).
+A value the mode has no plane for is null (and its metric is not exported). The luma and chroma values come from the bin totals of each plane, summed by the trace step while it reads the counts: a bin counts as its centre code, so they are exact to one bin, `codes_per_bin` = 1024 / bins (about 1 code at a 1080-line output, about 6 at 180 lines). The R′G′B′ share is counted exactly per pixel in the RGB analyse step (a compare per component, on every SIMD path). No per-code histogram is kept. The thresholds are the BT.709 limits whatever `SCOPES_RANGE` is. While a state text shows (no input), every value is null.
+
+They are exported as metrics, at `GET /api/v1/measurements` and on the WebSocket (§9, §10). They raise no alarms in v1 (open question 12).
 
 ### 4.8 R′G′B′ from Y′CbCr
 
@@ -281,7 +283,7 @@ How it maps to AVX2:
 | `ycbcr-parade` | 1 | Y′, Cb, Cr waveforms side by side | three, each 1/3 width |
 | `rgb-parade` | 1 | R′, G′, B′ waveforms side by side | three |
 | `rgb-overlay` | 1 | R′, G′, B′ waveforms in one panel, each in its colour | one |
-| `ycbcr-overlay` | 1 (SHOULD) | Y′, Cb, Cr in one panel (Cb, Cr offset to the luma scale) | one |
+| `ycbcr-overlay` | 1 (SHOULD) | Y′, Cb, Cr in one panel: the raw codes on the shared code axis (neutral chroma on the 50 % line), Y′ white, Cb blue, Cr red | one |
 | `vectorscope` | 2 | Cb/Cr 2D histogram, 75 % and 100 % colour targets, skin-tone line | one, square |
 | `luma-chroma` | 2 | Y′ against Cb (upper half) and Y′ against Cr (lower half), the combined display used to check colour bars, timing and gamut | one, two halves |
 
@@ -321,10 +323,11 @@ The cost is one NMOS node and one web endpoint per scope. If productions need ma
 - One video flow in this process's own output domain, as the siblings (§11 G2).
 - Format: `SCOPES_OUTPUT_FORMAT`, default `1920x1080`; width and height even, at most 3840×2160, progressive only. The output rate is `SCOPES_OUTPUT_RATE`: `input` (default: the routed input's rate, `50/1` before the first route) or a fixed rate token (`25`, `50`, `5994`, `N/D`). A change of the output format or rate mints a new flow id (flow token, as the multiviewer); the sender follows. With `input`, a re-route to a flow of another rate changes the output flow too (open question 3).
 - `SCOPES_OUTPUT_KEY=false` (default): `video/v210`, the background is limited-range black.
-- `SCOPES_OUTPUT_KEY=true`: `video/v210a`. The key plane is straight alpha, 0 transparent, 1023 opaque, the MXL layout used by mxl-multiviewer (§5.5 there). Key values:
+- `SCOPES_OUTPUT_KEY=true`: `video/v210a`. The key plane is straight alpha, 0 transparent, 1023 opaque, the MXL layout used by mxl-multiviewer (§5.5 there): after the v210 fill, three 10-bit samples per little-endian 32-bit word, ceil(width / 3) words per line. Key values:
   - background: `SCOPES_BG_ALPHA` (0–1023, default 0, fully transparent);
-  - trace: `max(SCOPES_BG_ALPHA, I)`, so a faint trace is faint over the picture;
-  - graticule: its own alpha × `SCOPES_GRATICULE_LEVEL`.
+  - trace: `max(SCOPES_BG_ALPHA, I)`, so a faint trace is faint over the picture (the overlays: the largest `I` of the three planes);
+  - graticule: its own alpha × `SCOPES_GRATICULE_LEVEL` (the larger of it and what is under it); the labels and units at the level;
+  - caption, panel names and state texts: opaque.
   The fill under transparent areas stays limited-range black, so a downstream that ignores the key still shows a correct scope.
 - The multiviewer uses a v210a tile's key as straight alpha. A scope tile with a higher z over the picture tile of the same input gives an overlay scope with no change to the multiviewer.
 - History: `MXL_HISTORY_DURATION_NS` (default 200 ms) for a new domain only.
@@ -340,7 +343,7 @@ The cost is one NMOS node and one web endpoint per scope. If productions need ma
 
 - `NMOS_TAGS` on the node and the device. The flow carries `description` = the mode title (for example `Luma waveform`), updated when the mode changes (same flow id).
 - The output flow and sender carry the tag `urn:x-mxl:tag:scope-mode/v1.0` = `[<mode>]` (`TODO_` confirm the tag namespace with the platform).
-- UUIDv5 ids from `NMOS_SEED` (RFC 4122 URL namespace) with the names `mxl-scopes/<seed>/node`, `/device`, `/domain`, `/in/video`, `/out/video/source`, `/out/video/sender`, `/out/video/flow/<format-token>`.
+- UUIDv5 ids from `NMOS_SEED` (RFC 4122 URL namespace) with the names `mxl-scopes/<seed>/node`, `/device`, `/domain`, `/in/video`, `/out/video/source`, `/out/video/sender`, `/out/video/flow/<format-token>`; the token is `<width>x<height>p<rate>`, with `a` appended for a v210a output, so format, rate and key each give their own flow id.
 - Senders report `mxl_domain_id` and the current `mxl_flow_id`; `master_enable` is true while the writer writes.
 - No audio flows. No output receivers.
 
@@ -443,13 +446,13 @@ The family look of the siblings: header with label, state and registration pills
 | PATCH | `/api/v1/scope` | any subset of the live display settings; 400 on an invalid value, nothing changes |
 | GET | `/api/v1/input` | state, route, format, colorimetry, counters |
 | GET | `/api/v1/output` | flow id, format, key, frames, late, missed |
-| GET | `/api/v1/measurements` | the latest measurements (§4.7) with the update index |
+| GET | `/api/v1/measurements` | the latest measurements (§4.7) with the update index: `{"update", "mode", "codes_per_bin", "luma": {"min_code", "max_code", "mean_code", "below_64_ratio", "above_940_ratio"} \| null, "chroma": {"out_of_range_ratio"} \| null, "rgb": {"out_of_gamut_ratio"} \| null}` |
 | GET | `/api/v1/snapshot.png` | SHOULD: the latest scope frame as PNG (full raster, key as PNG alpha when on) |
 | GET | `/api/v1/events` | WebSocket: state, settings changes, measurements at most 10 per second |
 | GET | `/widgets`, `/widget/{id}` | §9.3 |
-| GET/PUT | `/api/v1/config` | flat key update; `restart_required` when a restart key changes |
+| GET/PUT | `/api/v1/config` | flat key update; `restart_required` when a restart key changes; `flow_keys` lists the output flow keys that changed (they apply at once with a new flow id, §7) |
 | GET | `/api/v1/config/export` | one JSON document: `version`, `secrets: false`, `settings`, `routes` |
-| POST | `/api/v1/config/import` | restore it; env-set keys are skipped and listed |
+| POST | `/api/v1/config/import` | restore it; env-set keys are skipped and listed; `restart_required`, `keys` and `flow_keys` as for `PUT /api/v1/config` |
 | GET | `/api/v1/config/env` | `KEY=value` text |
 
 A `PATCH /api/v1/scope` is saved to the config file, so the scope comes back the same after a restart.
@@ -486,15 +489,15 @@ Prefix `mxl_scopes_`.
 | `updates_total` | counter | `mode` |
 | `updates_skipped_total` | counter | |
 | `updates_torn_total` | counter | |
-| `accumulate_dropped_total` | counter | grains `SCOPES_ACCUMULATE=all` could not add (behind the ring, or more than 16-bit cells take) |
+| `accumulate_dropped_total` | counter | grains `SCOPES_ACCUMULATE=all` could not add (behind the ring, or more than the update was sized for) |
 | `update_rate_hz` | gauge | effective rate |
 | `analyse_seconds` | histogram | `mode` |
-| `analyse_cpu_seconds` | histogram | `mode` (thread CPU time of the analyse step; below `analyse_seconds` when the thread waited for its core) |
+| `analyse_cpu_seconds` | histogram | `mode` (CPU time of the renderer thread in the analyse step, strip workers not included; below `analyse_seconds` when the thread waited for its core) |
 | `render_seconds` | histogram | `mode` (building the trace groups on the renderer thread, §2.3; the writer's patching is not in it) |
 | `output_frames_total` | counter | |
 | `output_frames_late_total` | counter | |
 | `output_frames_missed_total` | counter | |
-| `luma_min_code`, `luma_max_code`, `luma_mean_code` | gauge | |
+| `luma_min_code`, `luma_max_code`, `luma_mean_code` | gauge | the measurements of §4.7; absent while null |
 | `luma_below_legal_ratio`, `luma_above_legal_ratio` | gauge | |
 | `chroma_out_of_range_ratio` | gauge | |
 | `rgb_out_of_gamut_ratio` | gauge (RGB modes) | |
@@ -565,7 +568,7 @@ Measured on hardware, not in CI; recorded in `docs/performance.md`. Hosts: the p
 | Scope latency | input grain origin → first output grain that shows it ≤ one update interval + 2 output frames |
 | Memory | < 300 MB RSS at 1080p (`TODO_` confirm in M0) |
 
-Accepted deviation (the maintainer, 2026-10-22): the RGB parade every frame on camera content takes 0.67–0.74 core on the lab class (analyse + render p99 11.8 ms), above the targets of its row; bars meet them (0.40 core). At the default 25 Hz it takes 0.39–0.46 core. Strip workers (`SCOPES_THREADS`, M2) are the next step; IMPLEMENTATION_PLAN.md deviation 25.
+Accepted deviation (the maintainer, 2026-10-22): the RGB parade every frame on camera content takes 0.67–0.74 core on the lab class (analyse + render p99 11.8 ms), above the targets of its row; bars meet them (0.40 core). At the default 25 Hz it takes 0.39–0.46 core. With `SCOPES_THREADS=2` (M2) an update takes about 7 ms (p99 below 8 ms), the CPU stays the same; IMPLEMENTATION_PLAN.md deviation 25.
 
 The process figures are the M0 measurements on the lab class (Skylake-SP, 3 GHz; accepted by the maintainer 2026-10-15; IMPLEMENTATION_PLAN.md "Analyse in the process"). They include an idle-clock effect: the process is idle most of the time, so the host's power management runs its core at about two thirds of the clock (2.2 against 3.3 GHz measured), and the same work takes up to twice as long as in the busy benchmark. A performance power profile on the host lowers the figures; the desktop class is expected lower as well.
 

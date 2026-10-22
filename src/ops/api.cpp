@@ -168,15 +168,16 @@ std::string Api::previewJson() const
 std::string Api::infoJson() const
 {
     auto const ids = makeNmosIds(config_.nmosSeed);
+    auto const output = state_.outputSettings();
     std::ostringstream out;
     out << "{\"name\":\"mxl-scopes\",\"version\":" << quote(SCOPES_VERSION) << ",\"mxl_revision\":" << quote(SCOPES_MXL_REVISION)
         << ",\"label\":" << quote(config_.nmosLabel.empty() ? config_.hostId : config_.nmosLabel) << ",\"backend\":\"cpu\""
         << ",\"simd\":{\"level\":" << quote(simdName(build_.simd.level)) << ",\"requested\":" << quote(build_.simd.requested)
         << ",\"cpu\":" << quote(build_.simd.cpu) << ",\"cpu_family\":" << quote(build_.simd.family) << "}"
-        << ",\"modes\":[\"luma\",\"ycbcr-parade\",\"rgb-parade\",\"rgb-overlay\"],\"node_id\":" << quote(ids.node) << ",\"device_id\":" << quote(ids.device)
+        << ",\"modes\":[\"luma\",\"ycbcr-parade\",\"rgb-parade\",\"rgb-overlay\",\"ycbcr-overlay\"],\"node_id\":" << quote(ids.node) << ",\"device_id\":" << quote(ids.device)
         << ",\"receiver_id\":" << quote(ids.receiver) << ",\"sender_id\":" << quote(ids.sender) << ",\"domain_id\":" << quote(config_.outputDomainId)
-        << ",\"output\":{\"format\":" << quote(std::to_string(config_.outputWidth) + "x" + std::to_string(config_.outputHeight))
-        << ",\"rate\":" << quote(config_.outputRate ? rateToken(*config_.outputRate) : "input") << ",\"key\":" << boolean(config_.outputKey) << "}"
+        << ",\"output\":{\"format\":" << quote(std::to_string(output.width) + "x" + std::to_string(output.height))
+        << ",\"rate\":" << quote(output.rate ? rateToken(*output.rate) : "input") << ",\"key\":" << boolean(output.key) << "}"
         << ",\"ports\":{\"web\":" << config_.webPort << ",\"nmos\":" << config_.nmosPort << "}"
         << ",\"nmos\":{\"enabled\":" << boolean(config_.nmosEnable) << ",\"compiled\":" << boolean(build_.nmosCompiled) << "}"
         << ",\"preview\":" << previewJson() << "}";
@@ -209,7 +210,7 @@ std::string Api::outputJson() const
     // The layout of the picture on the output (its mode), else of the current settings.
     auto const mode = o.mode.empty() ? state_.settings()->mode : o.mode;
     out << ",\"mode\":" << quote(mode);
-    auto const layout = makeLayout(config_.outputWidth, config_.outputHeight, panelCount(mode));
+    auto const layout = makeLayout(o.width, o.height, panelCount(mode));
     out << ",\"plot\":{\"x\":" << layout.plotX << ",\"y\":" << layout.plotY << ",\"width\":" << layout.plotW << ",\"height\":" << layout.plotH
         << ",\"bins\":" << histogramBins(layout) << ",\"panels\":[";
     for (int k = 0; k < layout.panels; ++k)
@@ -225,7 +226,7 @@ std::string Api::rendererJson() const
     auto const r = state_.renderer();
     std::ostringstream out;
     out << "{\"updates\":" << r.updates << ",\"skipped\":" << r.skipped << ",\"torn\":" << r.torn << ",\"update_rate_hz\":" << number(r.updateHz)
-        << ",\"analyse_ms\":" << number(r.analyseMs) << ",\"analyse_cpu_ms\":" << number(r.analyseCpuMs) << ",\"render_ms\":" << number(r.renderMs) << ",\"line_step\":" << r.lineStep << ",\"simd\":" << quote(simdName(build_.simd.level)) << "}";
+        << ",\"analyse_ms\":" << number(r.analyseMs) << ",\"analyse_cpu_ms\":" << number(r.analyseCpuMs) << ",\"render_ms\":" << number(r.renderMs) << ",\"line_step\":" << r.lineStep << ",\"simd\":" << quote(simdName(build_.simd.level)) << ",\"threads\":" << config_.threads << "}";
     return out.str();
 }
 
@@ -265,12 +266,14 @@ std::string Api::scopeJson() const
 
 std::string Api::eventsJson() const
 {
-    return "{\"type\":\"status\",\"status\":" + statusJson() + ",\"scope\":" + scopeJson() + "}";
+    return "{\"type\":\"status\",\"status\":" + statusJson() + ",\"scope\":" + scopeJson() + ",\"measurements\":" + measurementsJson(state_.measurements()) + "}";
 }
 
 void Api::applied(Config const& config)
 {
     state_.setSettings(config.display);
+    // The output flow keys apply live: the writer opens a flow with a new id (§7).
+    state_.setOutputSettings(outputSettingsOf(config));
     setLogLevel(parseLogLevel(config.logLevel));
     if (onSettings_)
     {
@@ -354,10 +357,9 @@ HttpResponse Api::putConfig(HttpRequest const& request)
     }
     auto const& ok = std::get<ConfigStore::UpdateResult>(result);
     applied(ok.config);
-    // M0: the output flow keys take effect at the next start (IMPLEMENTATION_PLAN.md deviation 4).
-    auto restart = ok.restartRequired;
-    restart.insert(restart.end(), ok.flowKeys.begin(), ok.flowKeys.end());
-    return jsonResponse(200, "{\"restart_required\":" + boolean(!restart.empty()) + ",\"keys\":" + stringList(restart) + "}");
+    // The output flow keys apply live with a new flow id (§7); listed as `flow_keys`.
+    auto const& restart = ok.restartRequired;
+    return jsonResponse(200, "{\"restart_required\":" + boolean(!restart.empty()) + ",\"keys\":" + stringList(restart) + ",\"flow_keys\":" + stringList(ok.flowKeys) + "}");
 }
 
 HttpResponse Api::exportConfig() const
@@ -440,6 +442,7 @@ HttpResponse Api::importConfig(HttpRequest const& request)
     auto const& obj = root.get<picojson::object>();
     std::vector<std::string> skipped;
     std::vector<std::string> restart;
+    std::vector<std::string> flowKeys;
     if (auto const settings = obj.find("settings"); settings != obj.end())
     {
         if (!settings->second.is<picojson::object>())
@@ -473,7 +476,7 @@ HttpResponse Api::importConfig(HttpRequest const& request)
         auto const& ok = std::get<ConfigStore::UpdateResult>(result);
         applied(ok.config);
         restart = ok.restartRequired;
-        restart.insert(restart.end(), ok.flowKeys.begin(), ok.flowKeys.end());
+        flowKeys = ok.flowKeys;
     }
     bool routesRestart = false;
     if (auto const routes = obj.find("routes"); routes != obj.end())
@@ -491,7 +494,7 @@ HttpResponse Api::importConfig(HttpRequest const& request)
         routesRestart = true;
     }
     return jsonResponse(200, "{\"ok\":true,\"secrets\":false,\"skipped\":" + stringList(skipped) + ",\"restart_required\":" +
-                                 boolean(!restart.empty() || routesRestart) + ",\"keys\":" + stringList(restart) + ",\"routes_restart\":" +
+                                 boolean(!restart.empty() || routesRestart) + ",\"keys\":" + stringList(restart) + ",\"flow_keys\":" + stringList(flowKeys) + ",\"routes_restart\":" +
                                  boolean(routesRestart) + "}");
 }
 
@@ -578,6 +581,10 @@ HttpResponse Api::handle(HttpRequest const& request)
     if (path == "/api/v1/input" && method == "GET")
     {
         return jsonResponse(200, inputJson());
+    }
+    if (path == "/api/v1/measurements" && method == "GET")
+    {
+        return jsonResponse(200, measurementsJson(state_.measurements()));
     }
     if (path == "/api/v1/output" && method == "GET")
     {

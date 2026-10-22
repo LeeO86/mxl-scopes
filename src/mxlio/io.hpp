@@ -21,6 +21,8 @@ struct OutputFlow
     std::string description;
     // The scope mode: the flow's description and tag follow a live mode change (same flow id).
     std::string mode;
+    // video/v210a (a key plane, §7) instead of video/v210.
+    bool key = false;
 };
 
 // The media threads (SPECIFICATION §2.1): the renderer, which follows the routed flow and

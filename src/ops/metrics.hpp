@@ -16,6 +16,8 @@ class Metrics
 public:
     void inc(std::string const& name, Labels const& labels, double value = 1);
     void set(std::string const& name, Labels const& labels, double value);
+    // Drops a series (a gauge without a value, such as a measurement the mode does not have).
+    void remove(std::string const& name, Labels const& labels);
     // Histograms use the buckets of §10: 0.5, 1, 2, 4, 8, 16, 32 ms.
     void observe(std::string const& name, Labels const& labels, double seconds);
     [[nodiscard]] double value(std::string const& name, Labels const& labels) const;

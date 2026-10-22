@@ -75,12 +75,15 @@ a { color: var(--accent); }
       <div class="panel">
         <h3>Scope <span class="muted" id="snapshot-note">(snapshot, the WebRTC preview arrives in M3)</span></h3>
         <img class="picture" id="picture" alt="scope picture">
+        <h3>Measurements <span class="muted" id="measure-note"></span></h3>
+        <table id="measure-table"></table>
       </div>
       <div class="panel">
         <h3>Controls</h3>
         <label class="field">Mode</label>
         <select data-field="mode"><option value="luma">Luma waveform</option><option value="ycbcr-parade">YCbCr parade</option>
-          <option value="rgb-parade">RGB parade</option><option value="rgb-overlay">RGB overlay</option></select>
+          <option value="rgb-parade">RGB parade</option><option value="rgb-overlay">RGB overlay</option>
+          <option value="ycbcr-overlay">YCbCr overlay</option></select>
         <label class="field">Update rate</label>
         <select data-field="update_rate">
           <option value="frame">every frame</option><option value="50">50 Hz</option><option value="25">25 Hz</option>
@@ -120,7 +123,7 @@ a { color: var(--accent); }
   </div></section>
   <section id="tab-settings" class="hidden"><div class="panel">
     <h3>Settings</h3>
-    <p class="muted">Environment settings are read-only. Restart and flow settings apply at the next start.
+    <p class="muted">Environment settings are read-only. Restart settings apply at the next start; the output flow settings (format, rate, key) open a new output flow at once.
       <a href="/api/v1/config/export" download="mxl-scopes-config.json">Export</a> ·
       <a href="/api/v1/config/env" target="_blank">KEY=value</a> ·
       <label style="display:inline"><a href="#" id="import-link">Import</a><input type="file" id="import-file" accept="application/json" class="hidden"></label></p>
@@ -135,6 +138,7 @@ const esc = (v) => String(v ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<
 let info = null;
 let scope = null;
 let status = null;
+let measurements = null;
 let editing = 0;
 
 function table(el, rows) {
@@ -237,6 +241,23 @@ function renderStatus() {
   }
 }
 
+// §4.7: per mode; a value the mode has no plane for is not shown.
+function renderMeasurements() {
+  const m = measurements;
+  if (!m) return;
+  const pct = (v) => (100 * v).toFixed(2) + " %";
+  const rows = [];
+  if (m.luma) {
+    rows.push(["luma min / max", `${m.luma.min_code} / ${m.luma.max_code}`], ["luma mean", m.luma.mean_code.toFixed(1)],
+      ["luma below 64", pct(m.luma.below_64_ratio)], ["luma above 940", pct(m.luma.above_940_ratio)]);
+  }
+  if (m.chroma) rows.push(["Cb/Cr outside 64–960", pct(m.chroma.out_of_range_ratio)]);
+  if (m.rgb) rows.push(["R′G′B′ out of gamut (EBU R 103)", pct(m.rgb.out_of_gamut_ratio)]);
+  if (!rows.length) rows.push(["–", "no measurement"]);
+  table($("measure-table"), rows);
+  $("measure-note").textContent = m.luma || m.chroma ? `(codes ±${(m.codes_per_bin / 2).toFixed(1)})` : "";
+}
+
 async function loadSettings() {
   try {
     const config = await api("/api/v1/config");
@@ -248,7 +269,8 @@ async function loadSettings() {
         try {
           const result = await api("/api/v1/config", { method: "PUT", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ [el.dataset.key]: el.value === "" ? null : el.value }) });
-          $("settings-error").textContent = result.restart_required ? "Saved. Restart required for: " + result.keys.join(", ") : "Saved.";
+          $("settings-error").textContent = result.restart_required ? "Saved. Restart required for: " + result.keys.join(", ")
+            : result.flow_keys && result.flow_keys.length ? "Saved. New output flow for: " + result.flow_keys.join(", ") : "Saved.";
         } catch (e) {
           $("settings-error").textContent = e.message;
         }
@@ -289,6 +311,8 @@ function connect() {
     const message = JSON.parse(e.data);
     status = message.status;
     scope = message.scope;
+    measurements = message.measurements;
+    renderMeasurements();
     renderStatus();
     renderScope();
   };

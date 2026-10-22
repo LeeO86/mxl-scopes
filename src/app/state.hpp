@@ -8,6 +8,8 @@
 #include <string>
 #include <vector>
 
+#include "config/config.hpp"
+#include "scope/measure.hpp"
 #include "scope/settings.hpp"
 
 namespace scopes
@@ -71,7 +73,7 @@ struct RendererView
     double analyseCpuMs = 0;
     double renderMs = 0;
     std::uint64_t lastIndex = 0;
-    // The line step in use (SCOPES_LINE_STEP, raised when the counts would not fit 16 bits).
+    // The line step in use (SCOPES_LINE_STEP).
     int lineStep = 1;
 };
 
@@ -92,6 +94,9 @@ public:
 
     [[nodiscard]] std::shared_ptr<DisplaySettings const> settings() const;
     void setSettings(DisplaySettings settings);
+    // The output flow settings (SCOPES_OUTPUT_FORMAT, _RATE, _KEY), live with a new flow id.
+    [[nodiscard]] OutputSettings outputSettings() const;
+    void setOutputSettings(OutputSettings output);
 
     [[nodiscard]] Route route() const;
     // Applies and persists the route (IS-05 or the restored routes.json).
@@ -104,6 +109,9 @@ public:
     [[nodiscard]] RendererView renderer() const;
     void setRenderer(RendererView view);
 
+    // The measurements of the latest update (§4.7).
+    void setMeasurements(Measurements measurements);
+    [[nodiscard]] Measurements measurements() const;
     void setSnapshot(std::shared_ptr<Snapshot const> snapshot);
     [[nodiscard]] std::shared_ptr<Snapshot const> snapshot() const;
 
@@ -117,11 +125,13 @@ public:
 private:
     mutable std::mutex mutex_;
     std::shared_ptr<DisplaySettings const> settings_;
+    OutputSettings outputSettings_;
     Route route_;
     InputView input_;
     OutputView output_;
     RendererView renderer_;
     std::shared_ptr<Snapshot const> snapshot_;
+    Measurements measurements_;
     std::uint64_t rendererBeat_ = 0;
     std::uint64_t writerBeat_ = 0;
     bool nmosUp_ = false;

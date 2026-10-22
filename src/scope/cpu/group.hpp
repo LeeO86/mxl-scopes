@@ -10,7 +10,8 @@ namespace scopes::cpu
 // The reference step for one v210 group: every pixelStep-th luma sample inside the width,
 // odd x into the scratch sub-histogram when the plan has two. The AVX2 engine uses it for
 // the groups it does not take in pairs, so both engines share the exact rule.
-static inline void analyseGroup(AnalysePlan const& plan, std::uint8_t const* row, int g, std::uint16_t* counts, std::uint16_t* scratch)
+template <class C>
+static inline void analyseGroup(AnalysePlan const& plan, std::uint8_t const* row, int g, C* counts, C* scratch)
 {
     std::uint16_t y[6];
     unpackGroupLuma(row + 16 * static_cast<std::size_t>(g), y);
@@ -47,7 +48,8 @@ static inline void groupWords(std::uint8_t const* group, std::uint32_t w[4])
 // The reference step of `Ycbcr`: luma as analyseGroup into plane 0; chroma sample k (x = 6g + 2k)
 // when its co-sited luma sample is taken, Cb into plane 1 and Cr into plane 2, odd k into the
 // scratch sub-histogram when the plan has two.
-static inline void analyseGroupYcbcr(AnalysePlan const& plan, std::uint8_t const* row, int g, std::uint16_t* counts, std::uint16_t* scratch)
+template <class C>
+static inline void analyseGroupYcbcr(AnalysePlan const& plan, std::uint8_t const* row, int g, C* counts, C* scratch)
 {
     std::uint32_t w[4];
     groupWords(row + 16 * static_cast<std::size_t>(g), w);
@@ -79,8 +81,10 @@ static inline void analyseGroupYcbcr(AnalysePlan const& plan, std::uint8_t const
 }
 
 // The reference step of `Rgb`: every taken luma sample with its co-sited chroma pair (k = i / 2)
-// gives R′, G′, B′ (§4.8), clamped to 0..1023 for the bins, into planes 0, 1, 2.
-static inline void analyseGroupRgb(AnalysePlan const& plan, std::uint8_t const* row, int g, std::uint16_t* counts, std::uint16_t* scratch)
+// gives R′, G′, B′ (§4.8), clamped to 0..1023 for the bins, into planes 0, 1, 2. Returns the
+// pixels with any unclamped component outside the gamut tolerance (§4.7).
+template <class C>
+static inline int analyseGroupRgb(AnalysePlan const& plan, std::uint8_t const* row, int g, C* counts, C* scratch)
 {
     std::uint32_t w[4];
     groupWords(row + 16 * static_cast<std::size_t>(g), w);
@@ -89,6 +93,8 @@ static inline void analyseGroupRgb(AnalysePlan const& plan, std::uint8_t const* 
     int const cb[3] = {f(0, 0), f(1, 10), f(2, 20)};
     int const cr[3] = {f(0, 20), f(2, 0), f(3, 10)};
     auto const clamp10 = [](int v) { return static_cast<std::size_t>(v < 0 ? 0 : v > 1023 ? 1023 : v); };
+    auto const outside = [](int v) { return v < kGamutLow || v > kGamutHigh; };
+    int out = 0;
     int const x0 = 6 * g;
     for (int i = 0; i < 6; i += plan.pixelStep)
     {
@@ -101,39 +107,43 @@ static inline void analyseGroupRgb(AnalysePlan const& plan, std::uint8_t const* 
         int gg = 0;
         int b = 0;
         rgbOfYcbcr(y[i], cb[i / 2], cr[i / 2], r, gg, b);
+        out += outside(r) || outside(gg) || outside(b) ? 1 : 0;
         auto const column = plan.columnOf[static_cast<std::size_t>(x)];
         auto* target = plan.twoSubs && (i & 1) != 0 ? scratch : counts;
         ++target[plan.rowOffset[clamp10(r)] + column];
         ++target[plan.planeCells + plan.rowOffset[clamp10(gg)] + column];
         ++target[2 * plan.planeCells + plan.rowOffset[clamp10(b)] + column];
     }
+    return out;
 }
 
-static inline void analyseGroupAny(AnalysePlan const& plan, std::uint8_t const* row, int g, std::uint16_t* counts, std::uint16_t* scratch)
+// Returns the pixels out of gamut (`Rgb` only, else 0).
+template <class C>
+static inline int analyseGroupAny(AnalysePlan const& plan, std::uint8_t const* row, int g, C* counts, C* scratch)
 {
     switch (plan.kind)
     {
     case ScopeKind::Ycbcr:
         analyseGroupYcbcr(plan, row, g, counts, scratch);
-        break;
+        return 0;
     case ScopeKind::Rgb:
-        analyseGroupRgb(plan, row, g, counts, scratch);
-        break;
+        return analyseGroupRgb(plan, row, g, counts, scratch);
     default:
         analyseGroup(plan, row, g, counts, scratch);
-        break;
+        return 0;
     }
 }
 
 // Folds the odd sub-histogram of a strip into the counts and clears it, in every plane.
-static inline void foldStrip(AnalysePlan const& plan, AnalysePlan::Strip const& strip, std::uint16_t* counts, std::uint16_t* scratch)
+template <class C>
+static inline void foldStrip(AnalysePlan const& plan, AnalysePlan::Strip const& strip, C* counts, C* scratch)
 {
     for (int b = 0; b < plan.bins * plan.planes; ++b)
     {
         auto const row = static_cast<std::size_t>(b) * static_cast<std::size_t>(plan.columns);
         for (auto i = row + static_cast<std::size_t>(strip.col0); i <= row + static_cast<std::size_t>(strip.col1); ++i)
         {
-            counts[i] = static_cast<std::uint16_t>(counts[i] + scratch[i]);
+            counts[i] = static_cast<C>(counts[i] + scratch[i]);
             scratch[i] = 0;
         }
     }

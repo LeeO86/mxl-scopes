@@ -74,6 +74,30 @@ void AppState::setRenderer(RendererView view)
     renderer_ = view;
 }
 
+OutputSettings AppState::outputSettings() const
+{
+    std::lock_guard lock{mutex_};
+    return outputSettings_;
+}
+
+void AppState::setOutputSettings(OutputSettings output)
+{
+    std::lock_guard lock{mutex_};
+    outputSettings_ = std::move(output);
+}
+
+void AppState::setMeasurements(Measurements measurements)
+{
+    std::lock_guard lock{mutex_};
+    measurements_ = std::move(measurements);
+}
+
+Measurements AppState::measurements() const
+{
+    std::lock_guard lock{mutex_};
+    return measurements_;
+}
+
 void AppState::setSnapshot(std::shared_ptr<Snapshot const> snapshot)
 {
     std::lock_guard lock{mutex_};

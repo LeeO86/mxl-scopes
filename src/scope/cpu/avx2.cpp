@@ -45,11 +45,11 @@ struct Lanes<6>
 
 constexpr int kChunkPairs = 32;
 
-template <int PS, bool TWO>
-void analyseRows(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist)
+template <class C, int PS, bool TWO>
+void analyseRows(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range)
 {
-    auto* counts = hist.counts.data();
-    auto* scratch = hist.scratch.data();
+    auto* counts = hist.data<C>();
+    auto* scratch = hist.scratchData<C>();
     alignas(32) std::uint32_t buffer[16 * kChunkPairs];
     __m256i const mask = _mm256_set1_epi32(0x3ff);
     __m256i const shiftA = _mm256_setr_epi32(10, 0, 10, 0, 10, 0, 10, 0);
@@ -57,7 +57,7 @@ void analyseRows(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& h
     __m256i const columns = _mm256_set1_epi32(plan.columns);
     auto const* offA = plan.simdOffA.data();
     auto const* offB = plan.simdOffB.data();
-    for (auto const& strip : plan.strips)
+    for (auto const& strip : stripsOf(plan, range))
     {
         // Whole pairs of full groups; the rest of the strip goes through the reference step.
         int const pairEnd = std::min(strip.g1, plan.fullGroups);
@@ -123,7 +123,34 @@ void analyseRows(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& h
 // Vector traits of the three-plane kernels (cpu/multi.hpp): two groups per load.
 struct Avx2V
 {
+
     using Reg = __m256i;
+    // The gamut count (§4.7) in vector lanes: a lane set is all ones where its bit is set.
+    using LaneSet = Reg;
+    static LaneSet lanes(std::uint32_t bits)
+    {
+        auto const on = [&](int i) { return (bits >> i) & 1u ? -1 : 0; };
+        return _mm256_setr_epi32(on(0), on(1), on(2), on(3), on(4), on(5), on(6), on(7));
+    }
+    // Adds 1 to the lanes of `valid` where any of r, g, b is below `low` or above `high`.
+    static void countOutside(Reg& acc, Reg r, Reg g, Reg b, Reg low, Reg high, LaneSet valid)
+    {
+        Reg const most = _mm256_max_epi32(_mm256_max_epi32(r, g), b);
+        Reg const least = _mm256_min_epi32(_mm256_min_epi32(r, g), b);
+        Reg const out = _mm256_or_si256(_mm256_cmpgt_epi32(most, high), _mm256_cmpgt_epi32(low, least));
+        acc = _mm256_sub_epi32(acc, _mm256_and_si256(out, valid));
+    }
+    static std::uint64_t sumLanes(Reg acc)
+    {
+        alignas(32) std::uint32_t v[8];
+        _mm256_store_si256(reinterpret_cast<__m256i*>(v), acc);
+        std::uint64_t sum = 0;
+        for (auto x : v)
+        {
+            sum += x;
+        }
+        return sum;
+    }
     static constexpr int kGroups = 2;
     static constexpr int kChunk = 32;
     static Reg set1(int v)
@@ -241,15 +268,26 @@ struct Avx2V
 };
 
 template <int PS>
-void analyseStep(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist)
+void analyseStep(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range)
 {
-    if (plan.twoSubs)
+    if (plan.wide)
     {
-        analyseRows<PS, true>(plan, v210, hist);
+        if (plan.twoSubs)
+        {
+            analyseRows<std::uint32_t, PS, true>(plan, v210, hist, range);
+        }
+        else
+        {
+            analyseRows<std::uint32_t, PS, false>(plan, v210, hist, range);
+        }
+    }
+    else if (plan.twoSubs)
+    {
+        analyseRows<std::uint16_t, PS, true>(plan, v210, hist, range);
     }
     else
     {
-        analyseRows<PS, false>(plan, v210, hist);
+        analyseRows<std::uint16_t, PS, false>(plan, v210, hist, range);
     }
 }
 } // namespace
@@ -259,26 +297,27 @@ bool avx2Compiled()
     return true;
 }
 
-void analyseAvx2(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist)
+std::uint64_t analyseAvx2(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range)
 {
-    if (cpu::analyseMulti<Avx2V>(plan, v210, hist))
+    if (std::uint64_t outOfGamut = 0; cpu::analyseMulti<Avx2V>(plan, v210, hist, range, outOfGamut))
     {
-        return;
+        return outOfGamut;
     }
     switch (plan.pixelStep)
     {
     case 1:
-        analyseStep<1>(plan, v210, hist);
+        analyseStep<1>(plan, v210, hist, range);
         break;
     case 2:
-        analyseStep<2>(plan, v210, hist);
+        analyseStep<2>(plan, v210, hist, range);
         break;
     case 3:
-        analyseStep<3>(plan, v210, hist);
+        analyseStep<3>(plan, v210, hist, range);
         break;
     default:
-        analyseStep<6>(plan, v210, hist);
+        analyseStep<6>(plan, v210, hist, range);
         break;
     }
+    return 0;
 }
 } // namespace scopes

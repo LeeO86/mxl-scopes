@@ -48,6 +48,7 @@ void Frame422::allocate(int w, int h)
     y.assign(static_cast<std::size_t>(w) * static_cast<std::size_t>(h), 64);
     cb.assign(static_cast<std::size_t>(w / 2) * static_cast<std::size_t>(h), 512);
     cr.assign(static_cast<std::size_t>(w / 2) * static_cast<std::size_t>(h), 512);
+    a.clear();
 }
 
 void Frame422::fill(std::uint16_t yValue, std::uint16_t cbValue, std::uint16_t crValue)
@@ -107,6 +108,28 @@ void packV210(Frame422 const& src, std::uint8_t* dst, std::size_t dstRowBytes)
         packV210Line(src.y.data() + static_cast<std::size_t>(row) * static_cast<std::size_t>(src.width),
             src.cb.data() + static_cast<std::size_t>(row) * static_cast<std::size_t>(cw), src.cr.data() + static_cast<std::size_t>(row) * static_cast<std::size_t>(cw),
             src.width, dst + static_cast<std::size_t>(row) * dstRowBytes, dstRowBytes);
+    }
+}
+
+void packAlpha(Frame422 const& src, std::uint8_t* dst)
+{
+    auto const rowBytes = alphaRowBytes(src.width);
+    for (int row = 0; row < src.height; ++row)
+    {
+        auto const* a = src.a.data() + static_cast<std::size_t>(row) * static_cast<std::size_t>(src.width);
+        auto* line = dst + static_cast<std::size_t>(row) * rowBytes;
+        for (int x = 0; x < src.width; x += 3)
+        {
+            std::uint32_t word = 0;
+            for (int k = 0; k < 3 && x + k < src.width; ++k)
+            {
+                word |= static_cast<std::uint32_t>(a[x + k] & 0x3ffu) << (10 * k);
+            }
+            for (int b = 0; b < 4; ++b)
+            {
+                line[4 * (x / 3) + b] = static_cast<std::uint8_t>((word >> (8 * b)) & 0xffu);
+            }
+        }
     }
 }
 

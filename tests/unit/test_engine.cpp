@@ -56,33 +56,53 @@ std::vector<std::uint8_t> randomFrame(int width, int height, std::uint32_t seed)
     return packPattern(makePattern("random", width, height, 0, seed));
 }
 
-void compareCounts(AnalysePlan const& plan, std::vector<std::uint8_t> const& frame)
+// Every SIMD path gives the scalar counts, with 16-bit cells and with 32-bit cells (the plan's
+// own width first).
+void compareCounts(AnalysePlan const& given, std::vector<std::uint8_t> const& frame)
 {
-    Histogram scalar;
-    scalar.reset(plan);
-    analyseScalar(plan, frame.data(), scalar);
-    std::uint64_t total = 0;
-    for (auto c : scalar.counts)
+    for (bool const wideCells : {given.wide, !given.wide})
     {
-        total += c;
-    }
-    CHECK(total == plan.samples);
-    CHECK(std::all_of(scalar.scratch.begin(), scalar.scratch.end(), [](std::uint16_t c) { return c == 0; }));
-    if (haveAvx2())
-    {
-        Histogram simd;
-        simd.reset(plan);
-        analyseAvx2(plan, frame.data(), simd);
-        REQUIRE(simd.counts == scalar.counts);
-        CHECK(std::all_of(simd.scratch.begin(), simd.scratch.end(), [](std::uint16_t c) { return c == 0; }));
-    }
-    if (haveAvx512())
-    {
-        Histogram wide;
-        wide.reset(plan);
-        analyseAvx512(plan, frame.data(), wide);
-        REQUIRE(wide.counts == scalar.counts);
-        CHECK(std::all_of(wide.scratch.begin(), wide.scratch.end(), [](std::uint16_t c) { return c == 0; }));
+        CAPTURE(wideCells);
+        auto plan = given;
+        plan.wide = wideCells;
+        Histogram scalar;
+        scalar.reset(plan);
+        analyseScalar(plan, frame.data(), scalar);
+        REQUIRE(scalar.wide == wideCells);
+        for (int p = 0; p < plan.planes; ++p)
+        {
+            std::uint64_t total = 0;
+            for (std::size_t i = 0; i < plan.planeCells; ++i)
+            {
+                auto const at = plan.planeCells * static_cast<std::size_t>(p) + i;
+                total += wideCells ? scalar.counts32[at] : scalar.counts[at];
+            }
+            CAPTURE(p);
+            CHECK(total == plan.planeSamples[static_cast<std::size_t>(p)]);
+        }
+        auto const clean = [](Histogram const& h) {
+            return std::all_of(h.scratch.begin(), h.scratch.end(), [](std::uint16_t c) { return c == 0; }) &&
+                   std::all_of(h.scratch32.begin(), h.scratch32.end(), [](std::uint32_t c) { return c == 0; });
+        };
+        CHECK(clean(scalar));
+        if (haveAvx2())
+        {
+            Histogram simd;
+            simd.reset(plan);
+            analyseAvx2(plan, frame.data(), simd);
+            REQUIRE(simd.counts == scalar.counts);
+            REQUIRE(simd.counts32 == scalar.counts32);
+            CHECK(clean(simd));
+        }
+        if (haveAvx512())
+        {
+            Histogram simd;
+            simd.reset(plan);
+            analyseAvx512(plan, frame.data(), simd);
+            REQUIRE(simd.counts == scalar.counts);
+            REQUIRE(simd.counts32 == scalar.counts32);
+            CHECK(clean(simd));
+        }
     }
 }
 } // namespace

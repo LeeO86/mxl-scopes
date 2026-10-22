@@ -26,14 +26,28 @@ void Histogram::reset(AnalysePlan const& plan)
     columns = plan.columns;
     bins = plan.bins;
     planes = plan.planes;
+    wide = plan.wide;
     auto const cells = plan.planeCells * static_cast<std::size_t>(plan.planes);
-    counts.assign(cells, 0);
-    scratch.assign(plan.twoSubs ? cells : 0, 0);
+    counts.assign(wide ? 0 : cells, 0);
+    scratch.assign(!wide && plan.twoSubs ? cells : 0, 0);
+    counts32.assign(wide ? cells : 0, 0);
+    scratch32.assign(wide && plan.twoSubs ? cells : 0, 0);
+    outOfGamut = 0;
 }
 
-AnalysePlan makeAnalysePlan(int width, int height, std::size_t stride, int lineStep, int pixelStep, int columns, int bins, int stripColumns, ScopeKind kind)
+void Histogram::clear()
 {
-    if (width < 1 || height < 1 || columns < 1 || bins < 1 || bins > 1024 || stride < v210RowBytes(width) || lineStep < 1 || pixelStep < 1 ||
+    std::fill(counts.begin(), counts.end(), std::uint16_t{0});
+    std::fill(scratch.begin(), scratch.end(), std::uint16_t{0});
+    std::fill(counts32.begin(), counts32.end(), 0u);
+    std::fill(scratch32.begin(), scratch32.end(), 0u);
+    outOfGamut = 0;
+}
+
+AnalysePlan makeAnalysePlan(int width, int height, std::size_t stride, int lineStep, int pixelStep, int columns, int bins, int stripColumns, ScopeKind kind,
+    int grains, int parts)
+{
+    if (parts < 1 || grains < 1 || width < 1 || height < 1 || columns < 1 || bins < 1 || bins > 1024 || stride < v210RowBytes(width) || lineStep < 1 || pixelStep < 1 ||
         6 % pixelStep != 0 || stripColumns < 1)
     {
         throw std::invalid_argument("invalid analyse plan");
@@ -83,6 +97,41 @@ AnalysePlan makeAnalysePlan(int width, int height, std::size_t stride, int lineS
         plan.strips.push_back(strip);
         g = end;
     }
+    // Strip workers (SCOPES_THREADS): `parts` ranges of strips of about equal size whose
+    // boundaries start a new histogram column, so no cell is shared between two workers. A strip
+    // across such a boundary is split there; the other strips stay as they are.
+    plan.partStart.assign(1, 0);
+    for (int k = 1; k < parts; ++k)
+    {
+        if (static_cast<std::size_t>(plan.partStart.back()) >= plan.strips.size())
+        {
+            // The earlier parts took every strip: this one is empty.
+            plan.partStart.push_back(static_cast<int>(plan.strips.size()));
+            continue;
+        }
+        int cut = std::max(groups * k / parts, plan.strips[static_cast<std::size_t>(plan.partStart.back())].g0);
+        while (cut < groups && cut > 0 && col[static_cast<std::size_t>(6 * cut - 1)] == col[static_cast<std::size_t>(6 * cut)])
+        {
+            ++cut;
+        }
+        auto it = std::find_if(plan.strips.begin(), plan.strips.end(), [&](AnalysePlan::Strip const& st) { return st.g1 > cut; });
+        if (cut >= groups || it == plan.strips.end())
+        {
+            plan.partStart.push_back(static_cast<int>(plan.strips.size()));
+            continue;
+        }
+        if (it->g0 < cut)
+        {
+            AnalysePlan::Strip tail = *it;
+            tail.g0 = cut;
+            tail.col0 = col[static_cast<std::size_t>(6 * cut)];
+            it->g1 = cut;
+            it->col1 = col[static_cast<std::size_t>(6 * cut - 1)];
+            it = plan.strips.insert(it + 1, tail);
+        }
+        plan.partStart.push_back(static_cast<int>(it - plan.strips.begin()));
+    }
+    plan.partStart.push_back(static_cast<int>(plan.strips.size()));
     plan.simdOffA.assign(static_cast<std::size_t>(groups) * 4u + 16u, 0);
     plan.simdOffB.assign(static_cast<std::size_t>(groups) * 4u + 16u, 0);
     for (int g = 0; g < plan.fullGroups; ++g)
@@ -147,10 +196,12 @@ AnalysePlan makeAnalysePlan(int width, int height, std::size_t stride, int lineS
     }
     auto const maxLuma = static_cast<std::uint64_t>(*std::max_element(perColumn.begin(), perColumn.end())) * rows;
     auto const maxChroma = static_cast<std::uint64_t>(*std::max_element(perColumnChroma.begin(), perColumnChroma.end())) * rows;
-    if (maxLuma > 65535)
+    auto const maxUpdate = maxLuma * static_cast<std::uint64_t>(grains);
+    if (maxUpdate > 0xffffffffull)
     {
-        throw CellOverflow("a histogram cell could exceed 16 bits (" + std::to_string(maxLuma) + ")");
+        throw CellOverflow("a histogram cell could exceed 32 bits (" + std::to_string(maxUpdate) + ")");
     }
+    plan.wide = maxUpdate > 65535;
     for (int p = 0; p < plan.planes; ++p)
     {
         bool const chroma = kind == ScopeKind::Ycbcr && p > 0;
@@ -162,11 +213,15 @@ AnalysePlan makeAnalysePlan(int width, int height, std::size_t stride, int lineS
     return plan;
 }
 
-void analyseScalar(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist)
+namespace
 {
-    auto* counts = hist.counts.data();
-    auto* scratch = hist.scratch.data();
-    for (auto const& strip : plan.strips)
+template <class C>
+std::uint64_t analyseScalarCells(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range)
+{
+    std::uint64_t out = 0;
+    auto* counts = hist.data<C>();
+    auto* scratch = hist.scratchData<C>();
+    for (auto const& strip : stripsOf(plan, range))
     {
         for (int y = 0; y < plan.height; y += plan.lineStep)
         {
@@ -174,7 +229,7 @@ void analyseScalar(AnalysePlan const& plan, std::uint8_t const* v210, Histogram&
             cpu::prefetchStrip(plan, strip, v210, y);
             for (int g = strip.g0; g < strip.g1; ++g)
             {
-                cpu::analyseGroupAny(plan, row, g, counts, scratch);
+                out += static_cast<std::uint64_t>(cpu::analyseGroupAny(plan, row, g, counts, scratch));
             }
         }
         if (plan.twoSubs)
@@ -182,5 +237,12 @@ void analyseScalar(AnalysePlan const& plan, std::uint8_t const* v210, Histogram&
             cpu::foldStrip(plan, strip, counts, scratch);
         }
     }
+    return out;
+}
+} // namespace
+
+std::uint64_t analyseScalar(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range)
+{
+    return plan.wide ? analyseScalarCells<std::uint32_t>(plan, v210, hist, range) : analyseScalarCells<std::uint16_t>(plan, v210, hist, range);
 }
 } // namespace scopes

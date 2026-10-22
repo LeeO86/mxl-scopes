@@ -14,7 +14,15 @@ constexpr std::size_t v210RowBytes(int width)
     return static_cast<std::size_t>((width + 47) / 48) * 128u;
 }
 
-// Planar 10-bit 4:2:2 picture: `width` luma and width/2 chroma samples per line.
+// Row stride of the 10-bit key plane of video/v210a: three samples per 32-bit word, little
+// endian, the top two bits zero (MXL get10BitAlphaLineLength): ceil(width / 3) × 4 bytes.
+constexpr std::size_t alphaRowBytes(int width)
+{
+    return static_cast<std::size_t>((width + 2) / 3) * 4u;
+}
+
+// Planar 10-bit 4:2:2 picture: `width` luma and width/2 chroma samples per line, and with a key
+// a straight alpha sample per pixel (0 transparent, 1023 opaque); `a` is empty without a key.
 struct Frame422
 {
     int width = 0;
@@ -22,6 +30,7 @@ struct Frame422
     std::vector<std::uint16_t> y;
     std::vector<std::uint16_t> cb;
     std::vector<std::uint16_t> cr;
+    std::vector<std::uint16_t> a;
 
     void allocate(int w, int h);
     void fill(std::uint16_t yValue, std::uint16_t cbValue, std::uint16_t crValue);
@@ -59,5 +68,7 @@ static inline void unpackGroupLuma(std::uint8_t const* group, std::uint16_t out[
 void packV210Line(std::uint16_t const* y, std::uint16_t const* cb, std::uint16_t const* cr, int width, std::uint8_t* line, std::size_t rowBytes);
 // Packs a whole frame; the padding of each line is zero.
 void packV210(Frame422 const& src, std::uint8_t* dst, std::size_t dstRowBytes);
+// Packs the key plane `a` (video/v210a after the fill), alphaRowBytes(width) per line.
+void packAlpha(Frame422 const& src, std::uint8_t* dst);
 void unpackV210(std::uint8_t const* src, std::size_t srcRowBytes, Frame422& dst);
 } // namespace scopes

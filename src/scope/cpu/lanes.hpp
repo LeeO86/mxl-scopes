@@ -32,6 +32,32 @@ constexpr int lumaLaneAB(int n, int j, int i)
     return (i == 2 || i == 5 ? n : 0) + 4 * j + word[i];
 }
 
+// `Rgb`: the lanes of vector A (Y0 Y1 Y3 Y4 of each group) and B (Y2, Y5 in lanes 1 and 3) that
+// hold a sample taken at this pixel step, as bit masks (for the gamut count, §4.7).
+constexpr std::uint32_t validLanesA(int groups, int pixelStep)
+{
+    constexpr int x[4] = {0, 1, 3, 4};
+    std::uint32_t mask = 0;
+    for (int j = 0; j < groups; ++j)
+    {
+        for (int w = 0; w < 4; ++w)
+        {
+            mask |= x[w] % pixelStep == 0 ? 1u << (4 * j + w) : 0u;
+        }
+    }
+    return mask;
+}
+constexpr std::uint32_t validLanesB(int groups, int pixelStep)
+{
+    std::uint32_t mask = 0;
+    for (int j = 0; j < groups; ++j)
+    {
+        mask |= 2 % pixelStep == 0 ? 1u << (4 * j + 1) : 0u;
+        mask |= 5 % pixelStep == 0 ? 1u << (4 * j + 3) : 0u;
+    }
+    return mask;
+}
+
 constexpr LaneList makeLanes(ScopeKind kind, int groups, int pixelStep)
 {
     LaneList list;

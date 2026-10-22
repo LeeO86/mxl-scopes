@@ -40,6 +40,20 @@ struct Rate
     }
 };
 
+// The output flow (SPECIFICATION §7): raster, rate (empty: the input's) and key. A change mints
+// a new flow id; it applies live (the writer opens the new flow, the renderer draws for it).
+struct OutputSettings
+{
+    int width = 1920;
+    int height = 1080;
+    std::optional<Rate> rate;
+    bool key = false;
+    [[nodiscard]] bool operator==(OutputSettings const& other) const
+    {
+        return width == other.width && height == other.height && rate == other.rate && key == other.key;
+    }
+};
+
 struct Config
 {
     DisplaySettings display;
@@ -92,6 +106,11 @@ struct Config
     std::string logFormat = "json";
     int shutdownTimeoutS = 10;
 };
+inline OutputSettings outputSettingsOf(Config const& config)
+{
+    return OutputSettings{config.outputWidth, config.outputHeight, config.outputRate, config.outputKey};
+}
+
 
 struct SettingDef
 {

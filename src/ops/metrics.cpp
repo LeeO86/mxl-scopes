@@ -67,6 +67,12 @@ void Metrics::inc(std::string const& name, Labels const& labels, double value)
     series_[key(name, labels)].value += value;
 }
 
+void Metrics::remove(std::string const& name, Labels const& labels)
+{
+    std::lock_guard lock(mutex_);
+    series_.erase(key(name, labels));
+}
+
 void Metrics::set(std::string const& name, Labels const& labels, double value)
 {
     std::lock_guard lock{mutex_};

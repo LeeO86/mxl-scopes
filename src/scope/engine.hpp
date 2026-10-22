@@ -10,6 +10,7 @@
 #include "scope/cpu/dispatch.hpp"
 #include "scope/render.hpp"
 #include "scope/settings.hpp"
+#include "scope/workers.hpp"
 
 namespace scopes
 {
@@ -23,7 +24,7 @@ struct InputFormat
     // Grains analysed into one update: 2 for interlaced (both fields of a frame), else 1.
     int fields = 1;
     // Frames one update must be able to hold: SCOPES_ACCUMULATE=all adds every frame between two
-    // updates; `latest` 1. The engine raises the line step until they fit 16-bit cells.
+    // updates; `latest` 1. The engine takes 32-bit cells when they would not fit 16 bits.
     int frames = 1;
     [[nodiscard]] bool operator==(InputFormat const&) const = default;
 };
@@ -40,6 +41,8 @@ struct PaintParams
     // grains an update holds.
     PlaneCounts counts;
     bool hasInput = false;
+    // video/v210a: a key plane after the fill (SPECIFICATION §7).
+    bool key = false;
     [[nodiscard]] bool operator==(PaintParams const&) const = default;
 };
 
@@ -52,10 +55,12 @@ public:
     // Writes the packed picture (packedSize() bytes) into `dst` and clears the counts. With a
     // state text (NOT ROUTED, NO SIGNAL, ...) or without an input the plot shows no trace.
     // `grains` is the number of grains in the counts; the intensity is normalised to it (§4.4).
-    void render(Histogram& hist, std::string const& caption, std::string const& state, std::uint8_t* dst, int grains = 1);
+    bool render(Histogram& hist, std::string const& caption, std::string const& state, std::uint8_t* dst, int grains = 1, BinTotals* totals = nullptr);
     // The same picture as the still picture plus trace groups: the output writer rewrites only
     // the groups that differ from what an output grain already holds (§2.4).
-    void trace(Histogram& hist, std::string const& caption, std::string const& state, std::vector<TraceGroup>& trace, int grains = 1);
+    // With `totals`, the bin totals of the counts for the measurements (§4.7); returns true when
+    // the counts were drawn (an input and no state text), so `totals` holds them.
+    bool trace(Histogram& hist, std::string const& caption, std::string const& state, std::vector<TraceGroup>& trace, int grains = 1, BinTotals* totals = nullptr);
     [[nodiscard]] std::uint8_t const* stillPacked() const
     {
         return stillPacked_->data();
@@ -86,10 +91,25 @@ public:
     }
     [[nodiscard]] std::size_t packedSize() const
     {
-        return v210RowBytes(params_.outputWidth) * static_cast<std::size_t>(params_.outputHeight);
+        return (v210RowBytes(params_.outputWidth) + (params_.key ? alphaRowBytes(params_.outputWidth) : 0)) * static_cast<std::size_t>(params_.outputHeight);
+    }
+    // Strip workers for the trace step (plot rows split between them); null: one thread.
+    void setWorkers(WorkerPool* pool)
+    {
+        pool_ = pool;
+        configured_ = false;
     }
 
 private:
+    WorkerPool* pool_ = nullptr;
+    std::vector<int> rowSplit_;
+    // One trace per worker, each on its own cache lines: the vector's end pointer changes with
+    // every group, and two workers on one line would slow each other down (false sharing).
+    struct alignas(64) Part
+    {
+        std::vector<TraceGroup> groups;
+    };
+    std::vector<Part> parts_;
     PaintParams params_;
     int grains_ = 1;
     bool configured_ = false;
@@ -108,11 +128,14 @@ private:
 class ScopeEngine
 {
 public:
-    explicit ScopeEngine(SimdLevel level, int stripColumns = kDefaultStripColumns);
+    // `threads` > 1: the renderer and threads − 1 strip workers share the analyse and trace
+    // steps (SCOPES_THREADS, §4.3); the result is the same for any thread count.
+    explicit ScopeEngine(SimdLevel level, int stripColumns = kDefaultStripColumns, int threads = 1);
 
     // Rebuilds the tables when the input format, the settings or the raster changed.
     // Returns true when it rebuilt them.
-    bool configure(InputFormat const& input, DisplaySettings const& settings, int outputWidth, int outputHeight);
+    // `key`: the output carries a key plane (video/v210a, §7).
+    bool configure(InputFormat const& input, DisplaySettings const& settings, int outputWidth, int outputHeight, bool key = false);
     // Adds one v210 frame (the configured input format) to the engine's histograms, or to
     // `hist`, which is resized (and cleared) when it does not fit the plan.
     void analyse(std::uint8_t const* v210);
@@ -135,6 +158,12 @@ public:
     }
     // Drops the counts of an analysed frame (a torn read, §2.2).
     void clear();
+    // The measurements of the last render or trace that drew counts (§4.7); `update` is 0 and
+    // every value empty before the first.
+    [[nodiscard]] Measurements const& measurements() const
+    {
+        return measurements_;
+    }
 
     [[nodiscard]] PaintParams paintParams() const;
     [[nodiscard]] Frame422 const& still() const
@@ -157,7 +186,7 @@ public:
     {
         return level_;
     }
-    // Grains (frames, or fields of an interlaced flow) one update can hold without a 16-bit cell
+    // Grains (frames, or fields of an interlaced flow) one update can hold without a cell
     // overflowing; at least InputFormat::frames × fields.
     [[nodiscard]] int maxGrains() const
     {
@@ -168,20 +197,33 @@ public:
     {
         return grains_;
     }
-    // The line step in use: SCOPES_LINE_STEP, raised when the counts would not fit 16 bits
-    // (many input samples per column: a small output, a parade, a UHD input, `all`).
+    // The line step in use: SCOPES_LINE_STEP (32-bit cells take what does not fit 16 bits).
     [[nodiscard]] int lineStep() const
     {
         return lineStep_;
     }
+    // The packed picture: the v210 fill, and the key plane after it when the output has a key.
     [[nodiscard]] std::size_t packedSize() const
     {
-        return v210RowBytes(outputWidth_) * static_cast<std::size_t>(outputHeight_);
+        return (v210RowBytes(outputWidth_) + (key_ ? alphaRowBytes(outputWidth_) : 0)) * static_cast<std::size_t>(outputHeight_);
+    }
+    [[nodiscard]] int threads() const
+    {
+        return pool_ ? pool_->threads() : 1;
+    }
+    // Strip boundaries of the workers (threads() + 1 indices into AnalysePlan::strips).
+    [[nodiscard]] std::vector<int> const& stripSplit() const
+    {
+        return stripSplit_;
     }
 
 private:
+    std::uint64_t analyseRange(std::uint8_t const* v210, Histogram& hist, StripRange range) const;
+
     SimdLevel level_;
     int stripColumns_;
+    std::unique_ptr<WorkerPool> pool_;
+    std::vector<int> stripSplit_;
     bool configured_ = false;
     InputFormat input_;
     int maxGrains_ = 1;
@@ -190,8 +232,15 @@ private:
     DisplaySettings settings_;
     int outputWidth_ = 0;
     int outputHeight_ = 0;
+    bool key_ = false;
     AnalysePlan analyse_;
     Histogram hist_;
     ScopePainter painter_;
+    // The bin totals of the luma and chroma planes (§4.7); the RGB modes measure only the gamut,
+    // counted by the analyse step, and skip them.
+    BinTotals totals_;
+    Measurements measurements_;
+    std::uint64_t measuredUpdates_ = 0;
+    void measureUpdate(int grains);
 };
 } // namespace scopes

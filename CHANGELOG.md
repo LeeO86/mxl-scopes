@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased (M2, 2026-10-22)
+
+- 32-bit histogram cells when 16 bits do not hold an update (UHD on a small output, a parade, `all`): every line is analysed; the line step is no longer raised.
+- `SCOPES_THREADS` 1–8: strip workers share the analyse and the trace step; the same picture for any thread count. RGB parade every frame at 1080p50: about 6 ms per update on two cores instead of 10 (lab), the CPU in all about the same.
+- Measurements (§4.7) per mode: luma min, max, mean and legal shares, chroma out of range, R′G′B′ out of gamut (counted exactly per pixel); `GET /api/v1/measurements`, the WebSocket, the web page, metrics.
+- `SCOPES_OUTPUT_KEY=true`: `video/v210a` with a key plane (background `SCOPES_BG_ALPHA`, trace, graticule, texts).
+- `SCOPES_OUTPUT_FORMAT`, `SCOPES_OUTPUT_RATE` and `SCOPES_OUTPUT_KEY` apply live with a new output flow id (`PUT /api/v1/config` lists them as `flow_keys`).
+- Mode `ycbcr-overlay`: Y′ white, Cb blue, Cr red on one code axis; capped like the RGB overlay.
+- `renderer.threads` in the status; `mxl-scopes-bench --threads`; `mxl-scopes-sample --key-height`; a CI job runs the thread tests under ThreadSanitizer.
+
 ## Unreleased (M1, 2026-10-16)
 
 - Decisions of 2026-10-22: `rgb-overlay` updates at most every n-th input frame, at most 30 Hz (25 Hz from 50p, 29.97 Hz from 59.94p), instead of skipping ticks at `frame`; the RGB parade CPU every frame is accepted for M1; SPECIFICATION §2 describes the trace computed on the analysing thread.

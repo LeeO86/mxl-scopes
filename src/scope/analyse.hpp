@@ -1,6 +1,8 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
+#include <span>
 #include <cstddef>
 #include <cstdint>
 #include <stdexcept>
@@ -39,6 +41,10 @@ inline constexpr int kQ13CrR = 12613;
 inline constexpr int kQ13CbG = 1500;
 inline constexpr int kQ13CrG = 3749;
 inline constexpr int kQ13CbB = 14862;
+// §4.7, EBU R 103: an R′G′B′ component is in gamut from −5 % to 105 % of 64..940, codes 20..984
+// (rounded).
+inline constexpr int kGamutLow = 20;
+inline constexpr int kGamutHigh = 984;
 static inline void rgbOfYcbcr(int y, int cb, int cr, int& r, int& g, int& b)
 {
     int const yy = y << 13;
@@ -82,6 +88,9 @@ struct AnalysePlan
         int col1 = 0;   // last column touched
     };
     std::vector<Strip> strips;
+    // Strip workers: part k analyses strips [partStart[k], partStart[k + 1]); no histogram column
+    // spans two parts. One part: {0, strips.size()}.
+    std::vector<int> partStart;
     // v210 groups whose six samples all lie inside the width.
     int fullGroups = 0;
     // SIMD order of the columns: per group, lanes {0, 1, 3, 4} and {-, 2, -, 5} (AVX2 loads two
@@ -99,46 +108,108 @@ struct AnalysePlan
     std::array<std::uint32_t, 3> planeMaxCell{};
     std::uint64_t samples = 0;
     std::uint32_t maxCellCount = 0;
+    // 32-bit cells: the counts of the grains one update holds could pass 16 bits (§4.3).
+    bool wide = false;
 };
 
-// Integer counts only (§3.2). `scratch` is the odd-x sub-histogram, all zero between calls.
+// Integer counts only (§3.2). 16-bit cells, or 32-bit ones when the plan is `wide`; only the
+// vectors of the plan's width are used. `scratch` is the odd-x sub-histogram, all zero between
+// calls.
 struct Histogram
 {
     int columns = 0;
     int bins = 0;
     int planes = 1;
+    bool wide = false;
     std::vector<std::uint16_t> counts;
     std::vector<std::uint16_t> scratch;
+    std::vector<std::uint32_t> counts32;
+    std::vector<std::uint32_t> scratch32;
+    // Pixels of the counted grains with an R′G′B′ component out of gamut (`Rgb`, §4.7).
+    std::uint64_t outOfGamut = 0;
 
     void reset(AnalysePlan const& plan);
-    [[nodiscard]] std::uint16_t at(int column, int bin, int plane = 0) const
+    // All cells (and sub-histograms) to zero.
+    void clear();
+    [[nodiscard]] std::size_t cells() const
     {
-        return counts[(static_cast<std::size_t>(plane) * static_cast<std::size_t>(bins) + static_cast<std::size_t>(bin)) * static_cast<std::size_t>(columns) +
-                      static_cast<std::size_t>(column)];
+        return wide ? counts32.size() : counts.size();
+    }
+    [[nodiscard]] std::size_t scratchCells() const
+    {
+        return wide ? scratch32.size() : scratch.size();
+    }
+    template <class C>
+    [[nodiscard]] C* data()
+    {
+        if constexpr (sizeof(C) == 4)
+        {
+            return counts32.data();
+        }
+        else
+        {
+            return counts.data();
+        }
+    }
+    template <class C>
+    [[nodiscard]] C* scratchData()
+    {
+        if constexpr (sizeof(C) == 4)
+        {
+            return scratch32.data();
+        }
+        else
+        {
+            return scratch.data();
+        }
+    }
+    [[nodiscard]] std::uint32_t at(int column, int bin, int plane = 0) const
+    {
+        auto const i = (static_cast<std::size_t>(plane) * static_cast<std::size_t>(bins) + static_cast<std::size_t>(bin)) * static_cast<std::size_t>(columns) +
+                       static_cast<std::size_t>(column);
+        return wide ? counts32[i] : counts[i];
     }
 };
 
-// A plan whose cells could pass 16 bits (too many samples per column for one grain).
+// A plan whose cells could pass 32 bits.
 struct CellOverflow : std::invalid_argument
 {
     using std::invalid_argument::invalid_argument;
 };
 
-// Throws CellOverflow when the counts of one grain could overflow 16 bits, std::invalid_argument
-// for other invalid values.
+// `grains`: the grains one update adds up; the plan is `wide` when their counts could pass 16
+// bits. `parts`: the strip workers that share the strips (AnalysePlan::partStart). Throws CellOverflow when they could pass 32 bits, std::invalid_argument for other
+// invalid values.
 AnalysePlan makeAnalysePlan(int width, int height, std::size_t stride, int lineStep, int pixelStep, int columns, int bins,
-    int stripColumns = kDefaultStripColumns, ScopeKind kind = ScopeKind::Luma);
+    int stripColumns = kDefaultStripColumns, ScopeKind kind = ScopeKind::Luma, int grains = 1, int parts = 1);
+
+// Strips [begin, end) of a plan; end −1 is the last. A strip worker analyses one range: the
+// ranges of the workers share no histogram column (ScopeEngine splits them so).
+struct StripRange
+{
+    int begin = 0;
+    int end = -1;
+};
+inline std::span<AnalysePlan::Strip const> stripsOf(AnalysePlan const& plan, StripRange range)
+{
+    auto const n = static_cast<int>(plan.strips.size());
+    int const end = range.end < 0 ? n : std::min(range.end, n);
+    int const begin = std::min(std::max(0, range.begin), end);
+    return std::span<AnalysePlan::Strip const>(plan.strips).subspan(static_cast<std::size_t>(begin), static_cast<std::size_t>(end - begin));
+}
 
 // Rows ahead of the current one that the analyse loops prefetch: a strip reads a few cache
 // lines per row with a stride above 4 KiB, which the hardware prefetcher does not follow.
 inline constexpr int kPrefetchRows = 6;
 
-// Adds one frame to `hist` (every kind; the plan says which). The counts must be zero before the first frame of an update.
-void analyseScalar(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist);
+// Adds one frame to `hist` (every kind; the plan says which). The counts must be zero before the
+// first frame of an update. Returns the pixels with an R′G′B′ component out of gamut (`Rgb`; §4.7),
+// else 0.
+std::uint64_t analyseScalar(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range = {});
 // AVX2 version, byte-identical counts. Only call it when the CPU has AVX2 (cpu/dispatch.hpp).
-void analyseAvx2(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist);
+std::uint64_t analyseAvx2(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range = {});
 bool avx2Compiled();
 // AVX-512 (F) version, four groups per load, byte-identical counts. Only with AVX-512.
-void analyseAvx512(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist);
+std::uint64_t analyseAvx512(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range = {});
 bool avx512Compiled();
 } // namespace scopes

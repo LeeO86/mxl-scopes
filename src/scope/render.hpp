@@ -7,6 +7,7 @@
 
 #include "media/v210.hpp"
 #include "scope/analyse.hpp"
+#include "scope/measure.hpp"
 #include "scope/settings.hpp"
 
 namespace scopes
@@ -92,8 +93,11 @@ struct RenderPlan
     // True when every panel column shows its own histogram column (columns == panelW).
     bool identityColumns = false;
     std::vector<PanelPlan> panels;
-    // One panel, three planes added in R′G′B′ (rgb-overlay, §4.4).
+    // One panel, three planes added in R′G′B′ (rgb-overlay, ycbcr-overlay, §4.4).
     bool overlay = false;
+    // Overlay: per plane, the Y′, Cb and Cr of its trace colour at full intensity (BT.709 of the
+    // plane's R′G′B′ colour; Y′ in 0..1, Cb and Cr in −0.5..0.5).
+    std::array<std::array<double, 3>, 3> overlayYcbcr{};
     // Count -> trace intensity 0..1023 (§4.4) per plane, indexed by min(count, planeMax).
     std::array<std::vector<std::uint16_t>, 3> planeIntensity;
     std::array<std::uint32_t, 3> planeMax{};
@@ -121,6 +125,14 @@ struct RenderPlan
     std::vector<std::uint32_t> graticuleStart;
     // Background, labels and everything else outside the plot.
     Frame422 base;
+    // The key plane of video/v210a (SPECIFICATION §7): the background at bgAlpha, a trace at
+    // max(bgAlpha, intensity), the graticule at its alpha × level (labels at the level), texts
+    // opaque. Off: no key bytes anywhere.
+    bool key = false;
+    std::uint16_t bgAlpha = 0;
+    std::uint16_t labelAlpha = 0;
+    // Bytes of the packed fill (v210) plane; the key plane follows it.
+    std::size_t fillBytes = 0;
 };
 
 inline constexpr std::uint16_t kBackgroundY = 64;
@@ -130,7 +142,7 @@ inline constexpr std::uint16_t kBackgroundC = 512;
 int rowOfCode(RenderPlan const& plan, int code);
 // `samples` and `maxCount` come from the analyse plan; zero without an input. The mode in the
 // settings decides the panels; the layout must have its panel count.
-RenderPlan makeRenderPlan(Layout const& layout, DisplaySettings const& settings, int columns, PlaneCounts const& counts);
+RenderPlan makeRenderPlan(Layout const& layout, DisplaySettings const& settings, int columns, PlaneCounts const& counts, bool key = false);
 // Rebuilds the intensity tables (and the overlay's colour tables) for other counts: the number
 // of grains in an update changes c_ref and the largest count, nothing else (§4.4).
 void setIntensity(RenderPlan& plan, DisplaySettings const& settings, PlaneCounts const& counts);
@@ -155,14 +167,24 @@ struct TraceGroup
 {
     std::uint32_t offset = 0;
     std::uint8_t bytes[16] = {};
+    // With a key: the group's six key samples (two packed words) at keyOffset; 0 without.
+    std::uint32_t keyOffset = 0;
+    std::uint8_t key[8] = {};
 };
 
 // Histogram -> the plot groups with a trace (graticule blended over), row by row. Groups
 // without counts keep the still picture's bytes (background and graticule). Clears the counts.
-void collectTrace(RenderPlan const& plan, Histogram& hist, std::vector<TraceGroup>& trace);
+// Plot rows [rowBegin, rowEnd) only (rowEnd −1: to the last); the parts of traceRowSplit can run
+// on different threads and their traces, in order, are the whole trace.
+// With `totals` (sized plan.bins × plan.planes), the samples of each bin of these rows are added
+// to it on the way (the measurements, §4.7).
+void collectTrace(RenderPlan const& plan, Histogram& hist, std::vector<TraceGroup>& trace, int rowBegin = 0, int rowEnd = -1, BinTotals* totals = nullptr);
+// `parts` + 1 row boundaries from 0 to plotH that never split the rows of one bin.
+std::vector<int> traceRowSplit(RenderPlan const& plan, int parts);
 void applyTrace(std::vector<TraceGroup> const& trace, std::uint8_t* dst);
 
 // 8×8 bitmap text (ASCII), `scale` pixels per font pixel, neutral chroma.
-void drawText(Frame422& frame, int x, int y, int scale, std::string const& text, std::uint16_t luma);
+// With a key plane, the text's pixels get `alpha`.
+void drawText(Frame422& frame, int x, int y, int scale, std::string const& text, std::uint16_t luma, std::uint16_t alpha = 1023);
 int textWidth(std::string const& text, int scale);
 } // namespace scopes

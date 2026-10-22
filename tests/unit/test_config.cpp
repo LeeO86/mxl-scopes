@@ -63,7 +63,6 @@ TEST_CASE("invalid values are configuration errors (exit 78)")
     std::vector<std::pair<std::string, std::string>> bad = {
         {"SCOPES_MODE", "waveform"},
         {"SCOPES_MODE", "vectorscope"},
-        {"SCOPES_MODE", "ycbcr-overlay"},
         {"SCOPES_MODE", "vectorscope"},
         {"SCOPES_UPDATE_RATE", "0.5"},
         {"SCOPES_UPDATE_RATE", "61"},
@@ -97,6 +96,19 @@ TEST_CASE("invalid values are configuration errors (exit 78)")
         CHECK_THROWS_AS(loadConfig(env, {}), ConfigError);
     }
     CHECK_THROWS_AS(loadConfig(base(), {{"NOT_A_KEY", "1"}}), ConfigError);
+}
+
+TEST_CASE("SCOPES_THREADS 1-8 (strip workers, M2)")
+{
+    for (auto const* value : {"1", "2", "8"})
+    {
+        auto env = base();
+        env["SCOPES_THREADS"] = value;
+        CHECK(loadConfig(env, {}).threads == std::stoi(value));
+    }
+    auto env = base();
+    env["SCOPES_THREADS"] = "0";
+    CHECK_THROWS_AS(loadConfig(env, {}), ConfigError);
 }
 
 TEST_CASE("ports must not collide; MediaMTX ports count only in own mode")
