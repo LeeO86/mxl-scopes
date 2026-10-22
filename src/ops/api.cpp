@@ -174,7 +174,7 @@ std::string Api::infoJson() const
         << ",\"label\":" << quote(config_.nmosLabel.empty() ? config_.hostId : config_.nmosLabel) << ",\"backend\":\"cpu\""
         << ",\"simd\":{\"level\":" << quote(simdName(build_.simd.level)) << ",\"requested\":" << quote(build_.simd.requested)
         << ",\"cpu\":" << quote(build_.simd.cpu) << ",\"cpu_family\":" << quote(build_.simd.family) << "}"
-        << ",\"modes\":[\"luma\",\"ycbcr-parade\",\"rgb-parade\",\"rgb-overlay\"],\"node_id\":" << quote(ids.node) << ",\"device_id\":" << quote(ids.device)
+        << ",\"modes\":[\"luma\",\"ycbcr-parade\",\"rgb-parade\",\"rgb-overlay\",\"ycbcr-overlay\"],\"node_id\":" << quote(ids.node) << ",\"device_id\":" << quote(ids.device)
         << ",\"receiver_id\":" << quote(ids.receiver) << ",\"sender_id\":" << quote(ids.sender) << ",\"domain_id\":" << quote(config_.outputDomainId)
         << ",\"output\":{\"format\":" << quote(std::to_string(output.width) + "x" + std::to_string(output.height))
         << ",\"rate\":" << quote(output.rate ? rateToken(*output.rate) : "input") << ",\"key\":" << boolean(output.key) << "}"

@@ -154,6 +154,8 @@ struct ModeLook
     std::vector<std::string> names;     // per panel, under it (parades)
     std::vector<Ycbcr10> colours;       // per panel
     bool overlay = false;
+    // Overlay: the R′G′B′ colour of each plane's trace (they add in R′G′B′).
+    std::array<std::array<double, 3>, 3> overlayRgb{};
 };
 
 ModeLook modeLook(DisplaySettings const& settings)
@@ -172,7 +174,14 @@ ModeLook modeLook(DisplaySettings const& settings)
     }
     if (settings.mode == "rgb-overlay")
     {
-        return {{0}, {false}, {}, {white}, true};
+        // Pure primaries: a neutral trace (R′ = G′ = B′) is white.
+        return {{0}, {false}, {}, {white}, true, {{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}}};
+    }
+    if (settings.mode == "ycbcr-overlay")
+    {
+        // Y′ white, Cb blue, Cr red on the shared code axis (decided 2026-10-22), in the tints of
+        // the YCbCr parade so a full-intensity chroma trace stays readable on black.
+        return {{0}, {false}, {}, {white}, true, {{{1, 1, 1}, {0.35, 0.55, 1}, {1, 0.3, 0.3}}}};
     }
     return {{0}, {false}, {}, {traceColor(settings.traceColor)}, false};
 }
@@ -298,21 +307,19 @@ void setIntensity(RenderPlan& plan, DisplaySettings const& settings, PlaneCounts
     plan.maxCount = plan.planeMax[0];
     if (plan.overlay)
     {
-        // §4.4: the R′, G′ and B′ traces add in R′G′B′ (pure primaries, so a neutral trace is
-        // white); BT.709 to Y′CbCr per component, × 64 for the integer sum.
-        double const ky[3] = {0.2126, 0.7152, 0.0722};
-        double const kcb[3] = {-0.2126 / 1.8556, -0.7152 / 1.8556, 0.5};
-        double const kcr[3] = {0.5, -0.7152 / 1.5748, -0.0722 / 1.5748};
+        // §4.4: the planes' traces add in R′G′B′ (rgb-overlay: pure primaries, so a neutral trace
+        // is white); BT.709 to Y′CbCr per plane colour, × 64 for the integer sum.
         for (int c = 0; c < 3; ++c)
         {
+            auto const& k = plan.overlayYcbcr[static_cast<std::size_t>(c)];
             auto const& lut = plan.planeIntensity[static_cast<std::size_t>(c)];
             auto& table = plan.overlayColour[static_cast<std::size_t>(c)];
             table.resize(lut.size());
             for (std::size_t n = 0; n < lut.size(); ++n)
             {
                 double const v = lut[n] / 1023.0 * 64.0;
-                table[n] = {static_cast<std::int32_t>(std::lround(ky[c] * 876.0 * v)), static_cast<std::int32_t>(std::lround(kcb[c] * 896.0 * v)),
-                    static_cast<std::int32_t>(std::lround(kcr[c] * 896.0 * v))};
+                table[n] = {static_cast<std::int32_t>(std::lround(k[0] * 876.0 * v)), static_cast<std::int32_t>(std::lround(k[1] * 896.0 * v)),
+                    static_cast<std::int32_t>(std::lround(k[2] * 896.0 * v))};
             }
         }
     }
@@ -339,6 +346,27 @@ RenderPlan makeRenderPlan(Layout const& layout, DisplaySettings const& settings,
     plan.planes = planesOf(scopeKindOf(settings.mode));
     auto const look = modeLook(settings);
     plan.overlay = look.overlay;
+    for (std::size_t c = 0; c < 3; ++c)
+    {
+        auto const& rgb = look.overlayRgb[c];
+        if (rgb == std::array<double, 3>{1, 0, 0})
+        {
+            plan.overlayYcbcr[c] = {0.2126, -0.2126 / 1.8556, 0.5};
+        }
+        else if (rgb == std::array<double, 3>{0, 1, 0})
+        {
+            plan.overlayYcbcr[c] = {0.7152, -0.7152 / 1.8556, -0.7152 / 1.5748};
+        }
+        else if (rgb == std::array<double, 3>{0, 0, 1})
+        {
+            plan.overlayYcbcr[c] = {0.0722, 0.5, -0.0722 / 1.5748};
+        }
+        else
+        {
+            double const y = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
+            plan.overlayYcbcr[c] = {y, (rgb[2] - y) / 1.8556, (rgb[0] - y) / 1.5748};
+        }
+    }
     plan.columnOf.resize(static_cast<std::size_t>(layout.panelW));
     for (int px = 0; px < layout.panelW; ++px)
     {

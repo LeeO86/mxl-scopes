@@ -180,7 +180,7 @@ curl -sf -X PATCH -H 'Content-Type: application/json' -d '{"accumulate":"latest"
 curl -sf -X PATCH -H 'Content-Type: application/json' -d '{"update_rate":1}' "$API/api/v1/scope" >/dev/null || fail "PATCH 1 Hz"
 # Live mode changes keep the flow id; NMOS describes the new mode. A flat grey is R′ = G′ =
 # B′ = Cb = Cr = 512: one trace row in every panel of the parades.
-for mode in rgb-parade ycbcr-parade rgb-overlay; do
+for mode in rgb-parade ycbcr-parade rgb-overlay ycbcr-overlay; do
   curl -sf -X PATCH -H 'Content-Type: application/json' -d "{\"mode\":\"$mode\"}" "$API/api/v1/scope" >/dev/null || fail "PATCH mode $mode"
   sleep 0.6
   OUTM="$(curl -sf "$API/api/v1/output")"

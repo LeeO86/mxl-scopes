@@ -93,7 +93,7 @@ void compareCounts(AnalysePlan const& given, std::vector<std::uint8_t> const& fr
 }
 
 constexpr ScopeKind kKinds[] = {ScopeKind::Ycbcr, ScopeKind::Rgb};
-constexpr char const* kModes[] = {"ycbcr-parade", "rgb-parade", "rgb-overlay"};
+constexpr char const* kModes[] = {"ycbcr-parade", "rgb-parade", "rgb-overlay", "ycbcr-overlay"};
 } // namespace
 
 TEST_CASE("modes: kinds, panels and planes")
@@ -370,6 +370,43 @@ TEST_CASE("golden: the RGB overlay of grey is white, of 75 % red is red only")
     CHECK(bars.cr[(static_cast<std::size_t>(redRows[0]) * 1920 + static_cast<std::size_t>(red)) / 2] > 700);
 }
 
+TEST_CASE("golden: the YCbCr overlay draws Y′ white, Cb blue, Cr red on one code axis")
+{
+    RenderPlan plan;
+    // Grey: Y′, Cb and Cr all at 512, one row; neutral chroma sits on the 50 % line of the axis.
+    auto const flat = renderMode("ycbcr-overlay", "flat", &plan);
+    REQUIRE(plan.panels.size() == 1);
+    int const x = plan.layout.plotX + 600;
+    auto const rows = litRows(flat, plan, x);
+    REQUIRE(rows.size() == 1);
+    CHECK(rows[0] == rowOfCode(plan, 512));
+    // Y′ 512, Cb 800, Cr 300: three rows; the Cb row is blue, the Cr row red, the Y′ row white.
+    Frame422 frame;
+    frame.allocate(1920, 1080);
+    frame.fill(512, 800, 300);
+    DisplaySettings settings;
+    settings.mode = "ycbcr-overlay";
+    settings.graticuleLevel = 0;
+    ScopeEngine engine(SimdLevel::Scalar);
+    engine.configure({1920, 1080, v210RowBytes(1920)}, settings, 1920, 1080);
+    auto const packed = packPattern(frame);
+    std::vector<std::uint8_t> out(engine.packedSize());
+    engine.analyse(packed.data());
+    engine.render("", "", out.data());
+    Frame422 picture;
+    picture.allocate(1920, 1080);
+    unpackV210(out.data(), v210RowBytes(1920), picture);
+    auto const& p = engine.renderPlan();
+    auto const lit = litRows(picture, p, x);
+    REQUIRE(lit.size() == 3);
+    auto const at = [&](int code) { return (static_cast<std::size_t>(rowOfCode(p, code)) * 1920 + static_cast<std::size_t>(x)) / 2; };
+    CHECK(picture.cb[at(800)] > 600); // blue (chroma of a pixel pair: half from the empty odd column)
+    CHECK(picture.cr[at(300)] > 600); // red
+    CHECK(std::abs(picture.cb[at(512)] - 512) <= 1); // white
+    CHECK(std::abs(picture.cr[at(512)] - 512) <= 1);
+    CHECK(picture.y[at(512) * 2] == 940);
+}
+
 TEST_CASE("golden hashes of the other modes")
 {
     // As "golden hashes of the default picture": a change here must be deliberate;
@@ -382,7 +419,8 @@ TEST_CASE("golden hashes of the other modes")
     };
     for (auto const& golden : {Golden{"ycbcr-parade", "bars75", 4875393164406064390ull}, Golden{"ycbcr-parade", "scene", 15272075516455124313ull},
              Golden{"rgb-parade", "bars75", 5859775929604755087ull}, Golden{"rgb-parade", "scene", 3552925228055185350ull},
-             Golden{"rgb-overlay", "bars75", 8764227533769970585ull}, Golden{"rgb-overlay", "scene", 5015253149129364499ull}})
+             Golden{"rgb-overlay", "bars75", 8764227533769970585ull}, Golden{"rgb-overlay", "scene", 5015253149129364499ull},
+             Golden{"ycbcr-overlay", "bars75", 13929600765576822091ull}, Golden{"ycbcr-overlay", "scene", 15493724190738023384ull}})
     {
         DisplaySettings settings;
         settings.mode = golden.mode;
@@ -444,7 +482,7 @@ TEST_CASE("modes: a UHD input on a small output never overflows a cell (every mo
     // would pass 16 bits. The engine takes 32-bit cells and keeps every line (deviation 23 closed).
     auto const uhd = packPattern(makePattern("random", 3840, 2160, 0, 21));
     auto const fields = packPattern(makePattern("random", 1920, 540, 0, 22));
-    for (auto const* mode : {"luma", "ycbcr-parade", "rgb-parade", "rgb-overlay"})
+    for (auto const* mode : {"luma", "ycbcr-parade", "rgb-parade", "rgb-overlay", "ycbcr-overlay"})
     {
         for (auto [w, h] : {std::pair{320, 180}, std::pair{384, 216}, std::pair{640, 360}, std::pair{1920, 1080}})
         {
@@ -479,7 +517,7 @@ TEST_CASE("modes: 32-bit cells give the picture of 16-bit cells")
     // The same grain in an engine sized for one frame per update (16-bit cells) and in one sized
     // for 200 (32-bit cells): normalised to the grains analysed, the pictures are equal.
     auto const frame = packPattern(makePattern("scene", 1920, 1080, 512));
-    for (auto const* mode : {"luma", "ycbcr-parade", "rgb-parade", "rgb-overlay"})
+    for (auto const* mode : {"luma", "ycbcr-parade", "rgb-parade", "rgb-overlay", "ycbcr-overlay"})
     {
         CAPTURE(mode);
         DisplaySettings settings;

@@ -213,7 +213,7 @@ Cb and Cr panels: centre line at 512 (0 mV), solid lines at 64 and 960 (∓350 m
 - Ticks run on TAI: tick `k` is at `k / rate`. At each tick the renderer analyses the newest grain (or, with `ACCUMULATE=all`, every grain since the last tick). A grain is analysed at most once.
 - With `frame`, the renderer waits for each new grain. A rate at or above the input rate behaves like `frame`.
 - If an update is still running when the next tick comes, that tick is skipped and counted (`mxl_scopes_updates_skipped_total`). The writer keeps writing the last frame.
-- `rgb-overlay` updates at most every n-th input frame, n the smallest that keeps it at or below 30 Hz: 25 Hz from 50p, 29.97 Hz from 59.94p, every frame from 25p, 29.97p and 1080i50 (decided 2026-10-22). `frame` and higher rates run at that rate; lower rates stay. The overlay draws three planes over the full plot width; on the lab class one update takes 18–20 ms at 1080p50, close to the 20 ms frame time, so every frame takes most of a core and skips ticks. The cap keeps the full horizontal resolution and an even cadence at about half a core. `/api/v1/status` (`renderer.update_rate_hz`) and the caption show the rate in use.
+- `rgb-overlay` and `ycbcr-overlay` update at most every n-th input frame, n the smallest that keeps it at or below 30 Hz: 25 Hz from 50p, 29.97 Hz from 59.94p, every frame from 25p, 29.97p and 1080i50 (decided 2026-10-22). `frame` and higher rates run at that rate; lower rates stay. The overlay draws three planes over the full plot width; on the lab class one update takes 18–20 ms at 1080p50, close to the 20 ms frame time, so every frame takes most of a core and skips ticks. The cap keeps the full horizontal resolution and an even cadence at about half a core. `/api/v1/status` (`renderer.update_rate_hz`) and the caption show the rate in use.
 - The output flow always runs at its own full rate (§7). Between updates it repeats the last scope frame.
 
 ### 4.7 Measurements
@@ -283,7 +283,7 @@ How it maps to AVX2:
 | `ycbcr-parade` | 1 | Y′, Cb, Cr waveforms side by side | three, each 1/3 width |
 | `rgb-parade` | 1 | R′, G′, B′ waveforms side by side | three |
 | `rgb-overlay` | 1 | R′, G′, B′ waveforms in one panel, each in its colour | one |
-| `ycbcr-overlay` | 1 (SHOULD) | Y′, Cb, Cr in one panel (Cb, Cr offset to the luma scale) | one |
+| `ycbcr-overlay` | 1 (SHOULD) | Y′, Cb, Cr in one panel: the raw codes on the shared code axis (neutral chroma on the 50 % line), Y′ white, Cb blue, Cr red | one |
 | `vectorscope` | 2 | Cb/Cr 2D histogram, 75 % and 100 % colour targets, skin-tone line | one, square |
 | `luma-chroma` | 2 | Y′ against Cb (upper half) and Y′ against Cr (lower half), the combined display used to check colour bars, timing and gamut | one, two halves |
 

@@ -40,7 +40,7 @@ bool quick()
     return value != nullptr && std::string(value) == "1";
 }
 
-constexpr char const* kModes[] = {"luma", "ycbcr-parade", "rgb-parade", "rgb-overlay"};
+constexpr char const* kModes[] = {"luma", "ycbcr-parade", "rgb-parade", "rgb-overlay", "ycbcr-overlay"};
 } // namespace
 
 TEST_CASE("worker pool: every part runs once per step, the caller runs part 0")
@@ -186,7 +186,7 @@ TEST_CASE("strip workers: stress with changing settings, rasters and accumulated
     {
         CAPTURE(it);
         DisplaySettings settings;
-        settings.mode = kModes[pick(4)];
+        settings.mode = kModes[pick(5)];
         settings.pixelStep = std::array{1, 2, 3, 6}[static_cast<std::size_t>(pick(4))];
         settings.lineStep = 1 + pick(3);
         settings.intensity = 50 + pick(300);

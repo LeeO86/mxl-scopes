@@ -59,7 +59,7 @@ TEST_CASE("key output: fill unchanged, background, trace, graticule and texts in
 {
     auto const grey = packPattern(makePattern("flat", 1920, 1080, 512));
     auto const scene = packPattern(makePattern("scene", 1920, 1080, 512));
-    for (auto const* mode : {"luma", "ycbcr-parade", "rgb-parade", "rgb-overlay"})
+    for (auto const* mode : {"luma", "ycbcr-parade", "rgb-parade", "rgb-overlay", "ycbcr-overlay"})
     {
         for (int bg : {0, 300})
         {

@@ -127,6 +127,9 @@ TEST_CASE("rgb-overlay updates at most every second frame above 30 Hz")
     // 25p, 29.97p and 1080i50 (25 frames/s): every frame.
     CHECK(modeUpdateRate("rgb-overlay", 0, 25) == 0);
     CHECK(modeUpdateRate("rgb-overlay", 0, 30000.0 / 1001) == 0);
+    // The YCbCr overlay has the same cap.
+    CHECK(modeUpdateRate("ycbcr-overlay", 0, 50) == 25);
+    CHECK(modeUpdateRate("ycbcr-overlay", 10, 50) == 10);
     // Unknown input rate, and the other modes: the setting.
     CHECK(modeUpdateRate("rgb-overlay", 0, 0) == 0);
     for (auto const* mode : {"luma", "ycbcr-parade", "rgb-parade"})

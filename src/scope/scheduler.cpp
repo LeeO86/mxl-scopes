@@ -21,7 +21,7 @@ std::uint64_t tickTime(std::uint64_t tick, double rate)
 double modeUpdateRate(std::string_view mode, double rateHz, double inputHz)
 {
     constexpr double maxOverlayHz = 30;
-    if (mode != "rgb-overlay" || inputHz <= maxOverlayHz)
+    if ((mode != "rgb-overlay" && mode != "ycbcr-overlay") || inputHz <= maxOverlayHz)
     {
         return rateHz;
     }

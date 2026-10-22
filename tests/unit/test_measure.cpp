@@ -181,7 +181,7 @@ TEST_CASE("RGB gamut: exact per pixel on every path, pixel step and thread count
 TEST_CASE("measurements: the same for any thread count, json, nothing before an update or with a state")
 {
     auto const frame = packPattern(makePattern("scene", 1920, 1080, 512));
-    for (auto const* mode : {"luma", "ycbcr-parade", "rgb-parade", "rgb-overlay"})
+    for (auto const* mode : {"luma", "ycbcr-parade", "rgb-parade", "rgb-overlay", "ycbcr-overlay"})
     {
         CAPTURE(mode);
         auto const one = measureOnce(mode, frame);

@@ -93,8 +93,11 @@ struct RenderPlan
     // True when every panel column shows its own histogram column (columns == panelW).
     bool identityColumns = false;
     std::vector<PanelPlan> panels;
-    // One panel, three planes added in R′G′B′ (rgb-overlay, §4.4).
+    // One panel, three planes added in R′G′B′ (rgb-overlay, ycbcr-overlay, §4.4).
     bool overlay = false;
+    // Overlay: per plane, the Y′, Cb and Cr of its trace colour at full intensity (BT.709 of the
+    // plane's R′G′B′ colour; Y′ in 0..1, Cb and Cr in −0.5..0.5).
+    std::array<std::array<double, 3>, 3> overlayYcbcr{};
     // Count -> trace intensity 0..1023 (§4.4) per plane, indexed by min(count, planeMax).
     std::array<std::vector<std::uint16_t>, 3> planeIntensity;
     std::array<std::uint32_t, 3> planeMax{};

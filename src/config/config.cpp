@@ -463,12 +463,8 @@ Config loadConfig(std::map<std::string, std::string> const& env, std::map<std::s
 
     Config cfg;
     auto& d = cfg.display;
-    // The stage-1 modes (§5.1); ycbcr-overlay (a SHOULD) is not built; stage-2 modes are not in v1.
+    // The stage-1 modes (§5.1); stage-2 modes are not in v1.
     d.mode = requireEnum("SCOPES_MODE", raw("SCOPES_MODE"), {"luma", "ycbcr-parade", "rgb-parade", "rgb-overlay", "ycbcr-overlay"});
-    if (d.mode == "ycbcr-overlay")
-    {
-        throw ConfigError("SCOPES_MODE ycbcr-overlay is not implemented in this build");
-    }
     d.updateRate = parseUpdateRate(raw("SCOPES_UPDATE_RATE"));
     d.accumulate = requireEnum("SCOPES_ACCUMULATE", raw("SCOPES_ACCUMULATE"), {"latest", "all"});
     d.lineStep = requireInt("SCOPES_LINE_STEP", raw("SCOPES_LINE_STEP"), 1, 8);

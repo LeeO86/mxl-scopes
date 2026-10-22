@@ -9,7 +9,7 @@ Video scopes for MXL: a media function that reads one MXL video flow and writes 
 - C++20, one process per scope, one video input per instance.
 - Input `video/v210` (or `v210a`), BT.709, up to 3840×2160.
 - Output `video/v210`, or `video/v210a` with a key for overlays, default 1920×1080 at the input rate.
-- Modes: `luma`, `ycbcr-parade`, `rgb-parade`, `rgb-overlay` (live, the output flow id stays). Later: `ycbcr-overlay`, `vectorscope`, `luma-chroma`, HDR.
+- Modes: `luma`, `ycbcr-parade`, `rgb-parade`, `rgb-overlay`, `ycbcr-overlay` (live, the output flow id stays). Later: `vectorscope`, `luma-chroma`, HDR.
 - Configurable update rate (`frame`, or 1–60 Hz) and reduced sampling, to save CPU.
 - CPU engine with AVX-512, AVX2 and a scalar reference, bit-exact; a CUDA backend can be added later.
 - NMOS IS-04/IS-05 with BCP-007-03; web UI and REST; `/livez`, `/readyz`, `/metrics`; the `scope` widget; WebRTC preview through the platform's preview contract.
@@ -28,8 +28,8 @@ Environment > `SCOPES_CONFIG_FILE` (flat JSON, else `<SCOPES_STATE_DIR>/config.j
 
 | Key | Default | M1 |
 | --- | --- | --- |
-| `SCOPES_MODE` | `luma` | `luma`, `ycbcr-parade`, `rgb-parade`, `rgb-overlay`, live (`ycbcr-overlay` and stage-2 modes exit 78) |
-| `SCOPES_UPDATE_RATE` | `25` | `frame` or 1–60 Hz, live; `rgb-overlay` runs at most every n-th input frame, at most 30 Hz (25 Hz from 50p) |
+| `SCOPES_MODE` | `luma` | `luma`, `ycbcr-parade`, `rgb-parade`, `rgb-overlay`, `ycbcr-overlay`, live (stage-2 modes exit 78) |
+| `SCOPES_UPDATE_RATE` | `25` | `frame` or 1–60 Hz, live; the overlays run at most every n-th input frame, at most 30 Hz (25 Hz from 50p) |
 | `SCOPES_ACCUMULATE` | `latest` | `latest` or `all` (every frame between two updates), live |
 | `SCOPES_LINE_STEP`, `SCOPES_PIXEL_STEP` | 1, 1 | live; 32-bit histogram cells when 16 bits would not hold an update (UHD on a small output, a parade, `all`) |
 | `SCOPES_RANGE`, `SCOPES_GRATICULE_UNITS`, `SCOPES_GRATICULE_LEVEL` | `limited`, `mv`, 60 | live |

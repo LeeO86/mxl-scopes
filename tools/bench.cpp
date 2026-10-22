@@ -77,7 +77,7 @@ int main(int argc, char** argv)
         {
             std::cout << "mxl-scopes-bench [--rasters 1920x1080,3840x2160] [--output 1920x1080] [--simd scalar,avx2,avx512]\n"
                          "                 [--strips 32,64,128] [--steps 1/1,2/1,2/2] [--pattern random|bars75|ramp|flat]\n"
-                         "                 [--iterations 200] [--modes luma,ycbcr-parade,rgb-parade,rgb-overlay] [--threads 1]\n"
+                         "                 [--iterations 200] [--modes luma,ycbcr-parade,rgb-parade,rgb-overlay,ycbcr-overlay] [--threads 1]\n"
                          "mxl-scopes-bench --golden DIR   (writes the golden pictures as PNG)\n";
             return 0;
         }
@@ -100,7 +100,7 @@ int main(int argc, char** argv)
             std::printf("%s/%s.png\n", dir.c_str(), pattern);
         }
         // The other modes: colour bars and the colour scene.
-        for (auto const* mode : {"ycbcr-parade", "rgb-parade", "rgb-overlay"})
+        for (auto const* mode : {"ycbcr-parade", "rgb-parade", "rgb-overlay", "ycbcr-overlay"})
         {
             for (auto const* pattern : {"bars75", "scene"})
             {
