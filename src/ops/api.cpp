@@ -3,6 +3,7 @@
 #include "media/png.hpp"
 #include "media/timebase.hpp"
 #include "nmos/ids.hpp"
+#include "ops/widgets.hpp"
 #include "scope/render.hpp"
 #include "util/jsonutil.hpp"
 #include "util/logging.hpp"
@@ -540,6 +541,42 @@ HttpResponse Api::handle(HttpRequest const& request)
         HttpResponse page;
         page.contentType = "text/html; charset=utf-8";
         page.body = indexPage_.empty() ? std::string("<!doctype html><title>mxl-scopes</title><p>The UI is not embedded. See /api/v1/info.</p>") : indexPage_;
+        return page;
+    }
+    // Operator-screen widgets (§9.3): the list with CORS for the listed origins, the pages with
+    // `frame-ancestors`; the page is the UI's, which shows only the widget on /widget/<id>.
+    if (path == "/widgets")
+    {
+        if (method != "GET")
+        {
+            auto response = error(405, "GET only");
+            response.headers.emplace_back("Allow", "GET");
+            return response;
+        }
+        auto response = jsonResponse(200, widgetsJson());
+        if (auto const origin = request.headers.find("origin");
+            origin != request.headers.end() && listedOrigin(config_.widgetFrameAncestors, origin->second))
+        {
+            response.headers.emplace_back("Access-Control-Allow-Origin", origin->second);
+        }
+        response.headers.emplace_back("Vary", "Origin");
+        return response;
+    }
+    if (path.rfind("/widget/", 0) == 0 && method == "GET")
+    {
+        if (!knownWidget(path.substr(8)))
+        {
+            return error(404, "unknown widget");
+        }
+        if (auto const problem = widgetQueryError(parseQuery(request.query)); !problem.empty())
+        {
+            return error(400, problem);
+        }
+        HttpResponse page;
+        page.contentType = "text/html; charset=utf-8";
+        page.body = indexPage_.empty() ? std::string("<!doctype html><title>mxl-scopes</title><p>The UI is not embedded.</p>") : indexPage_;
+        page.headers.emplace_back("Content-Security-Policy", "frame-ancestors " + config_.widgetFrameAncestors);
+        page.headers.emplace_back("Cache-Control", "no-store");
         return page;
     }
     if (path == "/livez")

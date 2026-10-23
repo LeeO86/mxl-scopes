@@ -2,7 +2,8 @@
 # Preview integration (SPECIFICATION §2.5, §9.3), no input route, no NMOS registry, no GPU:
 #  1. SCOPES_PREVIEW_MODE=off: nothing published, no MediaMTX started.
 #  2. webrtc, own mode: the built-in MediaMTX (`mediamtx` from PATH) gets the H.264 scope picture
-#     (RTSP DESCRIBE and HLS), the preview state and metrics; SIGTERM stops MediaMTX.
+#     (RTSP DESCRIBE and HLS), the preview state and metrics, the web UI and the widget routes;
+#     SIGTERM stops MediaMTX.
 #  3. webrtc, shared mode: a separate MediaMTX gets <prefix>/scope and none is started here; that
 #     MediaMTX goes away (error) and comes back (publishing).
 # Adapted from mxl-replay tests/integration/preview.sh (same author, used with permission).
@@ -50,7 +51,8 @@ start_scopes() { # <name> [KEY=value ...]
   mkdir -p "$WORK/$name/config" "$WORK/$name/mxl"
   env MXL_DOMAIN_SCAN_PATH="$WORK/$name/mxl" MXL_OUTPUT_DOMAIN_DIR="$WORK/$name/mxl/scopes" SCOPES_STATE_DIR="$WORK/$name/config" \
     SCOPES_OUTPUT_FORMAT=640x360 NMOS_ENABLE=false NMOS_PORT="$NMOS_PORT" NMOS_HOST_ADDRESS="$HOST_ADDRESS" WEB_PORT="$WEB_PORT" \
-    MEDIAMTX_RTSP_PORT="$RTSP_PORT" MEDIAMTX_WHEP_PORT="$WHEP_PORT" MEDIAMTX_HLS_PORT="$HLS_PORT" MEDIAMTX_ICE_UDP_PORT="$ICE_PORT" "$@" \
+    MEDIAMTX_RTSP_PORT="$RTSP_PORT" MEDIAMTX_WHEP_PORT="$WHEP_PORT" MEDIAMTX_HLS_PORT="$HLS_PORT" MEDIAMTX_ICE_UDP_PORT="$ICE_PORT" \
+    WIDGET_FRAME_ANCESTORS="'self' http://designer.test" "$@" \
     "$BIN" >"$WORK/$name.log" 2>&1 &
   PID=$!
   for _ in $(seq 1 100); do
@@ -140,6 +142,15 @@ done
 FRAMES=$(grep '^mxl_scopes_preview_frames_total ' <<<"$METRICS" | awk '{print $2}')
 (( FRAMES > 0 )) || { echo "own: preview_frames_total $FRAMES" >&2; exit 1; }
 [[ -f "$WORK/own/config/mediamtx.yml" ]] || { echo "own: no mediamtx.yml in the state directory" >&2; exit 1; }
+# The web UI and the scope widget (§9.1, §9.3): the embedded Vue page; /widgets with CORS for a
+# listed origin; /widget/scope with frame-ancestors.
+curl -sf "http://127.0.0.1:${WEB_PORT}/" | grep -q '<div id="app">' || { echo "own: the web UI is not embedded" >&2; exit 1; }
+HDRS=$(curl -s -D - -o /dev/null -H 'Origin: http://designer.test' "http://127.0.0.1:${WEB_PORT}/widgets")
+grep -qi '^access-control-allow-origin: http://designer.test' <<<"$HDRS" || { echo "own: /widgets CORS: $HDRS" >&2; exit 1; }
+HDRS=$(curl -s -D - -o /dev/null "http://127.0.0.1:${WEB_PORT}/widget/scope?controls=true&measurements=true&theme=dark")
+grep -qi "^content-security-policy: frame-ancestors 'self' http://designer.test" <<<"$HDRS" || { echo "own: widget CSP: $HDRS" >&2; exit 1; }
+! grep -qi '^x-frame-options' <<<"$HDRS" || { echo "own: widget has X-Frame-Options" >&2; exit 1; }
+[[ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${WEB_PORT}/widget/scope?theme=blue")" == 400 ]] || { echo "own: widget accepted theme=blue" >&2; exit 1; }
 stop_scopes
 sleep 1
 closed "$RTSP_PORT" || { echo "own: MediaMTX still runs after SIGTERM" >&2; exit 1; }

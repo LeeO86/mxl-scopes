@@ -6,6 +6,14 @@ ARG MEDIAMTX_VERSION=1.20.1
 
 FROM bluenviron/mediamtx:${MEDIAMTX_VERSION} AS mediamtx
 
+# The web UI (§9.1): Vue 3 built by Vite into one HTML file, embedded by the build stage.
+FROM node:22-bookworm AS webui
+WORKDIR /web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci --no-fund --no-audit
+COPY web/ ./
+RUN npm run build
+
 FROM ubuntu:24.04 AS build
 ARG MXL_REF=218ddaa0a08c12ffe75fc475ae65aa3d9eef16d7
 ARG NMOS_CPP_REF=fe303849527394b03bdedc8f161f377fe458bb62
@@ -47,6 +55,7 @@ RUN git init /opt/nmos-cpp \
     && git -C /opt/nmos-cpp checkout FETCH_HEAD
 
 COPY . /src
+COPY --from=webui /web/dist /src/web/dist
 RUN cmake -S /src -B /src/build -G Ninja -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_PREFIX_PATH="/opt/mxl;/tmp/mxl/build/vcpkg_installed/x64-linux" \
         -DSCOPES_WITH_NMOS=ON -DNMOS_CPP_DIR=/opt/nmos-cpp/Development \
