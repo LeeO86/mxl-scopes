@@ -133,10 +133,6 @@
       "state": "Not Implemented",
       "reason": "BCP-004-01 labels, preferences and enabled flags are optional"
     },
-    "test_27_8": {
-      "state": "Not Implemented",
-      "reason": "BCP-004-01 labels, preferences and enabled flags are optional"
-    },
     "test_28": {
       "state": "Not Implemented",
       "reason": "BCP-002-02 asset tags are optional"
