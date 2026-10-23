@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "config/config.hpp"
+#include "preview/plan.hpp"
 #include "scope/measure.hpp"
 #include "scope/settings.hpp"
 
@@ -109,6 +110,9 @@ public:
     [[nodiscard]] RendererView renderer() const;
     void setRenderer(RendererView view);
 
+    // The WebRTC preview's publish state (§2.5).
+    void setPreview(PreviewStatus preview);
+    [[nodiscard]] PreviewStatus preview() const;
     // The measurements of the latest update (§4.7).
     void setMeasurements(Measurements measurements);
     [[nodiscard]] Measurements measurements() const;
@@ -132,6 +136,7 @@ private:
     RendererView renderer_;
     std::shared_ptr<Snapshot const> snapshot_;
     Measurements measurements_;
+    PreviewStatus preview_;
     std::uint64_t rendererBeat_ = 0;
     std::uint64_t writerBeat_ = 0;
     bool nmosUp_ = false;

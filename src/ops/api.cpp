@@ -156,13 +156,7 @@ bool Api::ready(std::string* reason) const
 
 std::string Api::previewJson() const
 {
-    // The WebRTC preview of the preview contract arrives in M3; until then the snapshot.
-    std::string const path = config_.previewPathPrefix + "/scope";
-    std::ostringstream out;
-    out << "{\"mode\":" << quote(config_.previewMode) << ",\"publish\":" << quote(config_.previewPublishUrl.empty() ? "own" : "shared")
-        << ",\"path\":" << quote(path) << ",\"state\":\"not_implemented\",\"whep\":\"\",\"hls\":\"\",\"public\":{\"whep\":false,\"hls\":false}"
-        << ",\"snapshot\":\"/api/v1/snapshot.png\"}";
-    return out.str();
+    return scopes::previewJson(config_, state_.preview());
 }
 
 std::string Api::infoJson() const

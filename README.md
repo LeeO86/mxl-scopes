@@ -39,7 +39,8 @@ Environment > `SCOPES_CONFIG_FILE` (flat JSON, else `<SCOPES_STATE_DIR>/config.j
 | `SCOPES_HOLD_MS`, `SCOPES_INPUT_OFFSET_GRAINS` | 1000, 0 | live |
 | `SCOPES_THREADS` | 1 | 1–8 at start: the renderer and `SCOPES_THREADS` − 1 strip workers share the analyse and trace steps (same picture for any count; `renderer.threads` in the status) |
 | `SCOPES_SIMD` | `auto` | `auto`, `avx512`, `avx2`, `scalar` (`auto` = AVX2; AVX-512 only when set to `avx512`, it measured slower so far) |
-| `SCOPES_STATE_DIR` | `/config` | `config.json`, `routes.json` |
+| `SCOPES_PREVIEW_MODE`, `SCOPES_PREVIEW_FPS`, `SCOPES_PREVIEW_HEIGHT` | `webrtc`, 25, 540 | the WebRTC preview (H.264, x264; NVENC when a GPU has it) of the platform preview contract: `PREVIEW_PUBLISH_URL` set publishes `<PREVIEW_PATH_PREFIX>/scope` to a shared MediaMTX, empty runs the image's MediaMTX on the `MEDIAMTX_*` ports; `off` publishes nothing |
+| `SCOPES_STATE_DIR` | `/config` | `config.json`, `routes.json`, `mediamtx.yml` (own preview mode) |
 | `MXL_DOMAIN_SCAN_PATH`, `MXL_OUTPUT_DOMAIN_DIR`, `MXL_OUTPUT_DOMAIN_ID`, `MXL_HISTORY_DURATION_NS`, `MXL_CLEANUP_ON_EXIT` | `/Volumes/mxl`, `/Volumes/mxl/scopes-<id>`, UUIDv5 of the seed, 200 ms, `false` | |
 | `NMOS_*`, `WEB_*`, `LOG_LEVEL`, `LOG_FORMAT`, `SHUTDOWN_TIMEOUT_S` | as the sibling functions | |
 

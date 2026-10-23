@@ -86,6 +86,18 @@ void AppState::setOutputSettings(OutputSettings output)
     outputSettings_ = std::move(output);
 }
 
+void AppState::setPreview(PreviewStatus preview)
+{
+    std::lock_guard lock{mutex_};
+    preview_ = std::move(preview);
+}
+
+PreviewStatus AppState::preview() const
+{
+    std::lock_guard lock{mutex_};
+    return preview_;
+}
+
 void AppState::setMeasurements(Measurements measurements)
 {
     std::lock_guard lock{mutex_};

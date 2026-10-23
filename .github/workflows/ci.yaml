@@ -88,7 +88,8 @@ jobs:
             libboost-system-dev libboost-thread-dev libboost-chrono-dev \
             libboost-date-time-dev libboost-regex-dev libboost-random-dev \
             libboost-filesystem-dev libcpprest-dev nlohmann-json3-dev \
-            libssl-dev uuid-dev libavahi-compat-libdnssd-dev
+            libssl-dev uuid-dev libavahi-compat-libdnssd-dev \
+            libavcodec-dev libavformat-dev libavutil-dev
 
       - name: Build MXL
         run: |
@@ -153,3 +154,10 @@ jobs:
 
       - name: Integration
         run: MXL_LIB_DIR=/opt/mxl/lib tests/integration/scope.sh build/mxl-scopes build/mxl-scopes-writer build/mxl-scopes-sample
+
+      - name: Preview (MediaMTX release binary)
+        run: |
+          curl -fsSL -o /tmp/mediamtx.tgz https://github.com/bluenviron/mediamtx/releases/download/v1.20.1/mediamtx_v1.20.1_linux_amd64.tar.gz
+          mkdir -p /tmp/mediamtx
+          tar -xzf /tmp/mediamtx.tgz -C /tmp/mediamtx
+          MXL_LIB_DIR=/opt/mxl/lib MEDIAMTX_BIN=/tmp/mediamtx/mediamtx tests/integration/preview.sh build/mxl-scopes

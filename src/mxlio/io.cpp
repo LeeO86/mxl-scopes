@@ -22,6 +22,7 @@
 #include <filesystem>
 #include <fstream>
 #include <thread>
+#include <tuple>
 
 namespace scopes
 {
@@ -910,6 +911,7 @@ struct MediaIo::Impl
         std::uint8_t const* previous = nullptr;
         std::uint64_t previousIndex = 0;
         auto nextSnapshot = std::chrono::steady_clock::now();
+        std::tuple<std::uint64_t, std::uint64_t, int, int> snapshotOf{};
         // The output flow settings this flow was opened with; a change opens a new flow (§7).
         OutputSettings output = state.outputSettings();
         Rate rate = output.rate.value_or(Rate{50, 1});
@@ -1087,9 +1089,16 @@ struct MediaIo::Impl
                     previous = payload;
                     previousIndex = index;
                     auto const now = std::chrono::steady_clock::now();
-                    if (now >= nextSnapshot)
+                    // The snapshot for GET /api/v1/snapshot.png and the preview (§2.5): at the preview
+                    // rate while it runs, else twice a second; copied only when the picture changed.
+                    auto const shown = std::make_tuple(stillVersion, generation, output.width, output.height);
+                    if (now >= nextSnapshot && shown != snapshotOf)
                     {
-                        nextSnapshot = now + kSnapshotEvery;
+                        auto const every = config.previewMode == "webrtc"
+                                               ? std::chrono::milliseconds(1000 / std::clamp(state.settings()->previewFps, 1, 30))
+                                               : kSnapshotEvery;
+                        nextSnapshot = now + std::min<std::chrono::milliseconds>(every, kSnapshotEvery);
+                        snapshotOf = shown;
                         auto shot = std::make_shared<Snapshot>();
                         shot->width = output.width;
                         shot->height = output.height;

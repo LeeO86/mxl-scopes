@@ -36,6 +36,8 @@ add_library(scopes-core STATIC
     src/scope/engine.cpp
     src/scope/workers.cpp
     src/scope/measure.cpp
+    src/preview/plan.cpp
+    src/preview/child.cpp
     src/scope/scheduler.cpp
     src/scope/cpu/dispatch.cpp
     src/app/state.cpp
@@ -90,6 +92,7 @@ if(SCOPES_BUILD_TESTS)
         tests/unit/test_threads.cpp
         tests/unit/test_measure.cpp
         tests/unit/test_key.cpp
+        tests/unit/test_preview.cpp
         tests/unit/test_api.cpp
         tests/unit/test_http.cpp
     )
@@ -100,8 +103,11 @@ endif()
 
 find_package(mxl CONFIG QUIET)
 if(mxl_FOUND)
-    add_executable(mxl-scopes src/main.cpp src/mxlio/io.cpp src/nmos/node.cpp)
-    target_link_libraries(mxl-scopes PRIVATE scopes-core mxl::mxl)
+    # The WebRTC preview's H.264 encoder and RTSP publisher (§2.5): the system FFmpeg.
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(AV REQUIRED IMPORTED_TARGET libavcodec libavformat libavutil)
+    add_executable(mxl-scopes src/main.cpp src/mxlio/io.cpp src/nmos/node.cpp src/preview/publisher.cpp)
+    target_link_libraries(mxl-scopes PRIVATE scopes-core mxl::mxl PkgConfig::AV)
     target_compile_options(mxl-scopes PRIVATE ${SCOPES_WARNINGS})
     if(SCOPES_WITH_NMOS)
         if(NOT NMOS_CPP_DIR)
