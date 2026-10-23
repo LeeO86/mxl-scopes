@@ -133,6 +133,24 @@ void packAlpha(Frame422 const& src, std::uint8_t* dst)
     }
 }
 
+void unpackAlpha(std::uint8_t const* src, Frame422& dst)
+{
+    auto const rowBytes = alphaRowBytes(dst.width);
+    dst.a.assign(static_cast<std::size_t>(dst.width) * static_cast<std::size_t>(dst.height), 0);
+    for (int row = 0; row < dst.height; ++row)
+    {
+        auto const* line = src + static_cast<std::size_t>(row) * rowBytes;
+        for (int x = 0; x < dst.width; ++x)
+        {
+            auto const* word = line + 4 * static_cast<std::size_t>(x / 3);
+            std::uint32_t const w = static_cast<std::uint32_t>(word[0]) | (static_cast<std::uint32_t>(word[1]) << 8) | (static_cast<std::uint32_t>(word[2]) << 16) |
+                                    (static_cast<std::uint32_t>(word[3]) << 24);
+            dst.a[static_cast<std::size_t>(row) * static_cast<std::size_t>(dst.width) + static_cast<std::size_t>(x)] =
+                static_cast<std::uint16_t>((w >> (10 * (x % 3))) & 0x3ffu);
+        }
+    }
+}
+
 void unpackV210(std::uint8_t const* src, std::size_t srcRowBytes, Frame422& dst)
 {
     int const width = dst.width;

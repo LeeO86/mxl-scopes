@@ -85,6 +85,8 @@ struct Snapshot
     int height = 0;
     std::uint64_t update = 0;
     std::vector<std::uint8_t> v210;
+    // The key plane of a video/v210a output, else empty.
+    std::vector<std::uint8_t> key;
 };
 
 // State shared by the media threads, the API and the NMOS node. Each thread writes its own part.

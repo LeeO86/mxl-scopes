@@ -70,5 +70,7 @@ void packV210Line(std::uint16_t const* y, std::uint16_t const* cb, std::uint16_t
 void packV210(Frame422 const& src, std::uint8_t* dst, std::size_t dstRowBytes);
 // Packs the key plane `a` (video/v210a after the fill), alphaRowBytes(width) per line.
 void packAlpha(Frame422 const& src, std::uint8_t* dst);
+// The key plane of video/v210a back into `dst.a` (sized to the frame).
+void unpackAlpha(std::uint8_t const* src, Frame422& dst);
 void unpackV210(std::uint8_t const* src, std::size_t srcRowBytes, Frame422& dst);
 } // namespace scopes

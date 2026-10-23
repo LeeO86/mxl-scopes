@@ -269,6 +269,10 @@ sleep 0.5
 [[ "$("$SAMPLE" --domain "$WORK/scopes" --flow "$FLOW_KEY" --width 640 --key-height 360 --at "$COL,$((ROW - 12))")" == "300" ]] || fail "SCOPES_BG_ALPHA not in the key"
 [[ "$(curl -sf "$API/api/v1/output" | json 'd["flow_id"]')" == "$FLOW_KEY" ]] || fail "bg_alpha minted a new flow id"
 curl -sf -X PATCH -H 'Content-Type: application/json' -d '{"bg_alpha":0}' "$API/api/v1/scope" >/dev/null
+# The snapshot PNG carries the key as alpha (RGBA, colour type 6 in IHDR).
+sleep 0.6
+curl -sf -o "$WORK/key.png" "$API/api/v1/snapshot.png" || fail "snapshot with a key"
+python3 -c 'import sys; d=open(sys.argv[1],"rb").read(); sys.exit(0 if d[:8]==b"\x89PNG\r\n\x1a\n" and d[25]==6 else 1)' "$WORK/key.png" || fail "the snapshot with a key is not RGBA"
 put_config '{"SCOPES_OUTPUT_RATE":"25"}' >/dev/null || fail "PUT SCOPES_OUTPUT_RATE"
 FLOW_RATE="$(wait_flow "$FLOW_KEY")" || fail "no new flow for the rate"
 [[ "$(flow_def "$FLOW_RATE")" == "video/v210a 640 360 25 1" ]] || fail "rate flow_def: $(flow_def "$FLOW_RATE")"

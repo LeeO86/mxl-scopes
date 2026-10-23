@@ -1103,6 +1103,10 @@ struct MediaIo::Impl
                         shot->width = output.width;
                         shot->height = output.height;
                         shot->v210.assign(payload, payload + fillBytes);
+                        if (output.key)
+                        {
+                            shot->key.assign(payload + fillBytes, payload + pictureBytes);
+                        }
                         state.setSnapshot(std::move(shot));
                     }
                     grain.validSlices = grain.totalSlices;

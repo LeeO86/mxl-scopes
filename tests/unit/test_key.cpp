@@ -4,6 +4,7 @@
 #include <doctest/doctest.h>
 
 #include "media/patterns.hpp"
+#include "media/png.hpp"
 #include "scope/engine.hpp"
 
 #include <cmath>
@@ -142,4 +143,29 @@ TEST_CASE("key output: graticule alpha follows the level; the copy-free trace eq
     ScopeEngine threaded(SimdLevel::Scalar, kDefaultStripColumns, 3);
     threaded.configure({1920, 1080, v210RowBytes(1920)}, settings, 1920, 1080, true);
     CHECK(renderOnce(threaded, scene) == rendered);
+}
+
+TEST_CASE("key: unpack is the inverse of pack; the snapshot PNG is RGBA with the key as alpha")
+{
+    Frame422 frame;
+    frame.allocate(10, 3);
+    frame.a.assign(30, 0);
+    for (int i = 0; i < 30; ++i)
+    {
+        frame.a[static_cast<std::size_t>(i)] = static_cast<std::uint16_t>(i * 34);
+    }
+    std::vector<std::uint8_t> packed(3 * alphaRowBytes(10));
+    packAlpha(frame, packed.data());
+    Frame422 back;
+    back.allocate(10, 3);
+    unpackAlpha(packed.data(), back);
+    CHECK(back.a == frame.a);
+    auto const rgba = encodePng(frame);
+    Frame422 plain;
+    plain.allocate(10, 3);
+    auto const rgb = encodePng(plain);
+    // PNG IHDR colour type at byte 25: 6 RGBA, 2 RGB.
+    REQUIRE(rgba.size() > 26);
+    CHECK(static_cast<unsigned char>(rgba[25]) == 6);
+    CHECK(static_cast<unsigned char>(rgb[25]) == 2);
 }

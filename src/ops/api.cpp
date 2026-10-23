@@ -519,6 +519,10 @@ HttpResponse Api::snapshotPng(std::string const& query) const
         Frame422 frame;
         frame.allocate(snapshot->width, snapshot->height);
         unpackV210(snapshot->v210.data(), v210RowBytes(snapshot->width), frame);
+        if (snapshot->key.size() >= alphaRowBytes(snapshot->width) * static_cast<std::size_t>(snapshot->height))
+        {
+            unpackAlpha(snapshot->key.data(), frame);
+        }
         png_ = encodePng(frame, scale);
         pngSource_ = snapshot;
         pngScale_ = scale;
