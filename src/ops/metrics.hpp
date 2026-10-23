@@ -22,6 +22,10 @@ public:
     void observe(std::string const& name, Labels const& labels, double seconds);
     [[nodiscard]] double value(std::string const& name, Labels const& labels) const;
     [[nodiscard]] std::string render() const;
+    // The standard process metrics without the prefix (as the sibling functions export them):
+    // process_cpu_seconds_total, process_resident_memory_bytes, process_start_time_seconds,
+    // process_open_fds; from /proc/self.
+    [[nodiscard]] static std::string renderProcess();
 
 private:
     struct Series

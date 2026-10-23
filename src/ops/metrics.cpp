@@ -1,6 +1,10 @@
 #include "ops/metrics.hpp"
 
 #include <algorithm>
+#include <ctime>
+#include <filesystem>
+#include <fstream>
+#include <unistd.h>
 #include <cmath>
 #include <set>
 #include <sstream>
@@ -140,6 +144,55 @@ std::string Metrics::render() const
         out << kPrefix << base << "_sum" << braces << ' ' << number(hist.sum) << '\n';
         out << kPrefix << base << "_count" << braces << ' ' << hist.count << '\n';
     }
+    return out.str();
+}
+std::string Metrics::renderProcess()
+{
+    std::ostringstream out;
+    // /proc/self/stat: utime (14) and stime (15) in clock ticks, starttime (22) since boot.
+    std::ifstream statFile("/proc/self/stat");
+    std::string stat((std::istreambuf_iterator<char>(statFile)), std::istreambuf_iterator<char>());
+    auto const close = stat.rfind(')');
+    if (close != std::string::npos)
+    {
+        std::istringstream fields(stat.substr(close + 2));
+        std::vector<std::string> f;
+        for (std::string v; fields >> v;)
+        {
+            f.push_back(v);
+        }
+        // After the command: field 3 is f[0], so field n is f[n - 3].
+        if (f.size() > 19)
+        {
+            double const hz = static_cast<double>(::sysconf(_SC_CLK_TCK));
+            double const cpu = (std::stod(f[11]) + std::stod(f[12])) / hz;
+            out << "# TYPE process_cpu_seconds_total counter\nprocess_cpu_seconds_total " << cpu << "\n";
+            std::ifstream uptimeFile("/proc/uptime");
+            double uptime = 0;
+            uptimeFile >> uptime;
+            double const now = static_cast<double>(std::time(nullptr));
+            out << "# TYPE process_start_time_seconds gauge\nprocess_start_time_seconds " << std::fixed << (now - uptime + std::stod(f[19]) / hz)
+                << std::defaultfloat << "\n";
+        }
+    }
+    std::ifstream status("/proc/self/status");
+    for (std::string line; std::getline(status, line);)
+    {
+        if (line.rfind("VmRSS:", 0) == 0)
+        {
+            std::istringstream value(line.substr(6));
+            long long kb = 0;
+            value >> kb;
+            out << "# TYPE process_resident_memory_bytes gauge\nprocess_resident_memory_bytes " << kb * 1024 << "\n";
+        }
+    }
+    std::error_code ec;
+    std::size_t fds = 0;
+    for (auto it = std::filesystem::directory_iterator("/proc/self/fd", ec); !ec && it != std::filesystem::directory_iterator(); it.increment(ec))
+    {
+        ++fds;
+    }
+    out << "# TYPE process_open_fds gauge\nprocess_open_fds " << fds << "\n";
     return out.str();
 }
 } // namespace scopes

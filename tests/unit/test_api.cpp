@@ -163,3 +163,18 @@ TEST_CASE("routes.json round trip")
     REQUIRE(saveRoute(f.dir, route));
     CHECK(loadRoute(f.dir) == route);
 }
+
+TEST_CASE("process metrics: CPU, resident memory, start time, open files without the prefix")
+{
+    auto const text = Metrics::renderProcess();
+    for (auto const* name : {"process_cpu_seconds_total ", "process_resident_memory_bytes ", "process_start_time_seconds ", "process_open_fds "})
+    {
+        CAPTURE(name);
+        auto const at = text.find(std::string("\n") + name);
+        REQUIRE(at != std::string::npos);
+        // The CPU time of a test that just started can be 0 clock ticks.
+        CHECK(std::stod(text.substr(at + 1 + std::string(name).size())) >= (std::string(name).rfind("process_cpu", 0) == 0 ? 0.0 : 1.0));
+    }
+    Fixture f;
+    CHECK(f.call("GET", "/metrics").body.find("\nprocess_resident_memory_bytes ") != std::string::npos);
+}

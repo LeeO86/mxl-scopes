@@ -597,7 +597,7 @@ HttpResponse Api::handle(HttpRequest const& request)
     {
         HttpResponse response;
         response.contentType = "text/plain; version=0.0.4";
-        response.body = metrics_.render();
+        response.body = metrics_.render() + Metrics::renderProcess();
         return response;
     }
     if (path == "/statusz" || path == "/api/v1/status")
