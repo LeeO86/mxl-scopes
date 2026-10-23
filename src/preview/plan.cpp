@@ -128,9 +128,62 @@ PreviewSize previewSize(int outputWidth, int outputHeight, int previewHeight)
     return size;
 }
 
+namespace
+{
+// The common case, exactly half the raster (1080 -> 540): straight loops over two input rows per
+// output row and four per chroma row, the same rounding as the general boxes.
+void halfToNv12(std::uint8_t const* v210, std::size_t rowBytes, int width, int height, std::uint8_t* y, int yStride, std::uint8_t* uv, int uvStride)
+{
+    int const ow = width / 2;
+    int const cw = width / 2;
+    Frame422 rows;
+    rows.allocate(width, 4);
+    std::vector<std::uint32_t> cb(static_cast<std::size_t>(ow / 2));
+    std::vector<std::uint32_t> cr(static_cast<std::size_t>(ow / 2));
+    for (int r = 0; r + 3 < height; r += 4)
+    {
+        unpackV210(v210 + static_cast<std::size_t>(r) * rowBytes, rowBytes, rows);
+        for (int pair = 0; pair < 2; ++pair)
+        {
+            auto const* a = rows.y.data() + static_cast<std::size_t>(2 * pair) * static_cast<std::size_t>(width);
+            auto const* b = a + width;
+            auto* dst = y + static_cast<std::size_t>(r / 2 + pair) * static_cast<std::size_t>(yStride);
+            for (int o = 0; o < ow; ++o)
+            {
+                std::uint32_t const sum = static_cast<std::uint32_t>(a[2 * o]) + a[2 * o + 1] + b[2 * o] + b[2 * o + 1];
+                dst[o] = static_cast<std::uint8_t>(std::min<std::uint32_t>(255, (sum + 8) / 16));
+            }
+        }
+        std::fill(cb.begin(), cb.end(), 0u);
+        std::fill(cr.begin(), cr.end(), 0u);
+        for (int k = 0; k < 4; ++k)
+        {
+            auto const* cbs = rows.cb.data() + static_cast<std::size_t>(k) * static_cast<std::size_t>(cw);
+            auto const* crs = rows.cr.data() + static_cast<std::size_t>(k) * static_cast<std::size_t>(cw);
+            for (int o = 0; o < ow / 2; ++o)
+            {
+                cb[static_cast<std::size_t>(o)] += static_cast<std::uint32_t>(cbs[2 * o]) + cbs[2 * o + 1];
+                cr[static_cast<std::size_t>(o)] += static_cast<std::uint32_t>(crs[2 * o]) + crs[2 * o + 1];
+            }
+        }
+        auto* dst = uv + static_cast<std::size_t>(r / 4) * static_cast<std::size_t>(uvStride);
+        for (int o = 0; o < ow / 2; ++o)
+        {
+            dst[2 * o] = static_cast<std::uint8_t>(std::min<std::uint32_t>(255, (cb[static_cast<std::size_t>(o)] + 16) / 32));
+            dst[2 * o + 1] = static_cast<std::uint8_t>(std::min<std::uint32_t>(255, (cr[static_cast<std::size_t>(o)] + 16) / 32));
+        }
+    }
+}
+} // namespace
+
 void v210ToNv12(std::uint8_t const* v210, std::size_t rowBytes, int width, int height, PreviewSize size, std::uint8_t* y, int yStride, std::uint8_t* uv,
     int uvStride)
 {
+    if (size.width * 2 == width && size.height * 2 == height && width % 4 == 0 && height % 4 == 0)
+    {
+        halfToNv12(v210, rowBytes, width, height, y, yStride, uv, uvStride);
+        return;
+    }
     int const cw = width / 2;
     int const ow = size.width;
     int const oh = size.height;

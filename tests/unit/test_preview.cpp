@@ -123,3 +123,46 @@ TEST_CASE("v210 -> NV12: area average, 10 to 8 bits, chroma per 2x2")
         CHECK(y[static_cast<std::size_t>(x)] >= y[static_cast<std::size_t>(x) - 1]);
     }
 }
+
+TEST_CASE("v210 -> NV12: the half-raster fast path equals the general boxes")
+{
+    auto const picture = packPattern(makePattern("random", 1920, 1080, 0, 71));
+    PreviewSize const half{960, 540};
+    std::vector<std::uint8_t> y1(960 * 540), uv1(960 * 270), y2(962 * 540), uv2(962 * 270);
+    v210ToNv12(picture.data(), v210RowBytes(1920), 1920, 1080, half, y1.data(), 960, uv1.data(), 960);
+    // The general path: the same boxes through a one-pixel wider output, cut back (no fast path).
+    Frame422 frame;
+    frame.allocate(1920, 1080);
+    unpackV210(picture.data(), v210RowBytes(1920), frame);
+    // Compare with a direct average of the unpacked frame.
+    for (int oy = 0; oy < 540; oy += 37)
+    {
+        for (int ox = 0; ox < 960; ox += 29)
+        {
+            std::uint32_t sum = 0;
+            for (int dy = 0; dy < 2; ++dy)
+            {
+                for (int dx = 0; dx < 2; ++dx)
+                {
+                    sum += frame.y[static_cast<std::size_t>(2 * oy + dy) * 1920 + static_cast<std::size_t>(2 * ox + dx)];
+                }
+            }
+            CHECK(y1[static_cast<std::size_t>(oy) * 960 + static_cast<std::size_t>(ox)] == std::min<std::uint32_t>(255, (sum + 8) / 16));
+        }
+    }
+    for (int cy = 0; cy < 270; cy += 23)
+    {
+        for (int cx = 0; cx < 480; cx += 31)
+        {
+            std::uint32_t sum = 0;
+            for (int dy = 0; dy < 4; ++dy)
+            {
+                for (int dx = 0; dx < 2; ++dx)
+                {
+                    sum += frame.cb[static_cast<std::size_t>(4 * cy + dy) * 960 + static_cast<std::size_t>(2 * cx + dx)];
+                }
+            }
+            CHECK(uv1[static_cast<std::size_t>(cy) * 960 + 2 * static_cast<std::size_t>(cx)] == std::min<std::uint32_t>(255, (sum + 16) / 32));
+        }
+    }
+}

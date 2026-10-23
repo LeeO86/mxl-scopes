@@ -162,7 +162,32 @@ void unpackV210(std::uint8_t const* src, std::size_t srcRowBytes, Frame422& dst)
         auto* cbs = dst.cb.data() + static_cast<std::size_t>(row) * static_cast<std::size_t>(cw);
         auto* crs = dst.cr.data() + static_cast<std::size_t>(row) * static_cast<std::size_t>(cw);
         int const groups = (width + 5) / 6;
-        for (int g = 0; g < groups; ++g)
+        int const full = width / 6;
+        // Whole groups without bounds checks (the compiler keeps them in registers).
+        for (int g = 0; g < full; ++g)
+        {
+            auto const* in = line + 16 * g;
+            std::uint32_t const w0 = get32(in);
+            std::uint32_t const w1 = get32(in + 4);
+            std::uint32_t const w2 = get32(in + 8);
+            std::uint32_t const w3 = get32(in + 12);
+            auto* yo = ys + 6 * g;
+            auto* bo = cbs + 3 * g;
+            auto* ro = crs + 3 * g;
+            yo[0] = static_cast<std::uint16_t>((w0 >> 10) & 0x3ff);
+            yo[1] = static_cast<std::uint16_t>(w1 & 0x3ff);
+            yo[2] = static_cast<std::uint16_t>((w1 >> 20) & 0x3ff);
+            yo[3] = static_cast<std::uint16_t>((w2 >> 10) & 0x3ff);
+            yo[4] = static_cast<std::uint16_t>(w3 & 0x3ff);
+            yo[5] = static_cast<std::uint16_t>((w3 >> 20) & 0x3ff);
+            bo[0] = static_cast<std::uint16_t>(w0 & 0x3ff);
+            bo[1] = static_cast<std::uint16_t>((w1 >> 10) & 0x3ff);
+            bo[2] = static_cast<std::uint16_t>((w2 >> 20) & 0x3ff);
+            ro[0] = static_cast<std::uint16_t>((w0 >> 20) & 0x3ff);
+            ro[1] = static_cast<std::uint16_t>(w2 & 0x3ff);
+            ro[2] = static_cast<std::uint16_t>((w3 >> 10) & 0x3ff);
+        }
+        for (int g = full; g < groups; ++g)
         {
             auto const* in = line + 16 * g;
             std::uint32_t const w0 = get32(in);

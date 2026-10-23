@@ -11,6 +11,8 @@ extern "C" {
 }
 
 #include <pthread.h>
+#include <sys/resource.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <chrono>
@@ -323,6 +325,8 @@ struct PreviewPublisher::Impl
     void loop()
     {
         pthread_setname_np(pthread_self(), "sc-preview");
+        // Below the media threads: on a busy core the preview waits, never the output writer.
+        setpriority(PRIO_PROCESS, static_cast<id_t>(::gettid()), 10);
         using Clock = std::chrono::steady_clock;
         auto const start = Clock::now();
         auto next = start;
