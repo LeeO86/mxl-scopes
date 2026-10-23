@@ -13,6 +13,7 @@
 #include <mxl/time.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -22,6 +23,7 @@
 #include <filesystem>
 #include <fstream>
 #include <thread>
+#include <tuple>
 
 namespace scopes
 {
@@ -910,6 +912,16 @@ struct MediaIo::Impl
         std::uint8_t const* previous = nullptr;
         std::uint64_t previousIndex = 0;
         auto nextSnapshot = std::chrono::steady_clock::now();
+        std::tuple<std::uint64_t, std::uint64_t, int, int> snapshotOf{};
+        // The snapshot buffers (§2.5): the published one, one a reader (the preview encoder, the
+        // PNG) may still hold, and the one written next; their vectors keep their capacity. When
+        // none is free the tick has no snapshot.
+        std::array<std::shared_ptr<Snapshot>, 3> shots;
+        std::uint64_t snapshotNumber = 0;
+        for (auto& shot : shots)
+        {
+            shot = std::make_shared<Snapshot>();
+        }
         // The output flow settings this flow was opened with; a change opens a new flow (§7).
         OutputSettings output = state.outputSettings();
         Rate rate = output.rate.value_or(Rate{50, 1});
@@ -1086,19 +1098,42 @@ struct MediaIo::Impl
                     }
                     previous = payload;
                     previousIndex = index;
-                    auto const now = std::chrono::steady_clock::now();
-                    if (now >= nextSnapshot)
-                    {
-                        nextSnapshot = now + kSnapshotEvery;
-                        auto shot = std::make_shared<Snapshot>();
-                        shot->width = output.width;
-                        shot->height = output.height;
-                        shot->v210.assign(payload, payload + fillBytes);
-                        state.setSnapshot(std::move(shot));
-                    }
                     grain.validSlices = grain.totalSlices;
                     grain.flags = 0;
                     mxlFlowWriterCommitGrain(writer, &grain);
+                    // The snapshot for GET /api/v1/snapshot.png and the preview (§2.5): at the preview
+                    // rate while it runs, else twice a second; copied only when the picture changed,
+                    // after the commit (the grain is out on time first), into one of three buffers
+                    // allocated once (no allocation, no page faults, nothing freed on this thread).
+                    auto const now = std::chrono::steady_clock::now();
+                    auto const shown = std::make_tuple(stillVersion, generation, output.width, output.height);
+                    if (now >= nextSnapshot && shown != snapshotOf)
+                    {
+                        auto const every = config.previewMode == "webrtc"
+                                               ? std::chrono::milliseconds(1000 / std::clamp(state.settings()->previewFps, 1, 30))
+                                               : kSnapshotEvery;
+                        nextSnapshot = now + std::min<std::chrono::milliseconds>(every, kSnapshotEvery);
+                        // A buffer nobody else holds (not the published one, not one a reader still uses).
+                        auto free = std::find_if(shots.begin(), shots.end(), [](auto const& shot) { return shot.use_count() == 1; });
+                        if (free != shots.end())
+                        {
+                            snapshotOf = shown;
+                            auto& shot = **free;
+                            shot.update = ++snapshotNumber;
+                            shot.width = output.width;
+                            shot.height = output.height;
+                            shot.v210.assign(payload, payload + fillBytes);
+                            if (output.key)
+                            {
+                                shot.key.assign(payload + fillBytes, payload + pictureBytes);
+                            }
+                            else
+                            {
+                                shot.key.clear();
+                            }
+                            state.setSnapshot(*free);
+                        }
+                    }
                     ++view.frames;
                     metrics.inc("output_frames_total", {});
                 }

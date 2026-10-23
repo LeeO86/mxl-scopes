@@ -105,3 +105,17 @@ Analyse + render per update every frame (the process's own averages, ms): RGB pa
 
 - M2 on one thread costs 0.02–0.06 core more than M1 (the measurements, the key-capable trace groups, the gamut count in the RGB modes).
 - Two threads cost 0.05–0.1 core more than one (the second thread's wake-ups and the split trace) and halve the time an update takes. They are for latency and the overlays' render time, not for CPU: the RGB parade every frame stays above the §13 "< 0.4 core" (deviation 25).
+
+## M3 (2026-10-23): the WebRTC preview
+
+Lab host as in M2, the camera clip as 1080p50, the scope on one core with its own MediaMTX in the same container, 1080p50 out, AVX2, preview 960×540 at 25 fps, 2 Mbit/s, no WebRTC viewer (MediaMTX ingests only). Process CPU of `mxl-scopes` (all threads), 20 s per point.
+
+| Mode, update rate | Preview off | Preview on (x264) | Preview on (NVENC, lab GPU) |
+| --- | --- | --- | --- |
+| `luma`, 25 Hz | 0.26 | 0.41 (0.40 over 60 s) | 0.34 |
+| `rgb-parade`, 25 Hz | 0.39 | 0.54 | — |
+| `luma`, every frame | 0.40 | 0.54 | — |
+
+- The preview adds about 0.15 core with x264 (§13: < 0.25), 0.08 with NVENC. MediaMTX ingesting the stream: 0.005 core.
+- A first build added 0.27 core and made one output grain late on the shared core; the scaler took 6.6 ms per picture. A straight-loop path for exactly half the raster and a faster v210 unpack bring it to 2.5 ms, and the publisher thread runs at nice 10 so the output writer never waits for it: 0 late and 0 missed output grains in every point above.
+- Quality (SPECIFICATION open question 11): at 540p the luma waveform of the camera clip keeps its traces readable; the area average dims one-pixel lines and the 4:2:0 chroma softens coloured traces. The MXL output keeps the full picture.

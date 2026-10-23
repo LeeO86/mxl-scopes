@@ -86,6 +86,18 @@ void AppState::setOutputSettings(OutputSettings output)
     outputSettings_ = std::move(output);
 }
 
+void AppState::setPreview(PreviewStatus preview)
+{
+    std::lock_guard lock{mutex_};
+    preview_ = std::move(preview);
+}
+
+PreviewStatus AppState::preview() const
+{
+    std::lock_guard lock{mutex_};
+    return preview_;
+}
+
 void AppState::setMeasurements(Measurements measurements)
 {
     std::lock_guard lock{mutex_};
@@ -100,8 +112,11 @@ Measurements AppState::measurements() const
 
 void AppState::setSnapshot(std::shared_ptr<Snapshot const> snapshot)
 {
-    std::lock_guard lock{mutex_};
-    snapshot_ = std::move(snapshot);
+    {
+        std::lock_guard lock{mutex_};
+        snapshot_.swap(snapshot);
+    }
+    // The previous one is released here, outside the lock.
 }
 
 std::shared_ptr<Snapshot const> AppState::snapshot() const

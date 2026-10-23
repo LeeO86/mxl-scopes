@@ -5,6 +5,10 @@
 #include "ops/api.hpp"
 #include "ops/httpserver.hpp"
 #include "ops/metrics.hpp"
+#include "preview/child.hpp"
+#include "preview/plan.hpp"
+#include "preview/publisher.hpp"
+#include "scope/scheduler.hpp"
 #include "scope/cpu/dispatch.hpp"
 #include "util/logging.hpp"
 #include "version.hpp"
@@ -16,6 +20,8 @@
 #include <csignal>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
+#include <memory>
 #include <iostream>
 #include <map>
 #include <thread>
@@ -156,6 +162,44 @@ int main(int argc, char** argv)
             scopes::logError("startup", {{"error", ex.what()}});
             return 75;
         }
+        // The WebRTC preview (§2.5): own mode runs a MediaMTX child with a config in the state
+        // directory; the publisher sends the scope picture to it (or to the shared MediaMTX).
+        auto const plan = scopes::previewPlan(config);
+        std::unique_ptr<scopes::ChildProcess> mediamtx;
+        std::unique_ptr<scopes::PreviewPublisher> publisher;
+        std::uint64_t previewFrames = 0;
+        std::string previewEncoder;
+        if (plan.webrtc)
+        {
+            if (plan.ownMediamtx)
+            {
+                auto const yml = (std::filesystem::path(config.stateDir) / "mediamtx.yml").string();
+                std::ofstream file(yml, std::ios::trunc);
+                file << scopes::renderMediamtxConfig(config);
+                file.close();
+                if (!file)
+                {
+                    scopes::logError("mediamtx_config", {{"path", yml}, {"error", "cannot write"}});
+                    return 75;
+                }
+                mediamtx = std::make_unique<scopes::ChildProcess>("mediamtx");
+                mediamtx->start({"mediamtx", yml});
+            }
+            publisher = std::make_unique<scopes::PreviewPublisher>(
+                plan.publishUrl, config.previewHeight, [&] { return state.snapshot(); },
+                [&] {
+                    // SCOPES_PREVIEW_FPS, never more than the update rate (§2.5).
+                    auto const s = state.settings();
+                    auto const in = state.input();
+                    double const inputHz = in.rateNum > 0 && in.rateDen > 0 ? static_cast<double>(in.rateNum) / in.rateDen / (in.interlaced ? 2 : 1) : 0;
+                    double const rate = scopes::modeUpdateRate(s->mode, s->updateRate, inputHz);
+                    double const updates = rate > 0 ? rate : (inputHz > 0 ? inputHz : 50.0);
+                    return std::min<double>(s->previewFps, updates);
+                });
+            publisher->start([&](double seconds) { metrics.observe("preview_encode_seconds", {}, seconds); });
+            metrics.set("preview_publish_mode", {{"mode", plan.ownMediamtx ? "own" : "shared"}}, 1);
+            metrics.inc("preview_frames_total", {}, 0);
+        }
         std::signal(SIGINT, onSignal);
         std::signal(SIGTERM, onSignal);
         std::signal(SIGPIPE, SIG_IGN);
@@ -176,6 +220,35 @@ int main(int argc, char** argv)
             }
             if (now >= nextEvents)
             {
+                if (publisher)
+                {
+                    auto status = publisher->status();
+                    if (mediamtx)
+                    {
+                        status.mediamtxRunning = mediamtx->running();
+                        status.mediamtxRestarts = mediamtx->restarts();
+                    }
+                    for (char const* name : {"connecting", "publishing", "error"})
+                    {
+                        metrics.set("preview_publish_state", {{"state", name}}, status.state == name ? 1 : 0);
+                    }
+                    if (status.encoder != previewEncoder)
+                    {
+                        // One encoder label at 1; the one before (after a fallback) goes to 0.
+                        if (!previewEncoder.empty())
+                        {
+                            metrics.set("preview_encoder", {{"encoder", previewEncoder}}, 0);
+                        }
+                        if (!status.encoder.empty())
+                        {
+                            metrics.set("preview_encoder", {{"encoder", status.encoder}}, 1);
+                        }
+                        previewEncoder = status.encoder;
+                    }
+                    metrics.inc("preview_frames_total", {}, static_cast<double>(status.frames - previewFrames));
+                    previewFrames = status.frames;
+                    state.setPreview(std::move(status));
+                }
                 http.broadcast(api.eventsJson());
                 nextEvents = now + std::chrono::milliseconds(200);
             }
@@ -194,6 +267,14 @@ int main(int argc, char** argv)
             }
         });
         http.stop();
+        if (publisher)
+        {
+            publisher->stop();
+        }
+        if (mediamtx)
+        {
+            mediamtx->stop();
+        }
         io.stop();
         node.stop();
         if (config.cleanupOnExit)

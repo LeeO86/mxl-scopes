@@ -3,6 +3,7 @@
 #include "media/png.hpp"
 #include "media/timebase.hpp"
 #include "nmos/ids.hpp"
+#include "ops/widgets.hpp"
 #include "scope/render.hpp"
 #include "util/jsonutil.hpp"
 #include "util/logging.hpp"
@@ -156,13 +157,7 @@ bool Api::ready(std::string* reason) const
 
 std::string Api::previewJson() const
 {
-    // The WebRTC preview of the preview contract arrives in M3; until then the snapshot.
-    std::string const path = config_.previewPathPrefix + "/scope";
-    std::ostringstream out;
-    out << "{\"mode\":" << quote(config_.previewMode) << ",\"publish\":" << quote(config_.previewPublishUrl.empty() ? "own" : "shared")
-        << ",\"path\":" << quote(path) << ",\"state\":\"not_implemented\",\"whep\":\"\",\"hls\":\"\",\"public\":{\"whep\":false,\"hls\":false}"
-        << ",\"snapshot\":\"/api/v1/snapshot.png\"}";
-    return out.str();
+    return scopes::previewJson(config_, state_.preview());
 }
 
 std::string Api::infoJson() const
@@ -519,13 +514,17 @@ HttpResponse Api::snapshotPng(std::string const& query) const
     response.contentType = "image/png";
     response.headers.emplace_back("Cache-Control", "no-store");
     std::lock_guard lock{pngMu_};
-    if (pngSource_ != snapshot || pngScale_ != scale)
+    if (pngUpdate_ != snapshot->update || pngScale_ != scale)
     {
         Frame422 frame;
         frame.allocate(snapshot->width, snapshot->height);
         unpackV210(snapshot->v210.data(), v210RowBytes(snapshot->width), frame);
+        if (snapshot->key.size() >= alphaRowBytes(snapshot->width) * static_cast<std::size_t>(snapshot->height))
+        {
+            unpackAlpha(snapshot->key.data(), frame);
+        }
         png_ = encodePng(frame, scale);
-        pngSource_ = snapshot;
+        pngUpdate_ = snapshot->update;
         pngScale_ = scale;
     }
     response.body = png_;
@@ -537,7 +536,8 @@ HttpResponse Api::handle(HttpRequest const& request)
     auto const& path = request.path;
     auto const& method = request.method;
     bool const mutating = method == "POST" || method == "PUT" || method == "PATCH" || method == "DELETE";
-    if (!config_.webEnable && (mutating || path == "/" || path == "/index.html"))
+    bool const webPath = path == "/" || path == "/index.html" || path == "/widgets" || path.rfind("/widget/", 0) == 0;
+    if (!config_.webEnable && (mutating || webPath))
     {
         return error(404, "the web UI and changes are off (WEB_ENABLE=false)");
     }
@@ -546,6 +546,42 @@ HttpResponse Api::handle(HttpRequest const& request)
         HttpResponse page;
         page.contentType = "text/html; charset=utf-8";
         page.body = indexPage_.empty() ? std::string("<!doctype html><title>mxl-scopes</title><p>The UI is not embedded. See /api/v1/info.</p>") : indexPage_;
+        return page;
+    }
+    // Operator-screen widgets (§9.3): the list with CORS for the listed origins, the pages with
+    // `frame-ancestors`; the page is the UI's, which shows only the widget on /widget/<id>.
+    if (path == "/widgets")
+    {
+        if (method != "GET")
+        {
+            auto response = error(405, "GET only");
+            response.headers.emplace_back("Allow", "GET");
+            return response;
+        }
+        auto response = jsonResponse(200, widgetsJson());
+        if (auto const origin = request.headers.find("origin");
+            origin != request.headers.end() && listedOrigin(config_.widgetFrameAncestors, origin->second))
+        {
+            response.headers.emplace_back("Access-Control-Allow-Origin", origin->second);
+        }
+        response.headers.emplace_back("Vary", "Origin");
+        return response;
+    }
+    if (path.rfind("/widget/", 0) == 0 && method == "GET")
+    {
+        if (!knownWidget(path.substr(8)))
+        {
+            return error(404, "unknown widget");
+        }
+        if (auto const problem = widgetQueryError(parseQuery(request.query)); !problem.empty())
+        {
+            return error(400, problem);
+        }
+        HttpResponse page;
+        page.contentType = "text/html; charset=utf-8";
+        page.body = indexPage_.empty() ? std::string("<!doctype html><title>mxl-scopes</title><p>The UI is not embedded.</p>") : indexPage_;
+        page.headers.emplace_back("Content-Security-Policy", "frame-ancestors " + config_.widgetFrameAncestors);
+        page.headers.emplace_back("Cache-Control", "no-store");
         return page;
     }
     if (path == "/livez")

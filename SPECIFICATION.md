@@ -103,11 +103,12 @@ Out of scope for every stage here: audio scopes (the audio mixer and the multivi
 
 ### 2.5 Preview
 
-- The preview follows the platform preview contract exactly as mxl-multiviewer §8.4 and mxl-webrtc-monitor §5.7: `PREVIEW_PUBLISH_URL` set → shared mode, publish there; empty → own mode, a supervised MediaMTX child on the `MEDIAMTX_*` ports.
+- The preview follows the platform preview contract exactly as mxl-multiviewer §8.4 and mxl-webrtc-monitor §5.7: `PREVIEW_PUBLISH_URL` set → shared mode, publish there; empty → own mode, a supervised MediaMTX child on the `MEDIAMTX_*` ports. Its config lets only 127.0.0.1 and ::1 publish (anyone may read and play back) and keeps the running publisher (`overridePublisher: false`).
 - One stream, path `<PREVIEW_PATH_PREFIX>/scope`.
 - The preview thread takes the latest scope frame at `SCOPES_PREVIEW_FPS` (default 25, never more than the update rate), scales it by area average to `SCOPES_PREVIEW_HEIGHT` (default 540, even width keeping the aspect) in 8-bit NV12, and encodes H.264 (NVENC when available, else x264; 2 Mbit/s CBR, one-second GOP, no B-frames, BT.709 limited range).
 - The key plane is not in the preview. The preview shows the scope on its background.
 - The preview is not part of readiness.
+- The picture comes from the output writer, which, after committing the grain, copies the newest output picture (the fill) at the preview rate when it changed, into one of three buffers allocated once; a buffer still held by the encoder or the PNG is skipped, and the old picture is freed outside the state lock. The scale is an area average of integer boxes, 10 to 8 bits rounded, chroma per 2×2 output pixels. The encoder runs on its own thread at `min(SCOPES_PREVIEW_FPS, update rate)`, timestamps from the clock; h264_nvenc is tried first and libx264 used when it does not open (logged once). An output raster change opens a new encoder and connection. The publish state is in `/api/v1/status` (`preview`: `state` connecting, publishing or error, `encoder`, `frames`, `width`, `height`, `fps`, `whep`, `hls`, own mode `mediamtx`).
 
 ---
 
@@ -461,7 +462,7 @@ A `PATCH /api/v1/scope` is saved to the config file, so the scope comes back the
 
 The widget contract of the siblings (platform Appendix B.2; mxl-webrtc-monitor 1.3 is the reference for a video widget).
 
-- `GET /widgets` answers `[{id, title, params, min_size: {w, h}, version}]`; GET only (405 with `Allow: GET`); `Access-Control-Allow-Origin` for an origin listed in `WIDGET_FRAME_ANCESTORS` (or `*`), `Vary: Origin`, never the API's CORS headers on top.
+- `GET /widgets` answers `[{id, title, params, min_size: {w, h}, version}]`; GET only (405 with `Allow: GET`); `Access-Control-Allow-Origin` for an origin listed in `WIDGET_FRAME_ANCESTORS` (or `*`; a host wildcard such as `https://*.example.com` matches the subdomains, as in `frame-ancestors`), `Vary: Origin`, never the API's CORS headers on top.
 - **`scope`**: `params` `controls` (boolean, default false), `measurements` (boolean, default false); `min_size` 320×180. The scope's WHEP picture (HLS fallback), filling the frame. With `controls`, a slim bar with the mode and the update rate. With `measurements`, one line of luma min/max and out-of-range share. One instance has one scope, so there is no channel parameter.
 - `GET /widget/scope[?controls=][&measurements=][&theme=dark|light|transparent]`; an invalid parameter answers 400, an unknown widget 404.
 - `/widget` routes carry `Content-Security-Policy: frame-ancestors <WIDGET_FRAME_ANCESTORS>` (default `'self'`) and no `X-Frame-Options`. `;`, `,` or control characters in the value exit 78.
@@ -680,7 +681,7 @@ The open questions of the draft, now decided: question 7 is **MIT** (not Apache-
 8. **AVX-512.** *Recommendation:* not in v1. The histogram increment is scalar, so the gain is small, and on Skylake-SP 512-bit code slows the core's other hyperthread. Re-check after M0 on the lab host. **Decided 2026-10-15: in v1** with run-time dispatch AVX-512 → AVX2 → scalar (§3.2).
 9. **Graticule units default.** *Recommendation:* `mv`, with `percent` one click away in the UI.
 10. **Trace colour default for luma.** *Recommendation:* `green`; `white` for operators who prefer it.
-11. **Preview quality.** H.264 4:2:0 at 540p softens thin coloured traces. A browser-drawn scope (histogram over the WebSocket, drawn on a canvas) would be sharper and cheaper, but it is a second renderer. *Recommendation:* WebRTC for v1 as decided; judge it in the lab (M3); keep the canvas as a stage-2 option.
+11. **Preview quality (judged in the lab 2026-10-23: at 540p the traces of a camera picture stay readable; the area average dims one-pixel lines, the MXL output keeps the full picture).** H.264 4:2:0 at 540p softens thin coloured traces. A browser-drawn scope (histogram over the WebSocket, drawn on a canvas) would be sharper and cheaper, but it is a second renderer. *Recommendation:* WebRTC for v1 as decided; judge it in the lab (M3); keep the canvas as a stage-2 option.
 12. **Alarms.** Out-of-range shares are measured. Should they raise alarms (for example to the multiviewer as a tally or label)? *Recommendation:* metrics and UI only in v1; alarms after the operators have seen real numbers.
 13. **Persistence.** *Recommendation:* stage 2, off by default.
 14. **Ports.** *Recommendation:* 8170/3322 and the MediaMTX block 8574/8579/8578/8279, after a check against the platform's current port table (`ports_media`) and FlowXer; and resolve the 8160/3312 clash of browser-source and audio-mixer at the same time.

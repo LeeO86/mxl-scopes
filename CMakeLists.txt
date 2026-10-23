@@ -14,6 +14,27 @@ set(NMOS_CPP_DIR "" CACHE PATH "Path to sony/nmos-cpp Development/")
 
 find_package(Threads REQUIRED)
 
+# Graticule labels, caption and state texts with Blend2D and DejaVu Sans (§3.1), the pin of
+# mxl-multiviewer; OFF draws them with the 8×8 bitmap font (an offline build).
+option(SCOPES_WITH_BLEND2D "Draw texts with Blend2D" ON)
+if(SCOPES_WITH_BLEND2D)
+    include(FetchContent)
+    FetchContent_Declare(blend2d_src
+        URL https://blend2d.com/download/blend2d-0.21.2.tar.gz
+        URL_HASH SHA256=234ba57a64153c96885a6271f15fdcf6c594ac8cb03adaad19abb8d3b2b533fa
+    )
+    FetchContent_GetProperties(blend2d_src)
+    if(NOT blend2d_src_POPULATED)
+        FetchContent_Populate(blend2d_src)
+    endif()
+    set(BLEND2D_STATIC ON CACHE BOOL "" FORCE)
+    set(BLEND2D_TEST OFF CACHE BOOL "" FORCE)
+    set(BLEND2D_DEMOS OFF CACHE BOOL "" FORCE)
+    set(BLEND2D_NO_INSTALL ON CACHE BOOL "" FORCE)
+    set(BLEND2D_NO_JIT_LOGGING ON CACHE BOOL "" FORCE)
+    add_subdirectory(${blend2d_src_SOURCE_DIR} ${CMAKE_BINARY_DIR}/blend2d EXCLUDE_FROM_ALL)
+endif()
+
 set(SCOPES_WARNINGS -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers)
 
 # scopes-core: config, scope engine, media, REST and metrics. It links neither libmxl nor
@@ -36,16 +57,38 @@ add_library(scopes-core STATIC
     src/scope/engine.cpp
     src/scope/workers.cpp
     src/scope/measure.cpp
+    src/preview/plan.cpp
+    src/preview/child.cpp
     src/scope/scheduler.cpp
     src/scope/cpu/dispatch.cpp
     src/app/state.cpp
     src/ops/metrics.cpp
     src/ops/httpserver.cpp
     src/ops/api.cpp
+    src/ops/widgets.cpp
 )
 target_include_directories(scopes-core PUBLIC src third_party ${CMAKE_CURRENT_BINARY_DIR}/generated)
 target_link_libraries(scopes-core PUBLIC Threads::Threads)
 target_compile_options(scopes-core PRIVATE ${SCOPES_WARNINGS})
+if(SCOPES_WITH_BLEND2D)
+    set(DEJAVU_HEADER ${CMAKE_CURRENT_BINARY_DIR}/generated/scope/dejavu_sans.hpp)
+    add_custom_command(
+        OUTPUT ${DEJAVU_HEADER}
+        COMMAND ${CMAKE_COMMAND}
+                -DINPUT=${CMAKE_CURRENT_SOURCE_DIR}/third_party/dejavu/DejaVuSans.ttf
+                -DOUTPUT=${DEJAVU_HEADER}
+                -DNAMESPACE=scopes::font
+                -DVAR=dejavuSans
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedBytes.cmake
+        DEPENDS third_party/dejavu/DejaVuSans.ttf cmake/EmbedBytes.cmake
+        COMMENT "Embedding DejaVu Sans"
+    )
+    add_custom_target(scopes-font DEPENDS ${DEJAVU_HEADER})
+    add_dependencies(scopes-core scopes-font)
+    set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/src/scope/render.cpp PROPERTIES OBJECT_DEPENDS "${DEJAVU_HEADER}")
+    target_link_libraries(scopes-core PUBLIC blend2d::blend2d)
+    target_compile_definitions(scopes-core PUBLIC SCOPES_WITH_BLEND2D=1)
+endif()
 
 # The AVX2 and AVX-512 engines are one translation unit each with their own flags; the rest
 # of the binary stays baseline x86-64, so the image starts on any x86-64 CPU (§3.1, §3.2).
@@ -59,19 +102,6 @@ if(SCOPES_HAVE_AVX2_FLAG AND SCOPES_HAVE_AVX512_FLAG AND CMAKE_SYSTEM_PROCESSOR 
 else()
     target_sources(scopes-core PRIVATE src/scope/cpu/noavx2.cpp)
 endif()
-
-# The web UI: one HTML file, embedded into the binary.
-set(WEBUI_HTML ${CMAKE_CURRENT_SOURCE_DIR}/web/index.html)
-set(WEBUI_GENERATED ${CMAKE_CURRENT_BINARY_DIR}/generated/ops/webui_generated.hpp)
-add_custom_command(
-    OUTPUT ${WEBUI_GENERATED}
-    COMMAND ${CMAKE_COMMAND} -DINPUT=${WEBUI_HTML} -DOUTPUT=${WEBUI_GENERATED} -DVAR=indexHtml
-            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedFile.cmake
-    DEPENDS ${WEBUI_HTML} cmake/EmbedFile.cmake
-    COMMENT "Embedding the web UI"
-)
-add_custom_target(scopes-webui DEPENDS ${WEBUI_GENERATED})
-add_dependencies(scopes-core scopes-webui)
 
 # Micro-benchmark of the engine (IMPLEMENTATION_PLAN.md M0): generated frames, no libmxl.
 add_executable(mxl-scopes-bench tools/bench.cpp)
@@ -90,6 +120,8 @@ if(SCOPES_BUILD_TESTS)
         tests/unit/test_threads.cpp
         tests/unit/test_measure.cpp
         tests/unit/test_key.cpp
+        tests/unit/test_preview.cpp
+        tests/unit/test_widgets.cpp
         tests/unit/test_api.cpp
         tests/unit/test_http.cpp
     )
@@ -100,8 +132,46 @@ endif()
 
 find_package(mxl CONFIG QUIET)
 if(mxl_FOUND)
-    add_executable(mxl-scopes src/main.cpp src/mxlio/io.cpp src/nmos/node.cpp)
-    target_link_libraries(mxl-scopes PRIVATE scopes-core mxl::mxl)
+    # The WebRTC preview's H.264 encoder and RTSP publisher (§2.5): the system FFmpeg.
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(AV REQUIRED IMPORTED_TARGET libavcodec libavformat libavutil)
+    # The web UI (§9.1): the Vue 3 app built by Vite into one HTML file (web/), embedded into the
+    # binary. npm builds it here; without npm a web/dist/index.html built before (the image's Node
+    # stage) is embedded; without either a short page says so. As mxl-multiviewer.
+    set(WEBUI_GENERATED ${CMAKE_CURRENT_BINARY_DIR}/generated/ops/webui_generated.hpp)
+    find_program(NPM_EXECUTABLE npm)
+    if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/web/dist/index.html AND NOT NPM_EXECUTABLE)
+        set(WEBUI_HTML ${CMAKE_CURRENT_SOURCE_DIR}/web/dist/index.html)
+        set(WEBUI_DEPENDS ${WEBUI_HTML})
+    elseif(NPM_EXECUTABLE AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/web/package.json)
+        set(WEBUI_HTML ${CMAKE_CURRENT_BINARY_DIR}/webui/index.html)
+        file(GLOB_RECURSE SCOPES_WEB_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/web/src/*)
+        add_custom_command(
+            OUTPUT ${WEBUI_HTML}
+            COMMAND ${NPM_EXECUTABLE} ci --no-fund --no-audit
+            COMMAND ${NPM_EXECUTABLE} run build
+            COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/webui
+            COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/web/dist/index.html ${WEBUI_HTML}
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/web
+            DEPENDS web/package.json web/package-lock.json web/index.html web/vite.config.js ${SCOPES_WEB_SOURCES}
+            COMMENT "Building the Vue web UI"
+            VERBATIM
+        )
+        set(WEBUI_DEPENDS ${WEBUI_HTML})
+    else()
+        set(WEBUI_HTML ${CMAKE_CURRENT_BINARY_DIR}/webui/placeholder.html)
+        file(WRITE ${WEBUI_HTML} "<!doctype html><title>mxl-scopes</title><p>This build has no web UI (no npm, no web/dist). See /api/v1/info.</p>\n")
+        set(WEBUI_DEPENDS "")
+    endif()
+    add_custom_command(
+        OUTPUT ${WEBUI_GENERATED}
+        COMMAND ${CMAKE_COMMAND} -DINPUT=${WEBUI_HTML} -DOUTPUT=${WEBUI_GENERATED} -DVAR=indexHtml
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedFile.cmake
+        DEPENDS ${WEBUI_DEPENDS} cmake/EmbedFile.cmake
+        COMMENT "Embedding the web UI"
+    )
+    add_executable(mxl-scopes src/main.cpp src/mxlio/io.cpp src/nmos/node.cpp src/preview/publisher.cpp ${WEBUI_GENERATED})
+    target_link_libraries(mxl-scopes PRIVATE scopes-core mxl::mxl PkgConfig::AV)
     target_compile_options(mxl-scopes PRIVATE ${SCOPES_WARNINGS})
     if(SCOPES_WITH_NMOS)
         if(NOT NMOS_CPP_DIR)

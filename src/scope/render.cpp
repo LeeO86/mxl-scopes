@@ -2,7 +2,13 @@
 
 #include "media/patterns.hpp"
 
+#ifdef SCOPES_WITH_BLEND2D
+#include <blend2d/blend2d.h>
+
+#include "scope/dejavu_sans.hpp"
+#else
 #include <font8x8_basic.h>
+#endif
 
 #include <algorithm>
 #include <bit>
@@ -910,6 +916,126 @@ void renderTexts(RenderPlan const& plan, Frame422& frame, std::string const& cap
     }
 }
 
+#ifdef SCOPES_WITH_BLEND2D
+namespace
+{
+// Text with Blend2D and DejaVu Sans (§3.1), as mxl-multiviewer. The text is rasterised as coverage
+// into an A8 image with the JIT off (Blend2D's portable pipelines), so the pixels are the same on
+// every x86-64 CPU and the golden pictures hold, then blended into the picture.
+BLFontFace const& dejavuFace()
+{
+    static BLFontFace const face = [] {
+        BLFontData data;
+        BLFontFace created;
+        if (data.create_from_data(scopes::font::dejavuSans, scopes::font::dejavuSansSize) == BL_SUCCESS)
+        {
+            created.create_from_data(data, 0);
+        }
+        return created;
+    }();
+    return face;
+}
+
+// 16 px text at 1080 lines is the 8×8 font at scale 2; DejaVu at 10 px per scale has about its
+// cap height.
+float pixelSize(int scale)
+{
+    return 10.0f * static_cast<float>(scale);
+}
+
+bool makeFont(int scale, BLFont& font)
+{
+    auto const& face = dejavuFace();
+    return face.is_valid() && font.create_from_face(face, pixelSize(scale)) == BL_SUCCESS;
+}
+} // namespace
+
+int textWidth(std::string const& text, int scale)
+{
+    BLFont font;
+    if (text.empty() || !makeFont(scale, font))
+    {
+        return 0;
+    }
+    BLGlyphBuffer glyphs;
+    glyphs.set_utf8_text(text.c_str(), text.size());
+    font.shape(glyphs);
+    BLTextMetrics metrics;
+    if (font.get_text_metrics(glyphs, metrics) != BL_SUCCESS)
+    {
+        return 0;
+    }
+    return static_cast<int>(std::lround(metrics.advance.x));
+}
+
+void drawText(Frame422& frame, int x, int y, int scale, std::string const& text, std::uint16_t luma, std::uint16_t alpha)
+{
+    BLFont font;
+    int const w = textWidth(text, scale) + 2;
+    int const h = 10 * scale + 2;
+    if (text.empty() || w <= 2 || !makeFont(scale, font))
+    {
+        return;
+    }
+    BLImage image;
+    if (image.create(w, h, BL_FORMAT_A8) != BL_SUCCESS)
+    {
+        return;
+    }
+    {
+        BLContextCreateInfo info{};
+        info.flags = BL_CONTEXT_CREATE_FLAG_DISABLE_JIT;
+        info.thread_count = 0;
+        BLContext ctx;
+        if (ctx.begin(image, info) != BL_SUCCESS)
+        {
+            return;
+        }
+        ctx.clear_all();
+        // The text's box is the 8×8 font's: the cap height from the top, the baseline at 7.5 of 8.
+        ctx.fill_utf8_text(BLPoint(1.0, 1.0 + 7.5 * scale), font, text.c_str(), text.size(), BLRgba32(0xffffffffu));
+        ctx.end();
+    }
+    BLImageData data;
+    if (image.get_data(&data) != BL_SUCCESS || data.pixel_data == nullptr)
+    {
+        return;
+    }
+    int const width = frame.width;
+    int const cw = frame.chromaWidth();
+    for (int row = 0; row < h; ++row)
+    {
+        int const fy = y + row - 1;
+        if (fy < 0 || fy >= frame.height)
+        {
+            continue;
+        }
+        auto const* cover = static_cast<std::uint8_t const*>(data.pixel_data) + static_cast<std::ptrdiff_t>(row) * data.stride;
+        for (int col = 0; col < w; ++col)
+        {
+            int const fx = x + col - 1;
+            int const c = cover[col];
+            if (c == 0 || fx < 0 || fx >= width)
+            {
+                continue;
+            }
+            int const a10 = (c * 1023 + 127) / 255;
+            auto const at = static_cast<std::size_t>(fy) * static_cast<std::size_t>(width) + static_cast<std::size_t>(fx);
+            frame.y[at] = blend(frame.y[at], luma, a10);
+            if (!frame.a.empty())
+            {
+                frame.a[at] = std::max<std::uint16_t>(frame.a[at], static_cast<std::uint16_t>((alpha * c + 127) / 255));
+            }
+            if ((fx & 1) == 0)
+            {
+                auto const ca = static_cast<std::size_t>(fy) * static_cast<std::size_t>(cw) + static_cast<std::size_t>(fx / 2);
+                frame.cb[ca] = blend(frame.cb[ca], kBackgroundC, a10);
+                frame.cr[ca] = blend(frame.cr[ca], kBackgroundC, a10);
+            }
+        }
+    }
+}
+#else
 int textWidth(std::string const& text, int scale)
 {
     return static_cast<int>(text.size()) * 8 * scale;
@@ -960,4 +1086,5 @@ void drawText(Frame422& frame, int x, int y, int scale, std::string const& text,
         }
     }
 }
+#endif
 } // namespace scopes

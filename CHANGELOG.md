@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased (1.1.0: M3 and M4)
+
+### M3 (2026-10-23)
+
+- WebRTC preview of the platform preview contract: H.264 (libx264; h264_nvenc when a GPU has it) over RTSP to a shared MediaMTX (`PREVIEW_PUBLISH_URL`) or the image's own MediaMTX 1.20.1, path `<PREVIEW_PATH_PREFIX>/scope`, `SCOPES_PREVIEW_HEIGHT` (540) and `SCOPES_PREVIEW_FPS` (25, at most the update rate); about 0.15 core. Metrics `preview_publish_mode`, `preview_publish_state`, `preview_encoder`, `preview_frames_total`, `preview_encode_seconds`.
+- Vue 3 web UI in the family look (Scope with the preview, controls and measurements; Input; NMOS with IS-05 activation; Status; Settings with export and import).
+- Operator-screen widget `scope` (`/widgets`, `/widget/scope?controls&measurements&theme`).
+- Texts with Blend2D and DejaVu Sans (the pictures change; new golden PNGs).
+- `GET /api/v1/snapshot.png` is RGBA with the key as alpha when the output has a key.
+- Faster v210 unpack (whole groups without bounds checks).
+
 ## 1.0.0
 
 First release: the stage-1 scopes of SPECIFICATION.md as milestones M0–M2 of IMPLEMENTATION_PLAN.md (released after M2 by the maintainer's decision of 2026-10-23; the WebRTC preview, the widget and the hardening of M3–M4 follow). Release notes for the platform: `docs/release-notes-1.0.0.md`.

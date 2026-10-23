@@ -250,6 +250,17 @@ See `docs/performance.md` "M2". In short, lab class, camera picture, 1080p50, AV
 
 Exit: an operator sees and switches the scope in the widget on an operator screen.
 
+Progress (2026-10-23, `feat/m3`, for 1.1.0 with M4 by the maintainer's decision of 2026-10-23):
+
+- [x] Preview contract (deviation 7 closed): shared and own MediaMTX (the image's 1.20.1, supervised), path `<prefix>/scope`, area-average NV12 scaler (a fast path for half the raster), libx264 with h264_nvenc tried first, RTSP publisher with reconnect, state, encoder and metrics; `tests/integration/preview.sh` in CI.
+- [x] Vue 3 UI in the family look (deviation 8 closed): Scope, Input, NMOS, Status, Settings tabs, WebSocket, built by Vite into one embedded HTML file.
+- [x] `scope` widget, `/widgets` with CORS, `frame-ancestors`, `widget-ready` and `widget-size`.
+- [x] `GET /api/v1/snapshot.png` with the key as PNG alpha.
+- [x] Config export and import, `KEY=value` export: built in M0; the import answers `flow_keys`.
+- [x] Blend2D and DejaVu Sans for the texts (deviation 6 closed).
+- [x] Lab (2026-10-23): the 540p preview of a camera clip's luma waveform keeps the traces readable (SPECIFICATION open question 11); the preview costs about 0.15 core with x264 (target < 0.25); NVENC verified once on a lab GPU; numbers in `docs/performance.md`.
+- [ ] The exit check on a real operator screen (a designer page framing the widget) waits for the platform; the widget page, its headers and messages are tested here, and a browser renders it (headless Chromium in the lab, which has no H.264, so it showed the snapshot fallback).
+
 ### M4: hardening, platform, release 1.0.0
 
 - Performance runs of SPECIFICATION §13 on both host classes, 1 h each, preview on and off; `docs/performance.md`.
@@ -307,9 +318,9 @@ Exit: 1.0.0 released and deployable by the platform.
 3. **Bin-major histogram** (§4.3 says column-major). The columns of one bin are contiguous: the renderer reads the counts line by line, and a strip touches two cache lines per bin instead of one per column. Counts are equal either way. Cell indices are 32-bit and absolute (§4.9 has 16-bit indices inside a strip); one or two sub-histograms, not four.
 4. **Closed in M2 (2026-10-22): the flow keys apply live as §8.** M0 and M1 saved `SCOPES_OUTPUT_FORMAT`, `SCOPES_OUTPUT_RATE` and `SCOPES_OUTPUT_KEY` and reported them as `restart_required`; only `SCOPES_OUTPUT_RATE=input` followed the routed flow live. Since M2 a change of any of them opens a new output flow with a new flow id at once (`flow_keys` in the answer of `PUT /api/v1/config` and of the import).
 5. **Closed in M2 (2026-10-22): every value of §8 is built.** M0 refused some values with exit 78 (400 on a PATCH); M1 built the other stage-1 modes and `SCOPES_ACCUMULATE=all`; M2 built `SCOPES_THREADS` above 1, `SCOPES_OUTPUT_KEY=true` and `SCOPES_MODE=ycbcr-overlay`. Stage-2 modes stay refused (not in v1).
-6. **Graticule text** uses the 8×8 public-domain bitmap font scaled to 16 px at 1080 lines, not Blend2D with DejaVu Sans (§3.1). Blend2D comes with the label polish in M1.
-7. **Preview.** No WebRTC preview yet (M3). The web page shows `GET /api/v1/snapshot.png` twice a second; the renderer copies the picture for it every 500 ms. `PREVIEW_*`, `MEDIAMTX_*` and `SCOPES_PREVIEW_*` are validated but unused; `/api/v1/info` reports the preview state `not_implemented`. The image has neither MediaMTX nor FFmpeg yet.
-8. **Web page.** One static HTML page in the family look without Vue or a build step; the Vue 3 UI and the `scope` widget (`/widgets`, `/widget/scope`) are M3.
+6. **Closed in 1.1.0 (M3): texts with Blend2D and DejaVu Sans as §3.1.** M0–M2 drew the graticule labels, caption and state texts with the 8×8 bitmap font. Blend2D 0.21.2 (the pin of mxl-multiviewer) rasterises them with its JIT off, so the pixels are the same on every x86-64 CPU and the golden hashes hold; `-DSCOPES_WITH_BLEND2D=OFF` keeps the bitmap font for an offline build (with its own golden hashes).
+7. **Closed in 1.1.0 (M3): the WebRTC preview as §2.5.** M0–M2 had no preview: the web page showed `GET /api/v1/snapshot.png` and `PREVIEW_*`, `MEDIAMTX_*` and `SCOPES_PREVIEW_*` were validated but unused. The preview takes the newest output picture from the snapshot, which the writer now copies at the preview rate and only when the picture changed (twice a second without the preview).
+8. **Closed in 1.1.0 (M3): the Vue 3 UI and the `scope` widget as §9.1 and §9.3.** M0–M2 served one static HTML page. The UI is built by Vite into one HTML file (as mxl-multiviewer) and embedded; `/widget/scope` is the same page showing only the widget. The NMOS tab sends IS-05 activation and disable from the browser to `NMOS_PORT`.
 9. **Closed in M2 (2026-10-22): measurements** (§4.7, its rules decided by the maintainer and written into the specification), their metrics, `GET /api/v1/measurements` and the WebSocket.
 10. **PATCH of an environment key.** A `PATCH /api/v1/scope` of a key the environment sets applies live until the restart and is listed as `not_persisted` (§9.2 says the PATCH is saved to the file; the file cannot beat the environment, and the platform sets `SCOPES_MODE` and `SCOPES_UPDATE_RATE` in the environment).
 11. **A running flow that disappears** (a writer that stops and deletes its flow) holds for `SCOPES_HOLD_MS` and then shows `NO SIGNAL`, like a flow that stops; `waiting` stays for a flow that has not run on this route (§11 lists only the missing flow).

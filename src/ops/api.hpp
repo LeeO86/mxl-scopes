@@ -64,7 +64,8 @@ private:
     std::function<void(DisplaySettings const&)> onSettings_;
     // The last encoded snapshot: PNG encoding of a 1080p picture takes about 100 ms.
     mutable std::mutex pngMu_;
-    mutable std::shared_ptr<Snapshot const> pngSource_;
+    // The snapshot the cached PNG shows (its update number; the writer reuses its buffers).
+    mutable std::uint64_t pngUpdate_ = 0;
     mutable int pngScale_ = 0;
     mutable std::string png_;
 };

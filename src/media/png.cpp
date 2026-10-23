@@ -31,7 +31,9 @@ std::string encodePng(Frame422 const& frame, int scaleDown)
     {
         return {};
     }
-    std::vector<std::uint8_t> rgb(static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 3);
+    // With a key plane, RGBA: the key as straight alpha (§9.2).
+    int const channels = frame.a.empty() ? 3 : 4;
+    std::vector<std::uint8_t> rgb(static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * static_cast<std::size_t>(channels));
     int const cw = frame.chromaWidth();
     for (int row = 0; row < h; ++row)
     {
@@ -64,10 +66,14 @@ std::string encodePng(Frame422 const& frame, int scaleDown)
             int const r = y + (1613 * cr) / 1024;
             int const g = y - (192 * cb + 479 * cr) / 1024;
             int const b = y + (1900 * cb) / 1024;
-            auto* px = rgb.data() + (static_cast<std::size_t>(row) * w + col) * 3;
+            auto* px = rgb.data() + (static_cast<std::size_t>(row) * w + col) * static_cast<std::size_t>(channels);
             px[0] = clamp8(r * 255 / 1024);
             px[1] = clamp8(g * 255 / 1024);
             px[2] = clamp8(b * 255 / 1024);
+            if (channels == 4)
+            {
+                px[3] = static_cast<std::uint8_t>(frame.a[static_cast<std::size_t>(sy) * frame.width + sx] >> 2);
+            }
         }
     }
     std::string out;
@@ -75,7 +81,7 @@ std::string encodePng(Frame422 const& frame, int scaleDown)
     // than the default and the file only a little larger.
     stbi_write_png_compression_level = 1;
     stbi_write_force_png_filter = 0;
-    stbi_write_png_to_func(append, &out, w, h, 3, rgb.data(), w * 3);
+    stbi_write_png_to_func(append, &out, w, h, channels, rgb.data(), w * channels);
     return out;
 }
 } // namespace scopes

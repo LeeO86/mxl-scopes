@@ -8,3 +8,27 @@ mxl-scopes is MIT licensed (LICENSE). It includes or links:
 - nmos-cpp (sony/nmos-cpp), Apache-2.0, and its dependencies (cpprestsdk MIT, Boost BSL-1.0, OpenSSL Apache-2.0).
 
 The SHA-1, UUID, HTTP and configuration helpers come from the author's sibling MXL functions.
+
+Code taken from the author's sibling functions (all Copyright (c) 2026 Adrian Hilber):
+
+- mxl-multiviewer (Apache-2.0): the MediaMTX config of the preview's own mode (src/preview/plan.cpp)
+  and parts of the H.264 publisher (src/preview/publisher.cpp); the web UI files web/src/App.vue,
+  web/src/api.js, web/src/preview.js, web/src/style.css, web/src/components/SettingsTab.vue and
+  web/src/components/WidgetPage.vue. Licensed under the Apache License, Version 2.0; changed for
+  this project.
+- mxl-replay (GPL-3.0): the preview plan and status, the publisher, the widget routes
+  (src/ops/widgets.*, from mxl-replay src/ops/preview.cpp) and tests/integration/preview.sh,
+  copied into this MIT project with the author's permission (2026-10-23).
+- mxl-webrtc-monitor (MIT): the child-process supervisor of the built-in MediaMTX (src/preview/child.*).
+
+The image also carries and links:
+
+- Vue 3 (vuejs/core), MIT, Copyright (c) 2018-present Yuxi (Evan) You and Vue contributors; built
+  into the embedded web UI (web/dist) with Vite (MIT, build time only).
+- MediaMTX (bluenviron/mediamtx), MIT, /usr/local/bin/mediamtx, licence in /usr/share/doc/mediamtx/LICENSE.
+- FFmpeg (libavcodec, libavformat, libavutil) from Ubuntu, LGPL-2.1-or-later; Ubuntu builds them with
+  libx264, so the image's libraries are GPL-2.0-or-later.
+- Blend2D 0.21.2 (blend2d.com) and the asmjit it ships, Zlib licence, fetched at configure time and
+  linked statically (the texts of the picture).
+- DejaVu Sans (third_party/dejavu), the Bitstream Vera / DejaVu font licence (third_party/dejavu/LICENSE),
+  embedded into the binary; taken from mxl-multiviewer.
