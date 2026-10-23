@@ -173,7 +173,9 @@ TEST_CASE("process metrics: CPU, resident memory, start time, open files without
         auto const at = text.find(std::string("\n") + name);
         REQUIRE(at != std::string::npos);
         // The CPU time of a test that just started can be 0 clock ticks.
-        CHECK(std::stod(text.substr(at + 1 + std::string(name).size())) >= (std::string(name).rfind("process_cpu", 0) == 0 ? 0.0 : 1.0));
+        auto const value = text.substr(at + 1 + std::string(name).size(), text.find('\n', at + 1) - at - 1 - std::string(name).size());
+        CHECK(std::stod(value) >= (std::string(name).rfind("process_cpu", 0) == 0 ? 0.0 : 1.0));
+        CHECK(value.find_first_of("eE") == std::string::npos); // never 1.23457e+06
     }
     Fixture f;
     CHECK(f.call("GET", "/metrics").body.find("\nprocess_resident_memory_bytes ") != std::string::npos);

@@ -23,7 +23,7 @@ ghcr.io/leeo86/mxl-scopes@sha256:<OCI index digest, filled in after the tag buil
 
 - **WebRTC preview** (the platform preview contract):
   - The scope picture is sent as H.264 over RTSP to a MediaMTX, which serves WHEP and HLS.
-  - With `PREVIEW_PUBLISH_URL` set, it goes to that shared MediaMTX at `<PREVIEW_PATH_PREFIX>/scope`. Without it, the image's own MediaMTX runs as a child process.
+  - With `PREVIEW_PUBLISH_URL` set, it goes to that shared MediaMTX at `<PREVIEW_PATH_PREFIX>/scope`. Without it, the image's own MediaMTX runs as a child process; only the scope itself (127.0.0.1) may publish to it, anyone may watch.
   - Default 960×540 at 25 fps, 2 Mbit/s. It is encoded with libx264, or NVENC when available.
   - It costs about 0.15 core. With `SCOPES_PREVIEW_MODE=off` it costs nothing.
 - **Web UI** (Vue 3) in the family look:
@@ -34,7 +34,8 @@ ghcr.io/leeo86/mxl-scopes@sha256:<OCI index digest, filled in after the tag buil
   - **Settings**: every setting with its origin and when it applies, export and import.
 - **Operator-screen widget** `scope`:
   - `GET /widgets`; `GET /widget/scope?controls=&measurements=&theme=dark|light|transparent`;
-  - `frame-ancestors` comes from `WIDGET_FRAME_ANCESTORS`;
+  - `frame-ancestors` comes from `WIDGET_FRAME_ANCESTORS` (host wildcards like `https://*.example.com` also allow CORS on `/widgets`);
+  - `WEB_ENABLE=false` turns the widget routes off (404) with the UI;
   - the page posts `widget-ready` and `widget-size` to its parent.
 - **Texts with Blend2D and DejaVu Sans.** The graticule labels, caption and state texts are anti-aliased. The picture changes in these texts only; the trace is the same.
 - **Snapshot PNG with a key**: `GET /api/v1/snapshot.png` is RGBA with the key as alpha when the output has a key.
@@ -84,11 +85,11 @@ CPU per scope, at 25 Hz:
 
 Memory:
 - Platform: 63–116 MB RSS per scope.
-- Lab, 1.1.0: 80–160 MB of the process's own memory. On top come the MXL grains it maps (its output ring, 55–140 MB) and about 40 MB for an own MediaMTX.
+- Lab, 1.1.0: 80–160 MB of the process's own memory. On top come the MXL grains it maps (its output ring, 55–140 MB) and about 40 MB for an own MediaMTX (a child process: not in the scope's RSS or `process_resident_memory_bytes`).
 
 `deploy/k8s/deployment.yaml` suggests:
-- requests 500m CPU and 256Mi memory;
-- limits 2 CPUs and 768Mi (every frame, a key, `SCOPES_THREADS=2`).
+- requests 500m CPU and 384Mi memory;
+- limits 2 CPUs and 768Mi (every frame, a key, `SCOPES_THREADS=2`) at 1080p; a UHD output with a key needs about 1Gi or more.
 
 Details in `docs/performance.md` "M3" and "M4".
 
@@ -103,7 +104,7 @@ Details in `docs/performance.md` "M3" and "M4".
   - RSS flat, no leak;
   - 0 torn reads;
   - late output grains only at start-up and in two short bursts while other work ran on the host.
-- **AMWA:** every result Pass, or listed with its reason in `tests/nmos/amwa-expected-off.json`.
+- **AMWA:** every result Pass, or listed with its reason in `tests/nmos/amwa-expected-off.json`. CI runs without DNS-SD, so IS-04 registration and heartbeats are not covered by AMWA (only against the stub registry in `tests/integration/scope.sh`).
 
 ### Platform checks done on 1.0.0 (thank you)
 

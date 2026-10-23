@@ -152,9 +152,9 @@ The platform host is about twice as fast per update as the lab's Skylake-SP at i
 | `ycbcr-overlay` | 409 (105 / 269) | 468 (118 / 311) | 393 (148 / 207) | 543 (162 / 343) |
 
 - "Shared" is RssShmem: the MXL grains the process has mapped and touched. That is the writer's input ring, which the input writer owns and is charged for, plus the scope's own output ring (5.5 MB per 1080p v210 grain, 8.3 MB with a key). How much of it is the scope's depends on the ring sizes; it is not memory the scope allocates. The process's own memory is the anonymous part: 80–160 MB. A further 33–37 MB is mapped files (libraries).
-- The built-in MediaMTX (own mode) adds about 41 MB RSS.
+- The built-in MediaMTX (own mode) adds about 41 MB RSS. It is a child process: the RSS above and `process_resident_memory_bytes` do not include it; the container's memory does.
 - The platform measures 63–116 MB per scope.
-- `deploy/k8s/deployment.yaml` requests 256Mi and limits 768Mi: room for the anonymous memory, the scope's own output ring and the key.
+- `deploy/k8s/deployment.yaml` requests 384Mi and limits 768Mi: room for the anonymous memory, the scope's own output ring and the key at 1080p. A UHD output with a key (33 MB per grain, for the output ring and the three preview snapshot buffers) needs a higher limit, about 1Gi or more.
 
 ### Soak: two instances on one node, 1 h (lab, 1.1.0)
 
@@ -178,7 +178,8 @@ Sampled every 60 s for 60 min:
 
 IS-04-01, IS-05-01, IS-05-02 and BCP-007-03-01 against the node with an nmos-cpp registry. Every test passes, except:
 - the tool's own set-up and tear-down steps;
-- IS-10 authorization (out of scope);
+- IS-10 authorization (out of scope; the tool runs those only with `ENABLE_AUTH`);
+- the DNS-SD tests, disabled by `ENABLE_DNS_SD = False` (no mDNS or unicast DNS-SD in CI). So **IS-04 registration and heartbeats are not covered by AMWA**; `tests/integration/scope.sh` runs registration, heartbeats and deregistration against a stub registry only;
 - the RTP-only parts of IS-05 (the receiver and sender are MXL, and BCP-007-03-01 tests them);
 - the optional BCP-004-01 and BCP-002-02 details;
 - two manual checks.

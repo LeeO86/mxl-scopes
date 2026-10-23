@@ -166,7 +166,7 @@ std::string Metrics::renderProcess()
         {
             double const hz = static_cast<double>(::sysconf(_SC_CLK_TCK));
             double const cpu = (std::stod(f[11]) + std::stod(f[12])) / hz;
-            out << "# TYPE process_cpu_seconds_total counter\nprocess_cpu_seconds_total " << cpu << "\n";
+            out << "# TYPE process_cpu_seconds_total counter\nprocess_cpu_seconds_total " << number(cpu) << "\n";
             std::ifstream uptimeFile("/proc/uptime");
             double uptime = 0;
             uptimeFile >> uptime;

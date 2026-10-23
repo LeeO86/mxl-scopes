@@ -6,7 +6,8 @@
 # and 2 cores as the limit (every frame, a key, SCOPES_THREADS=2). Memory: 63-116 MB RSS on the
 # platform without the preview; in the lab 80-160 MB anonymous plus the shared MXL grains it maps
 # (its own output ring, 55-140 MB, is charged to it; the input ring is the writer's), plus about
-# 40 MB for the built-in MediaMTX in own mode.
+# 40 MB for the built-in MediaMTX in own mode. The 768Mi limit is for 1080p; a UHD output with a
+# key (33 MB per grain: the output ring and three preview snapshot buffers) needs about 1Gi or more.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -120,7 +121,7 @@ spec:
           resources:
             requests:
               cpu: 500m
-              memory: 256Mi
+              memory: 384Mi
             limits:
               cpu: "2"
               memory: 768Mi

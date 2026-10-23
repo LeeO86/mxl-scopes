@@ -645,7 +645,7 @@ In `media_function_catalog` (`inventories/shared/group_vars/all/apps.yml`):
     default_values: {mode: luma, updateRate: 25, format: 1920x1080, key: false}
     export: [{path: /api/v1/config/export, file: config.json}]
     default_resources:
-      requests: {cpu: "500m", memory: 256Mi}   # M4: docs/performance.md, deploy/k8s/deployment.yaml
+      requests: {cpu: "500m", memory: 384Mi}   # M4: docs/performance.md, deploy/k8s/deployment.yaml
       limits: {cpu: "2", memory: 1Gi}
     default_flows:
       - {format: 1080p50-v210, count: 1, history_duration_ms: 200}   # 1080p50-v210a with key: true

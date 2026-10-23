@@ -83,7 +83,7 @@ Route the receiver "Scopes In Video" over IS-05, open `http://<host>:8170/`, and
 
 ## Deploy and monitor
 
-- `deploy/k8s/deployment.yaml`: the Kubernetes example (pod network, probes, the MXL hostPath, `/config`, the shared preview; 500m CPU and 256Mi requested, 2 CPUs and 768Mi as limits).
+- `deploy/k8s/deployment.yaml`: the Kubernetes example (pod network, probes, the MXL hostPath, `/config`, the shared preview; 500m CPU and 384Mi requested, 2 CPUs and 768Mi as limits).
 - `deploy/grafana/mxl-scopes.json`: the Grafana dashboard (updates, late and missed grains, analyse and render time, input state, measurements, preview, CPU, memory), with provisioning and `deploy/prometheus/prometheus.yml`.
 - `docker/docker-compose.demo.yaml`: a registry, a colour bar writer, the scope, Prometheus and Grafana on one machine.
 - `/metrics` also has `process_cpu_seconds_total`, `process_resident_memory_bytes`, `process_start_time_seconds` and `process_open_fds`.
