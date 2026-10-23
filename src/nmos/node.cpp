@@ -432,10 +432,11 @@ void NmosNode::start()
                     set[U("urn:x-nmos:cap:format:component_depth")] = nmos::make_caps_integer_constraint({std::int64_t{10}});
                     web::json::value sets = web::json::value::array();
                     web::json::push_back(sets, std::move(set));
-                    web::json::value caps = web::json::value::object();
+                    // Keep the caps make_receiver wrote (media_types, BCP-007-03-01 test_07) and add
+                    // the constraint sets.
+                    auto& caps = receiver.data[U("caps")];
                     caps[U("constraint_sets")] = std::move(sets);
                     caps[U("version")] = web::json::value::string(nmos::make_version());
-                    receiver.data[U("caps")] = std::move(caps);
                     nmos::insert_resource(nodeModel.node_resources, std::move(receiver));
                     auto receiverConnection = nmos::make_connection_mxl_receiver(us(ids.receiver), utility::string_t{});
                     receiverConnection.data[U("active")][U("master_enable")] = value::boolean(false);

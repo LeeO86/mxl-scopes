@@ -1,0 +1,109 @@
+# Single machine: an nmos-cpp registry, a test pattern writer and mxl-scopes in a tmpfs MXL root,
+# the scope's own MediaMTX for the preview, Prometheus and Grafana (SPECIFICATION §12).
+# Adapted from mxl-browser-source docker/docker-compose.demo.yaml (MIT, same author).
+#
+#   docker compose -f docker/docker-compose.demo.yaml up
+#
+# The route service connects the scope's receiver to the writer's colour bars over IS-05. Then
+# open the scope at http://127.0.0.1:8170/ and Grafana at http://127.0.0.1:3000/.
+# Host networking: the ports below must be free (3210-3212, 3322-3323, 8170, 8574, 8578, 8579,
+# 8279, 9090, 3000). The registry's mDNS responder cannot be switched off: it announces itself on
+# the local network, so run the demo on a machine of its own, not next to production nodes.
+services:
+  # The platform's registry image (mxl-poc-platform versions.yml).
+  registry:
+    image: docker.io/gemini2350/nmos-cpp-registry:sha-53481ff@sha256:3c2fa0793ce336e4176487878758efcbd5c61414c5b90433f3758851615f1c91
+    network_mode: host
+    environment:
+      RUN_MQTT: "FALSE"
+      ADVERTISE_MQTT: "FALSE"
+    volumes:
+      - ./registry.json:/home/registry.json:ro
+
+  # 75 % colour bars, 1080p50, from the scope image's test pattern writer.
+  writer:
+    image: ${SCOPES_IMAGE:-ghcr.io/leeo86/mxl-scopes:1.1.0}
+    network_mode: host
+    user: "1000:1000"
+    volumes:
+      - mxl:/Volumes/mxl
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        mkdir -p /Volumes/mxl/bars
+        echo '{"id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","label":"demo bars","description":"demo","tags":{}}' > /Volumes/mxl/bars/domain_def.json
+        exec /usr/local/bin/mxl-scopes-writer --domain /Volumes/mxl/bars --flow bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb \
+          --pattern bars75 --width 1920 --height 1080 --rate 50 --label "Demo bars"
+
+  scopes:
+    image: ${SCOPES_IMAGE:-ghcr.io/leeo86/mxl-scopes:1.1.0}
+    network_mode: host
+    user: "1000:1000"
+    depends_on: [registry, writer]
+    volumes:
+      - mxl:/Volumes/mxl
+      - scopes-config:/config
+    environment:
+      NMOS_SEED: demo-scopes
+      NMOS_LABEL: Demo scope
+      NMOS_REGISTRY_ADDRESS: 127.0.0.1
+      NMOS_REGISTRY_PORT: "3210"
+      NMOS_HOST_ADDRESS: ${NMOS_HOST_ADDRESS:-} # empty: the host's first IPv4 (loopback is refused)
+      MXL_OUTPUT_DOMAIN_DIR: /Volumes/mxl/scopes
+      MXL_CLEANUP_ON_EXIT: "true"
+      SCOPES_MODE: rgb-parade
+      SHUTDOWN_TIMEOUT_S: "10"
+
+  # One shot: the scope's receiver to the writer's bars.
+  route:
+    image: python:3.12-slim
+    network_mode: host
+    depends_on: [scopes]
+    restart: on-failure
+    command:
+      - python3
+      - -c
+      - |
+        import json, time, urllib.request
+        def http(method, url, body=None):
+            data = None if body is None else json.dumps(body).encode()
+            req = urllib.request.Request(url, data=data, method=method, headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=5) as r:
+                text = r.read().decode()
+                return json.loads(text) if text else None
+        for _ in range(120):
+            try:
+                info = http("GET", "http://127.0.0.1:8170/api/v1/info")
+                break
+            except OSError:
+                time.sleep(1)
+        http("PATCH", f"http://127.0.0.1:3322/x-nmos/connection/v1.2/single/receivers/{info['receiver_id']}/staged",
+             {"master_enable": True, "activation": {"mode": "activate_immediate"},
+              "transport_params": [{"mxl_domain_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "mxl_flow_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"}]})
+        print("Scopes In Video <- demo bars", flush=True)
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    network_mode: host
+    volumes:
+      - ../deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    network_mode: host
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_SERVER_HTTP_PORT: "3000"
+    volumes:
+      - ../deploy/grafana/mxl-scopes.json:/var/lib/grafana/dashboards/mxl-scopes.json:ro
+      - ../deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+
+volumes:
+  # The MXL root in memory.
+  mxl:
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=1g,mode=1777
+  scopes-config:

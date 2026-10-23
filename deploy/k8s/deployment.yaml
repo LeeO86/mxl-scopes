@@ -1,0 +1,169 @@
+# G12 example: the pod network, the standard environment names, probes, the MXL root hostPath
+# and a writable /config, no hostIPC. Pin the image by a released tag (and by digest on the
+# platform). Adapted from mxl-audio-mixer deploy/k8s/deployment.yaml (MIT, same author).
+# Resources (docs/performance.md "M4"): one 1080p50 scope at the default 25 Hz takes 0.10-0.26
+# core on the platform's i9 (0.23-0.55 on the lab's Skylake-SP, preview on), so 500m requested
+# and 2 cores as the limit (every frame, a key, SCOPES_THREADS=2). Memory: 63-116 MB RSS on the
+# platform without the preview; in the lab 80-160 MB anonymous plus the shared MXL grains it maps
+# (its own output ring, 55-140 MB, is charged to it; the input ring is the writer's), plus about
+# 40 MB for the built-in MediaMTX in own mode. The 768Mi limit is for 1080p; a UHD output with a
+# key (33 MB per grain: the output ring and three preview snapshot buffers) needs about 1Gi or more.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mxl-scopes
+  labels:
+    app: mxl-scopes
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: mxl-scopes
+  template:
+    metadata:
+      labels:
+        app: mxl-scopes
+        io.dmf.mxl.revision: "218ddaa0a08c12ffe75fc475ae65aa3d9eef16d7"
+    spec:
+      # > SHUTDOWN_TIMEOUT_S (10).
+      terminationGracePeriodSeconds: 20
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        supplementalGroups: [1000]
+      containers:
+        - name: scopes
+          image: ghcr.io/leeo86/mxl-scopes:1.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: web
+              containerPort: 8170
+            - name: nmos
+              containerPort: 3322
+            # Only for the built-in MediaMTX (PREVIEW_PUBLISH_URL unset): WHEP, HLS, and ICE on
+            # the node's address.
+            # - name: whep
+            #   containerPort: 8579
+            # - name: hls
+            #   containerPort: 8578
+            # - name: ice
+            #   containerPort: 8279
+            #   hostPort: 8279
+            #   protocol: UDP
+          env:
+            - name: HOST_ID
+              value: production-scope1
+            - name: NMOS_SEED
+              value: production-scope1
+            - name: NMOS_LABEL
+              value: production-scope1
+            - name: NMOS_TAGS
+              value: '{"urn:x-example:production":["production"],"urn:x-example:function":["scope1"]}'
+            - name: NMOS_HOST_ADDRESS
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: NMOS_REGISTRY_ADDRESS
+              value: nmos-registry
+            - name: NMOS_REGISTRY_PORT
+              value: "3210"
+            - name: NMOS_DNS_SD
+              value: "false"
+            - name: WEB_PORT
+              value: "8170"
+            - name: NMOS_PORT
+              value: "3322"
+            - name: MXL_DOMAIN_SCAN_PATH
+              value: /Volumes/mxl
+            # Directly below MXL_DOMAIN_SCAN_PATH; the stable id from the platform.
+            - name: MXL_OUTPUT_DOMAIN_DIR
+              value: /Volumes/mxl/production-scope1
+            - name: MXL_OUTPUT_DOMAIN_ID
+              value: 7f1f8a8e-2f0b-5a4c-9f32-0d3f9c4b5a61
+            - name: MXL_CLEANUP_ON_EXIT
+              value: "true"
+            - name: SCOPES_STATE_DIR
+              value: /config
+            - name: SCOPES_MODE
+              value: luma
+            - name: SCOPES_UPDATE_RATE
+              value: "25"
+            - name: SCOPES_OUTPUT_FORMAT
+              value: 1920x1080
+            - name: SCOPES_OUTPUT_KEY
+              value: "false"
+            - name: SHUTDOWN_TIMEOUT_S
+              value: "10"
+            # Operator-screen widgets framed by the production designer.
+            - name: WIDGET_FRAME_ANCESTORS
+              value: "'self' https://designer.example"
+            # The preview through the platform's MediaMTX (Appendix B.1). Unset
+            # PREVIEW_PUBLISH_URL: the built-in MediaMTX (ports above).
+            - name: PREVIEW_PUBLISH_URL
+              value: rtsp://mediamtx:8554
+            - name: PREVIEW_PATH_PREFIX
+              value: production/scope1
+            - name: PREVIEW_WHEP_URL
+              value: https://preview.example
+            - name: PREVIEW_HLS_URL
+              value: https://preview.example
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: web
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: web
+          resources:
+            requests:
+              cpu: 500m
+              memory: 384Mi
+            limits:
+              cpu: "2"
+              memory: 768Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: mxl
+              mountPath: /Volumes/mxl
+            - name: config
+              mountPath: /config
+      volumes:
+        - name: mxl
+          hostPath:
+            path: /Volumes/mxl
+            type: Directory
+        - name: config
+          persistentVolumeClaim:
+            claimName: mxl-scopes-config
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mxl-scopes-config
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 100Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mxl-scopes
+spec:
+  selector:
+    app: mxl-scopes
+  ports:
+    - name: web
+      port: 8170
+      targetPort: web
+    - name: nmos
+      port: 3322
+      targetPort: nmos

@@ -1,0 +1,423 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "title": "Updates per second",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "sum by (instance, mode) (rate(mxl_scopes_updates_total{instance=~\"$instance\"}[1m]))",
+          "legendFormat": "{{instance}} {{mode}}",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(mxl_scopes_updates_skipped_total{instance=~\"$instance\"}[1m])",
+          "legendFormat": "{{instance}} skipped",
+          "refId": "B"
+        },
+        {
+          "expr": "rate(mxl_scopes_updates_torn_total{instance=~\"$instance\"}[1m])",
+          "legendFormat": "{{instance}} torn",
+          "refId": "C"
+        }
+      ],
+      "id": 1,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "title": "Output grains: late and missed per second",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "rate(mxl_scopes_output_frames_late_total{instance=~\"$instance\"}[1m])",
+          "legendFormat": "{{instance}} late",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(mxl_scopes_output_frames_missed_total{instance=~\"$instance\"}[1m])",
+          "legendFormat": "{{instance}} missed",
+          "refId": "B"
+        },
+        {
+          "expr": "rate(mxl_scopes_output_frames_total{instance=~\"$instance\"}[1m])",
+          "legendFormat": "{{instance}} written",
+          "refId": "C"
+        }
+      ],
+      "id": 2,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      }
+    },
+    {
+      "title": "Analyse and render (p95)",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (instance, le) (rate(mxl_scopes_analyse_seconds_bucket{instance=~\"$instance\"}[5m])))",
+          "legendFormat": "{{instance}} analyse",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (instance, le) (rate(mxl_scopes_analyse_cpu_seconds_bucket{instance=~\"$instance\"}[5m])))",
+          "legendFormat": "{{instance}} analyse CPU",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (instance, le) (rate(mxl_scopes_render_seconds_bucket{instance=~\"$instance\"}[5m])))",
+          "legendFormat": "{{instance}} render",
+          "refId": "C"
+        }
+      ],
+      "id": 3,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      }
+    },
+    {
+      "title": "Input state",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "mxl_scopes_input_state{instance=~\"$instance\"} == 1",
+          "legendFormat": "{{instance}} {{state}}",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(mxl_scopes_input_resyncs_total{instance=~\"$instance\"}[1m])",
+          "legendFormat": "{{instance}} resyncs/s",
+          "refId": "B"
+        },
+        {
+          "expr": "rate(mxl_scopes_accumulate_dropped_total{instance=~\"$instance\"}[1m])",
+          "legendFormat": "{{instance}} accumulate dropped/s",
+          "refId": "C"
+        }
+      ],
+      "id": 4,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      }
+    },
+    {
+      "title": "Luma (codes)",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "mxl_scopes_luma_min_code{instance=~\"$instance\"}",
+          "legendFormat": "{{instance}} min",
+          "refId": "A"
+        },
+        {
+          "expr": "mxl_scopes_luma_mean_code{instance=~\"$instance\"}",
+          "legendFormat": "{{instance}} mean",
+          "refId": "B"
+        },
+        {
+          "expr": "mxl_scopes_luma_max_code{instance=~\"$instance\"}",
+          "legendFormat": "{{instance}} max",
+          "refId": "C"
+        }
+      ],
+      "id": 5,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      }
+    },
+    {
+      "title": "Out of range and gamut (share)",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "mxl_scopes_luma_below_legal_ratio{instance=~\"$instance\"}",
+          "legendFormat": "{{instance}} luma < 64",
+          "refId": "A"
+        },
+        {
+          "expr": "mxl_scopes_luma_above_legal_ratio{instance=~\"$instance\"}",
+          "legendFormat": "{{instance}} luma > 940",
+          "refId": "B"
+        },
+        {
+          "expr": "mxl_scopes_chroma_out_of_range_ratio{instance=~\"$instance\"}",
+          "legendFormat": "{{instance}} Cb/Cr out of range",
+          "refId": "C"
+        },
+        {
+          "expr": "mxl_scopes_rgb_out_of_gamut_ratio{instance=~\"$instance\"}",
+          "legendFormat": "{{instance}} R'G'B' out of gamut",
+          "refId": "D"
+        }
+      ],
+      "id": 6,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      }
+    },
+    {
+      "title": "Preview",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "mxl_scopes_preview_publish_state{instance=~\"$instance\"} == 1",
+          "legendFormat": "{{instance}} {{state}}",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(mxl_scopes_preview_frames_total{instance=~\"$instance\"}[1m])",
+          "legendFormat": "{{instance}} pictures/s",
+          "refId": "B"
+        },
+        {
+          "expr": "mxl_scopes_preview_encoder{instance=~\"$instance\"}",
+          "legendFormat": "{{instance}} {{encoder}}",
+          "refId": "C"
+        }
+      ],
+      "id": 7,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      }
+    },
+    {
+      "title": "Preview encode (p95)",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (instance, le) (rate(mxl_scopes_preview_encode_seconds_bucket{instance=~\"$instance\"}[5m])))",
+          "legendFormat": "{{instance}}",
+          "refId": "A"
+        }
+      ],
+      "id": 8,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      }
+    },
+    {
+      "title": "CPU (cores)",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "rate(process_cpu_seconds_total{instance=~\"$instance\"}[1m])",
+          "legendFormat": "{{instance}}",
+          "refId": "A"
+        }
+      ],
+      "id": 9,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 32
+      }
+    },
+    {
+      "title": "Memory (resident)",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "process_resident_memory_bytes{instance=~\"$instance\"}",
+          "legendFormat": "{{instance}}",
+          "refId": "A"
+        }
+      ],
+      "id": 10,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 32
+      }
+    },
+    {
+      "title": "NMOS",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "mxl_scopes_nmos_registry_up{instance=~\"$instance\"}",
+          "legendFormat": "{{instance}} registered",
+          "refId": "A"
+        },
+        {
+          "expr": "increase(mxl_scopes_nmos_activations_total{instance=~\"$instance\"}[5m])",
+          "legendFormat": "{{instance}} activations (5 min)",
+          "refId": "B"
+        }
+      ],
+      "id": 11,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 40
+      }
+    },
+    {
+      "title": "Update rate (Hz)",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "mxl_scopes_update_rate_hz{instance=~\"$instance\"}",
+          "legendFormat": "{{instance}}",
+          "refId": "A"
+        }
+      ],
+      "id": 12,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 40
+      }
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": [
+    "mxl",
+    "scopes"
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "instance",
+        "label": "Instance",
+        "type": "query",
+        "datasource": "Prometheus",
+        "query": "label_values(mxl_scopes_info, instance)",
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  },
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "timezone": "",
+  "title": "MXL Scopes",
+  "uid": "mxl-scopes",
+  "version": 1
+}

@@ -4,7 +4,7 @@ This plan comes before any code. It is updated as the work goes on: every decisi
 
 ## Status (2026-10-23)
 
-1.0.0 is the first release, made after M2 (the maintainer's decision of 2026-10-23, deviation 26): the release notes are `docs/release-notes-1.0.0.md`. M3 and M4 follow as minor releases.
+1.1.0 (M3 and M4 together, the maintainer's decision of 2026-10-23) is ready on `feat/m3` and `feat/m4`: the WebRTC preview, the Vue UI, the widget, Blend2D texts, AMWA in CI, the deployment files and the measurements; release notes `docs/release-notes-1.1.0.md`. 1.0.0 was the first release, made after M2 (deviation 26), release notes `docs/release-notes-1.0.0.md`.
 
 M2 merged (PR #4), decided by the maintainer on 2026-10-22 to come before the first release: 32-bit cells (deviation 23 closed), `SCOPES_THREADS` strip workers, the measurements (deviation 9 closed), the key output and live output flow changes (deviation 4 closed), `ycbcr-overlay` (deviation 5 closed); numbers in `docs/performance.md`. The keyed scope over a picture on the multiviewer 1.4.4 does not show the picture through the key: the multiviewer's CPU backend blends a tile's key into the tile, not into the canvas (question 1 below). What M2 leaves open is listed under M2 below.
 
@@ -232,7 +232,7 @@ Progress (2026-10-22, `feat/m2`; the maintainer's decisions of 2026-10-22: M2 be
 - [x] Golden pictures of every mode (`docs/golden`, including `ycbcr-overlay`); `scope.sh` with v210a and every mode switched live without a new flow id.
 - [x] Benchmark of every mode with one and two threads, and the process CPU per mode before and after in the lab (`docs/performance.md`).
 - [ ] Desktop-class numbers (no desktop-class host in the lab).
-- [ ] Keyed scope over a picture on the multiviewer (M2 exit): the scope's `video/v210a` output is right (key samples checked in `scope.sh` and in the lab: 0 on the background, the trace opaque), and the multiviewer 1.4.4 reads it as v210a, but its CPU backend scales a keyed tile into an opaque tile image and copies that over the canvas, so the picture underneath does not show (lab 2026-10-22, layout with the picture at z 0 and the scope at z 1). The CUDA backend was not tried (the GPUs were in another test). Question 1 below.
+- [x] Keyed scope over a picture on the multiviewer (M2 exit): passed on the platform's test-all on 2026-10-23 (06:24–06:29Z) with multiviewer 1.4.6 on CUDA and scopes 1.0.0 with `SCOPES_OUTPUT_KEY=true`: the keyed tile (scale fill, on top) over a player tile; the maintainer saw the picture through the key with the trace and graticule over it. Multiviewer compose 1.56 ms (1.54 unkeyed), the scope 0.17 core keyed against 0.10 unkeyed (i9-9900K), 0 late and 0 missed on both. The lab's multiviewer 1.4.4 on the CPU backend did not key (it blended the key into the tile image); 1.4.6 on CUDA does.
 
 ### M2 numbers
 
@@ -273,6 +273,18 @@ Progress (2026-10-23, `feat/m3`, for 1.1.0 with M4 by the maintainer's decision 
 - A design note for the CUDA backend (stage 4): histogram kernel with shared-memory atomics per column strip, render and pack on the device, the same integer LUTs, a GPU = CPU byte test.
 
 Exit: 1.0.0 released and deployable by the platform.
+
+Progress (2026-10-23, `feat/m4`, for 1.1.0 with M3; 1.0.0 was released after M2, deviation 26):
+
+- [x] Performance: the lab with the preview on and off (`docs/performance.md` "M3"); the platform's CPU and RSS per mode on the i9 (the desktop class, `docs/performance.md` "M4"). The 1 h runs per §13 case on both classes are replaced by the soak and the platform's live measurement.
+- [x] 1 h soak with two instances on one node: no leak, RSS flat; A 0 late after its first minute; B 16 late and 1 missed, all at start-up or in two bursts while other work ran on the host, none in the last 43 minutes (`docs/performance.md`).
+- [x] AMWA IS-04-01, IS-05-01, IS-05-02, BCP-007-03-01 in CI (`tests/nmos/amwa.sh`, expected list with reasons); the receiver caps fix.
+- [x] Container image with OCI and MXL labels and tags (since M0; the tag must match the version), Compose demo, `deploy/k8s/deployment.yaml`, Grafana dashboard with provisioning; standard process metrics.
+- [x] README, CHANGELOG, AGENTS.md.
+- [x] Platform hand-off in `docs/release-notes-1.1.0.md` (catalog values, chart env, resources, metrics).
+- [x] Release notes for 1.1.0 (the release itself is the maintainer's: tag after the merge).
+- [x] `docs/cuda-design.md`.
+- [x] M2 exit check (keyed scope over a picture): passed on the platform with multiviewer 1.4.6 (CUDA).
 
 ## After 1.0
 
@@ -368,4 +380,4 @@ Resolved 2026-10-22: the multiviewer 1.4.3 crash (exit 139) on the test player's
 
 Open (2026-10-22):
 
-1. The multiviewer 1.4.4 (CPU backend) does not key a `video/v210a` tile over the tiles below it: `scaleInto` blends the key into the tile's own image, which `blit` then copies opaque onto the canvas. A ticket for the multiviewer (key into the canvas, or keep the tile image's alpha for the blit)? The scope side is done; the M2 exit check waits for it.
+1. ~~The multiviewer 1.4.4 (CPU backend) does not key a `video/v210a` tile.~~ Resolved 2026-10-23: the keyed scope passed on test-all with multiviewer 1.4.6 (CUDA); see M2.

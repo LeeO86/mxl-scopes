@@ -11,3 +11,7 @@
 - Config precedence is environment > `SCOPES_CONFIG_FILE` (else `<SCOPES_STATE_DIR>/config.json`) > defaults. Invalid config exits 78; a port or another startup failure 75; SIGTERM 143.
 - Metrics prefix `mxl_scopes_`. Ports 8170 (web) and 3322 (+1) NMOS.
 - Public repository: no internal host names, addresses or organisation references.
+- The web UI is `web/` (Vue 3, Vite, one embedded HTML file); `npm ci && npm run build` there, or let CMake run npm. Widget pages are the same HTML on `/widget/<id>`.
+- Texts go through Blend2D with its JIT off, so the golden hashes hold on every x86-64 CPU; `-DSCOPES_WITH_BLEND2D=OFF` has its own hashes.
+- The preview (`src/preview/`) links the system FFmpeg; `tests/integration/preview.sh` needs the MediaMTX release binary (`MEDIAMTX_BIN`).
+- `tests/nmos/amwa.sh` runs in CI; a changed AMWA result must be explained in `tests/nmos/amwa-expected-off.json`. Do not run an nmos-cpp registry on a shared lab network: its mDNS responder announces it and other nodes register to it.
