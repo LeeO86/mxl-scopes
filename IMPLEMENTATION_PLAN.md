@@ -250,6 +250,17 @@ See `docs/performance.md` "M2". In short, lab class, camera picture, 1080p50, AV
 
 Exit: an operator sees and switches the scope in the widget on an operator screen.
 
+Progress (2026-10-23, `feat/m3`, for 1.1.0 with M4 by the maintainer's decision of 2026-10-23):
+
+- [x] Preview contract (deviation 7 closed): shared and own MediaMTX (the image's 1.20.1, supervised), path `<prefix>/scope`, area-average NV12 scaler (a fast path for half the raster), libx264 with h264_nvenc tried first, RTSP publisher with reconnect, state, encoder and metrics; `tests/integration/preview.sh` in CI.
+- [x] Vue 3 UI in the family look (deviation 8 closed): Scope, Input, NMOS, Status, Settings tabs, WebSocket, built by Vite into one embedded HTML file.
+- [x] `scope` widget, `/widgets` with CORS, `frame-ancestors`, `widget-ready` and `widget-size`.
+- [x] `GET /api/v1/snapshot.png` with the key as PNG alpha.
+- [x] Config export and import, `KEY=value` export: built in M0; the import answers `flow_keys`.
+- [x] Blend2D and DejaVu Sans for the texts (deviation 6 closed).
+- [x] Lab (2026-10-23): the 540p preview of a camera clip's luma waveform keeps the traces readable (SPECIFICATION open question 11); the preview costs about 0.15 core with x264 (target < 0.25); NVENC verified once on a lab GPU; numbers in `docs/performance.md`.
+- [ ] The exit check on a real operator screen (a designer page framing the widget) waits for the platform; the widget page, its headers and messages are tested here, and a browser renders it (headless Chromium in the lab, which has no H.264, so it showed the snapshot fallback).
+
 ### M4: hardening, platform, release 1.0.0
 
 - Performance runs of SPECIFICATION §13 on both host classes, 1 h each, preview on and off; `docs/performance.md`.
