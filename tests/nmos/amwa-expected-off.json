@@ -1,0 +1,7 @@
+{
+  "_comment": "Every non-Pass result of tests/nmos/amwa.sh off against mxl-scopes, with the reason. tests/nmos/check_amwa.py fails on any other result.",
+  "IS-04-01": {},
+  "IS-05-01": {},
+  "IS-05-02": {},
+  "BCP-007-03-01": {}
+}
