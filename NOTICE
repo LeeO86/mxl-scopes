@@ -23,3 +23,7 @@ The image also carries and links:
 - MediaMTX (bluenviron/mediamtx), MIT, /usr/local/bin/mediamtx, licence in /usr/share/doc/mediamtx/LICENSE.
 - FFmpeg (libavcodec, libavformat, libavutil) from Ubuntu, LGPL-2.1-or-later; Ubuntu builds them with
   libx264, so the image's libraries are GPL-2.0-or-later.
+- Blend2D 0.21.2 (blend2d.com) and the asmjit it ships, Zlib licence, fetched at configure time and
+  linked statically (the texts of the picture).
+- DejaVu Sans (third_party/dejavu), the Bitstream Vera / DejaVu font licence (third_party/dejavu/LICENSE),
+  embedded into the binary; taken from mxl-multiviewer.

@@ -360,7 +360,15 @@ TEST_CASE("golden hashes of the default picture")
         char const* pattern;
         std::uint64_t hash;
     };
-    for (auto const& golden : {Golden{"ramp", 7384256726905344186ull}, Golden{"bars75", 2826592181012396248ull}, Golden{"bars100", 9629069767906594335ull}, Golden{"flat", 14827436196761363586ull}, Golden{"camera", 5305815829015520611ull}})
+    // Texts with Blend2D and DejaVu Sans (the default build), else the 8×8 bitmap font.
+#ifdef SCOPES_WITH_BLEND2D
+    std::initializer_list<Golden> const goldens = {Golden{"ramp", 9701730890134013145ull}, Golden{"bars75", 6880157295943922799ull}, Golden{"bars100", 1802911576890950376ull},
+        Golden{"flat", 9038984948231426553ull}, Golden{"camera", 15670382494750205288ull}};
+#else
+    std::initializer_list<Golden> const goldens = {Golden{"ramp", 7384256726905344186ull}, Golden{"bars75", 2826592181012396248ull}, Golden{"bars100", 9629069767906594335ull},
+        Golden{"flat", 14827436196761363586ull}, Golden{"camera", 5305815829015520611ull}};
+#endif
+    for (auto const& golden : goldens)
     {
         auto const frame = packPattern(makePattern(golden.pattern, 1920, 1080, 512));
         ScopeEngine engine(SimdLevel::Scalar);

@@ -14,6 +14,27 @@ set(NMOS_CPP_DIR "" CACHE PATH "Path to sony/nmos-cpp Development/")
 
 find_package(Threads REQUIRED)
 
+# Graticule labels, caption and state texts with Blend2D and DejaVu Sans (§3.1), the pin of
+# mxl-multiviewer; OFF draws them with the 8×8 bitmap font (an offline build).
+option(SCOPES_WITH_BLEND2D "Draw texts with Blend2D" ON)
+if(SCOPES_WITH_BLEND2D)
+    include(FetchContent)
+    FetchContent_Declare(blend2d_src
+        URL https://blend2d.com/download/blend2d-0.21.2.tar.gz
+        URL_HASH SHA256=234ba57a64153c96885a6271f15fdcf6c594ac8cb03adaad19abb8d3b2b533fa
+    )
+    FetchContent_GetProperties(blend2d_src)
+    if(NOT blend2d_src_POPULATED)
+        FetchContent_Populate(blend2d_src)
+    endif()
+    set(BLEND2D_STATIC ON CACHE BOOL "" FORCE)
+    set(BLEND2D_TEST OFF CACHE BOOL "" FORCE)
+    set(BLEND2D_DEMOS OFF CACHE BOOL "" FORCE)
+    set(BLEND2D_NO_INSTALL ON CACHE BOOL "" FORCE)
+    set(BLEND2D_NO_JIT_LOGGING ON CACHE BOOL "" FORCE)
+    add_subdirectory(${blend2d_src_SOURCE_DIR} ${CMAKE_BINARY_DIR}/blend2d EXCLUDE_FROM_ALL)
+endif()
+
 set(SCOPES_WARNINGS -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers)
 
 # scopes-core: config, scope engine, media, REST and metrics. It links neither libmxl nor
@@ -49,6 +70,25 @@ add_library(scopes-core STATIC
 target_include_directories(scopes-core PUBLIC src third_party ${CMAKE_CURRENT_BINARY_DIR}/generated)
 target_link_libraries(scopes-core PUBLIC Threads::Threads)
 target_compile_options(scopes-core PRIVATE ${SCOPES_WARNINGS})
+if(SCOPES_WITH_BLEND2D)
+    set(DEJAVU_HEADER ${CMAKE_CURRENT_BINARY_DIR}/generated/scope/dejavu_sans.hpp)
+    add_custom_command(
+        OUTPUT ${DEJAVU_HEADER}
+        COMMAND ${CMAKE_COMMAND}
+                -DINPUT=${CMAKE_CURRENT_SOURCE_DIR}/third_party/dejavu/DejaVuSans.ttf
+                -DOUTPUT=${DEJAVU_HEADER}
+                -DNAMESPACE=scopes::font
+                -DVAR=dejavuSans
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedBytes.cmake
+        DEPENDS third_party/dejavu/DejaVuSans.ttf cmake/EmbedBytes.cmake
+        COMMENT "Embedding DejaVu Sans"
+    )
+    add_custom_target(scopes-font DEPENDS ${DEJAVU_HEADER})
+    add_dependencies(scopes-core scopes-font)
+    set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/src/scope/render.cpp PROPERTIES OBJECT_DEPENDS "${DEJAVU_HEADER}")
+    target_link_libraries(scopes-core PUBLIC blend2d::blend2d)
+    target_compile_definitions(scopes-core PUBLIC SCOPES_WITH_BLEND2D=1)
+endif()
 
 # The AVX2 and AVX-512 engines are one translation unit each with their own flags; the rest
 # of the binary stays baseline x86-64, so the image starts on any x86-64 CPU (§3.1, §3.2).
