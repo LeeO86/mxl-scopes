@@ -169,7 +169,14 @@ Sampled every 60 s for 60 min:
 | A | 181 213 | 1 (in the first minute) | 0 | 1 (first minute) | 0 | 0.42 | 442 → 453 MB |
 | B | 181 105 | 16 (6 in the first minute, then 7 and 4 in two bursts before minute 17, none after) | 1 (first minute) | 2 | 0 | 0.65 | 513 → 512 MB |
 
-- RSS stays flat over the hour; there is no leak.
+Re-run after the review fixes (snapshot copied after the commit into three fixed buffers, x264 with one thread), same set-up, the player on its own core, the other cores of the host busy only with pinned work:
+
+| Instance | Output grains | Late | Missed | Skipped ticks | Torn | CPU (mean) | RSS minute 1 → 60 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| A | 178 219 | 0 | 0 | 0 | 0 | 0.41 | 341 → 357 MB |
+| B | 178 108 | 1 (at start-up) | 0 | 0 | 0 | 0.65 | 514 → 515 MB |
+
+- RSS stays flat over the hour; there is no leak. (A grew 16 MB in a few steps, B not at all; the steps are not broken down into anonymous and shared memory.)
 - The late grains of B come at start-up (MediaMTX starting and the encoder opening on the same core) and in two bursts while other work (the CI tools of this session) ran unpinned on the host; the last 43 minutes had none.
 - One core per scope is enough for these configurations, but not with headroom for B (0.65 core with a key and the preview). The platform's 2-CPU limit leaves that headroom.
 - An earlier attempt was discarded because a build ran on the same cores. In it, `rgb-overlay` with a key and the preview on one core (0.89 core) skipped ticks and made output grains late: that configuration needs more than one core.

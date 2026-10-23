@@ -103,7 +103,8 @@ Details in `docs/performance.md` "M3" and "M4".
 - **Soak:** two instances on one node for 1 h, luma, and RGB parade with a key, both with the preview:
   - RSS flat, no leak;
   - 0 torn reads;
-  - late output grains only at start-up and in two short bursts while other work ran on the host.
+  - late output grains only at start-up and in two short bursts while other work ran on the host;
+  - re-run after the review fixes: 0 late and 0 missed for luma, 1 late (start-up) and 0 missed for RGB parade with a key, no skipped ticks.
 - **AMWA:** every result Pass, or listed with its reason in `tests/nmos/amwa-expected-off.json`. CI runs without DNS-SD, so IS-04 registration and heartbeats are not covered by AMWA (only against the stub registry in `tests/integration/scope.sh`).
 
 ### Platform checks done on 1.0.0 (thank you)
