@@ -168,12 +168,20 @@ int main(int argc, char** argv)
         std::unique_ptr<scopes::ChildProcess> mediamtx;
         std::unique_ptr<scopes::PreviewPublisher> publisher;
         std::uint64_t previewFrames = 0;
+        std::string previewEncoder;
         if (plan.webrtc)
         {
             if (plan.ownMediamtx)
             {
                 auto const yml = (std::filesystem::path(config.stateDir) / "mediamtx.yml").string();
-                std::ofstream(yml, std::ios::trunc) << scopes::renderMediamtxConfig(config);
+                std::ofstream file(yml, std::ios::trunc);
+                file << scopes::renderMediamtxConfig(config);
+                file.close();
+                if (!file)
+                {
+                    scopes::logError("mediamtx_config", {{"path", yml}, {"error", "cannot write"}});
+                    return 75;
+                }
                 mediamtx = std::make_unique<scopes::ChildProcess>("mediamtx");
                 mediamtx->start({"mediamtx", yml});
             }
@@ -224,9 +232,18 @@ int main(int argc, char** argv)
                     {
                         metrics.set("preview_publish_state", {{"state", name}}, status.state == name ? 1 : 0);
                     }
-                    if (!status.encoder.empty())
+                    if (status.encoder != previewEncoder)
                     {
-                        metrics.set("preview_encoder", {{"encoder", status.encoder}}, 1);
+                        // One encoder label at 1; the one before (after a fallback) goes to 0.
+                        if (!previewEncoder.empty())
+                        {
+                            metrics.set("preview_encoder", {{"encoder", previewEncoder}}, 0);
+                        }
+                        if (!status.encoder.empty())
+                        {
+                            metrics.set("preview_encoder", {{"encoder", status.encoder}}, 1);
+                        }
+                        previewEncoder = status.encoder;
                     }
                     metrics.inc("preview_frames_total", {}, static_cast<double>(status.frames - previewFrames));
                     previewFrames = status.frames;

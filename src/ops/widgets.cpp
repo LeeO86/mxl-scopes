@@ -65,11 +65,31 @@ bool listedOrigin(std::string const& sources, std::string origin)
     {
         return false;
     }
+    // A host wildcard as in frame-ancestors: `https://*.example.com` (or `*.example.com`, any
+    // scheme) matches every subdomain, not example.com itself; a port must match as written.
+    auto const scheme = origin.find("://");
+    if (scheme == std::string::npos)
+    {
+        return false;
+    }
+    auto const hostPort = origin.substr(scheme + 3);
+    auto const wildcard = [&](std::string const& token) {
+        auto const at = token.find("://");
+        auto const host = at == std::string::npos ? token : token.substr(at + 3);
+        if (host.rfind("*.", 0) != 0 || (at != std::string::npos && token.compare(0, at, origin, 0, scheme) != 0))
+        {
+            return false;
+        }
+        auto const suffix = host.substr(1);
+        bool const port = suffix.find(':') != std::string::npos;
+        return hostPort.size() > suffix.size() && hostPort.compare(hostPort.size() - suffix.size(), suffix.size(), suffix) == 0 &&
+               (port || hostPort.find(':') == std::string::npos);
+    };
     std::istringstream tokens(sources);
     std::string token;
     while (tokens >> token)
     {
-        if (token == "*" || normal(token) == origin)
+        if (token == "*" || normal(token) == origin || wildcard(normal(token)))
         {
             return true;
         }

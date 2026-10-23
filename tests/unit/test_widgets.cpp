@@ -35,12 +35,12 @@ struct WidgetFixture
     Metrics metrics;
     std::unique_ptr<Api> api;
 
-    WidgetFixture()
+    explicit WidgetFixture(std::map<std::string, std::string> extra = {})
     {
         dir = (std::filesystem::temp_directory_path() / ("scopes-widgets-" + std::to_string(::getpid()))).string();
         std::filesystem::create_directories(dir);
-        store = std::make_unique<ConfigStore>(std::map<std::string, std::string>{
-            {"NMOS_HOST_ADDRESS", "192.0.2.1"}, {"SCOPES_STATE_DIR", dir}, {"WIDGET_FRAME_ANCESTORS", "'self' https://designer.example"}});
+        extra.insert({{"NMOS_HOST_ADDRESS", "192.0.2.1"}, {"SCOPES_STATE_DIR", dir}, {"WIDGET_FRAME_ANCESTORS", "'self' https://designer.example"}});
+        store = std::make_unique<ConfigStore>(std::move(extra));
         store->useFile(dir + "/config.json");
         config = store->effectiveConfig();
         state = std::make_unique<AppState>(config.display);
@@ -102,11 +102,28 @@ TEST_CASE("widgets: /widget/scope with frame-ancestors, 400 and 404")
     CHECK(f.call("GET", "/widget/nope").status == 404);
 }
 
+TEST_CASE("widgets: WEB_ENABLE=false answers 404 for the list and the pages")
+{
+    WidgetFixture f({{"WEB_ENABLE", "false"}});
+    CHECK(f.call("GET", "/widgets").status == 404);
+    CHECK(f.call("GET", "/widget/scope").status == 404);
+    CHECK(f.call("GET", "/").status == 404);
+}
+
 TEST_CASE("widgets: origins and queries")
 {
     CHECK(listedOrigin("'self' https://a.example", "https://A.example/"));
     CHECK_FALSE(listedOrigin("'self' https://a.example", "null"));
     CHECK(listedOrigin("*", "https://any.example"));
+    // Host wildcards as in frame-ancestors: subdomains only, scheme and port as written.
+    CHECK(listedOrigin("https://*.example.com", "https://designer.example.com"));
+    CHECK(listedOrigin("https://*.example.com", "https://a.b.example.com"));
+    CHECK_FALSE(listedOrigin("https://*.example.com", "https://example.com"));
+    CHECK_FALSE(listedOrigin("https://*.example.com", "http://designer.example.com"));
+    CHECK_FALSE(listedOrigin("https://*.example.com", "https://designer.example.com:8443"));
+    CHECK_FALSE(listedOrigin("https://*.example.com", "https://evil-example.com"));
+    CHECK(listedOrigin("*.example.com", "http://designer.example.com"));
+    CHECK(listedOrigin("https://*.example.com:8443", "https://designer.example.com:8443"));
     auto const q = parseQuery("controls=true&theme=dark%20x&x");
     CHECK(q.at("controls") == "true");
     CHECK(q.at("theme") == "dark x");

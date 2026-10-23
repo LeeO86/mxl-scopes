@@ -514,7 +514,7 @@ HttpResponse Api::snapshotPng(std::string const& query) const
     response.contentType = "image/png";
     response.headers.emplace_back("Cache-Control", "no-store");
     std::lock_guard lock{pngMu_};
-    if (pngSource_ != snapshot || pngScale_ != scale)
+    if (pngUpdate_ != snapshot->update || pngScale_ != scale)
     {
         Frame422 frame;
         frame.allocate(snapshot->width, snapshot->height);
@@ -524,7 +524,7 @@ HttpResponse Api::snapshotPng(std::string const& query) const
             unpackAlpha(snapshot->key.data(), frame);
         }
         png_ = encodePng(frame, scale);
-        pngSource_ = snapshot;
+        pngUpdate_ = snapshot->update;
         pngScale_ = scale;
     }
     response.body = png_;
@@ -536,7 +536,8 @@ HttpResponse Api::handle(HttpRequest const& request)
     auto const& path = request.path;
     auto const& method = request.method;
     bool const mutating = method == "POST" || method == "PUT" || method == "PATCH" || method == "DELETE";
-    if (!config_.webEnable && (mutating || path == "/" || path == "/index.html"))
+    bool const webPath = path == "/" || path == "/index.html" || path == "/widgets" || path.rfind("/widget/", 0) == 0;
+    if (!config_.webEnable && (mutating || webPath))
     {
         return error(404, "the web UI and changes are off (WEB_ENABLE=false)");
     }

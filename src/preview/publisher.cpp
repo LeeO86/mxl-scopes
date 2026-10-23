@@ -144,6 +144,9 @@ struct PreviewPublisher::Impl
         // One second GOP: a new WHEP viewer has a picture within a second. No B-frames.
         ctx->gop_size = std::max(1, static_cast<int>(std::lround(fps)));
         ctx->max_b_frames = 0;
+        // One encoder thread: libx264 would start one per core of the host, which a CPU limit
+        // (Kubernetes CFS quota) then throttles in bursts. 960x540 ultrafast takes about 3 ms.
+        ctx->thread_count = 1;
         // SPS and PPS in the RTSP SDP; MediaMTX repeats them for WebRTC readers.
         ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
         return ctx;

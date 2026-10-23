@@ -52,6 +52,11 @@ TEST_CASE("preview: the own MediaMTX config and the status JSON")
     CHECK(yml.find("hlsAddress: :8578\n") != std::string::npos);
     CHECK(yml.find("webrtcLocalUDPAddress: :8279\n") != std::string::npos);
     CHECK(yml.find("webrtcAdditionalHosts: [\"10.0.0.5\"]\n") != std::string::npos);
+    // Publishing only from this host; reading from anyone; no takeover of the stream.
+    CHECK(yml.find("authMethod: internal\n") != std::string::npos);
+    CHECK(yml.find("    ips: [\"127.0.0.1\", \"::1\"]\n    permissions:\n      - action: publish\n") != std::string::npos);
+    CHECK(yml.find("    ips: []\n    permissions:\n      - action: read\n") != std::string::npos);
+    CHECK(yml.find("  overridePublisher: false\n") != std::string::npos);
     PreviewStatus status;
     status.state = "publishing";
     status.encoder = "x264";

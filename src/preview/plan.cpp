@@ -86,8 +86,27 @@ std::string renderMediamtxConfig(Config const& cfg)
     yml += "webrtcLocalTCPAddress: :" + std::to_string(cfg.mediamtxIcePort) + "\n";
     yml += cfg.nmosHostAddress.empty() ? "webrtcAdditionalHosts: []\n" : "webrtcAdditionalHosts: [\"" + cfg.nmosHostAddress + "\"]\n";
     yml += "webrtcICEServers2: []\n";
+    // Only this process publishes (from 127.0.0.1); anyone may read. A second publisher does not
+    // replace the running one.
+    yml += "authMethod: internal\n";
+    yml += "authInternalUsers:\n";
+    yml += "  - user: any\n";
+    yml += "    pass:\n";
+    yml += "    ips: [\"127.0.0.1\", \"::1\"]\n";
+    yml += "    permissions:\n";
+    yml += "      - action: publish\n";
+    yml += "        path:\n";
+    yml += "  - user: any\n";
+    yml += "    pass:\n";
+    yml += "    ips: []\n";
+    yml += "    permissions:\n";
+    yml += "      - action: read\n";
+    yml += "        path:\n";
+    yml += "      - action: playback\n";
+    yml += "        path:\n";
     yml += "pathDefaults:\n";
     yml += "  source: publisher\n";
+    yml += "  overridePublisher: false\n";
     yml += "paths:\n";
     yml += "  all_others:\n";
     return yml;

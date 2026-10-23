@@ -112,8 +112,11 @@ Measurements AppState::measurements() const
 
 void AppState::setSnapshot(std::shared_ptr<Snapshot const> snapshot)
 {
-    std::lock_guard lock{mutex_};
-    snapshot_ = std::move(snapshot);
+    {
+        std::lock_guard lock{mutex_};
+        snapshot_.swap(snapshot);
+    }
+    // The previous one is released here, outside the lock.
 }
 
 std::shared_ptr<Snapshot const> AppState::snapshot() const
