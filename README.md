@@ -2,7 +2,7 @@
 
 Video scopes for MXL: a media function that reads one MXL video flow and writes a waveform monitor (luma first, then YCbCr and RGB parades) as an ordinary MXL video flow. The multiviewer or any other MXL function can show it, keyed over the picture if wanted. Operators also see it in a browser and on operator screens.
 
-**Status: 1.0.0 (M0–M2).** Every stage-1 mode (luma waveform, YCbCr and RGB parades, RGB and YCbCr overlays) runs end to end: MXL in, MXL out (with a key if wanted), NMOS, REST, metrics with the measurements, a web page with a snapshot; strip workers share the work over several cores. The WebRTC preview and the widget follow in M3. Release notes: [docs/release-notes-1.0.0.md](docs/release-notes-1.0.0.md). CPU per mode: [docs/performance.md](docs/performance.md). What differs from the specification today is listed under "Deviations" in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md). Read [SPECIFICATION.md](SPECIFICATION.md) for the design.
+**Status: 1.1.0 (M0–M4).** Every stage-1 mode (luma waveform, YCbCr and RGB parades, RGB and YCbCr overlays) runs end to end: MXL in, MXL out (with a key if wanted), NMOS, REST, metrics with the measurements, a web page with a snapshot; strip workers share the work over several cores. A WebRTC preview, a Vue UI and an operator-screen widget show it in the browser. Release notes: [docs/release-notes-1.1.0.md](docs/release-notes-1.1.0.md). CPU per mode: [docs/performance.md](docs/performance.md). What differs from the specification today is listed under "Deviations" in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md). Read [SPECIFICATION.md](SPECIFICATION.md) for the design.
 
 ## At a glance
 
@@ -22,11 +22,11 @@ Video scopes for MXL: a media function that reads one MXL video flow and writes 
 | NMOS Node and Connection APIs | `NMOS_PORT` | 3322 (+1 reserved) |
 | Built-in MediaMTX RTSP / WHEP / HLS / ICE (only without `PREVIEW_PUBLISH_URL`) | `MEDIAMTX_*_PORT` | 8574 / 8579 / 8578 / 8279 |
 
-## Settings (M2)
+## Settings
 
-Environment > `SCOPES_CONFIG_FILE` (flat JSON, else `<SCOPES_STATE_DIR>/config.json`) > defaults. All keys and their meaning: SPECIFICATION §8. In M2:
+Environment > `SCOPES_CONFIG_FILE` (flat JSON, else `<SCOPES_STATE_DIR>/config.json`) > defaults. All keys and their meaning: SPECIFICATION §8. 
 
-| Key | Default | M2 |
+| Key | Default | |
 | --- | --- | --- |
 | `SCOPES_MODE` | `luma` | `luma`, `ycbcr-parade`, `rgb-parade`, `rgb-overlay`, `ycbcr-overlay`, live (stage-2 modes exit 78) |
 | `SCOPES_UPDATE_RATE` | `25` | `frame` or 1–60 Hz, live; the overlays run at most every n-th input frame, at most 30 Hz (25 Hz from 50p) |
@@ -44,7 +44,7 @@ Environment > `SCOPES_CONFIG_FILE` (flat JSON, else `<SCOPES_STATE_DIR>/config.j
 | `MXL_DOMAIN_SCAN_PATH`, `MXL_OUTPUT_DOMAIN_DIR`, `MXL_OUTPUT_DOMAIN_ID`, `MXL_HISTORY_DURATION_NS`, `MXL_CLEANUP_ON_EXIT` | `/Volumes/mxl`, `/Volumes/mxl/scopes-<id>`, UUIDv5 of the seed, 200 ms, `false` | |
 | `NMOS_*`, `WEB_*`, `LOG_LEVEL`, `LOG_FORMAT`, `SHUTDOWN_TIMEOUT_S` | as the sibling functions | |
 
-## API (M2)
+## API
 
 | Path | |
 | --- | --- |
@@ -69,17 +69,30 @@ With libmxl (and `-DSCOPES_WITH_NMOS=ON -DNMOS_CPP_DIR=...`) the build adds `mxl
 
 ## Lab run
 
-The image `ghcr.io/leeo86/mxl-scopes` (`1.0.0`; `nightly-dev` from `main`) needs no GPU:
+The image `ghcr.io/leeo86/mxl-scopes` (`1.1.0`; `nightly-dev` from `main`) needs no GPU (NVENC is used for the preview when a GPU with it is passed in):
 
 ```sh
 docker run --rm --name scopes --network host --cpuset-cpus 25 \
   -v /Volumes/mxl:/Volumes/mxl -v scopes-config:/config \
   -e NMOS_REGISTRY_ADDRESS=<registry ip> -e NMOS_HOST_ADDRESS=<host ip> \
   -e NMOS_SEED=lab-scopes-1 -e MXL_CLEANUP_ON_EXIT=true \
-  ghcr.io/leeo86/mxl-scopes:1.0.0
+  ghcr.io/leeo86/mxl-scopes:1.1.0
 ```
 
 Route the receiver "Scopes In Video" over IS-05, open `http://<host>:8170/`, and route the sender "Scopes Out Video" to a multiviewer tile. Without a controller, `mxl-scopes-writer --domain DIR --flow UUID --pattern bars75` (or `scene`, a colour picture) in the same image writes a test flow, and a `routes.json` in `/config` routes it at start.
+
+## Deploy and monitor
+
+- `deploy/k8s/deployment.yaml`: the Kubernetes example (pod network, probes, the MXL hostPath, `/config`, the shared preview; 500m CPU and 256Mi requested, 2 CPUs and 768Mi as limits).
+- `deploy/grafana/mxl-scopes.json`: the Grafana dashboard (updates, late and missed grains, analyse and render time, input state, measurements, preview, CPU, memory), with provisioning and `deploy/prometheus/prometheus.yml`.
+- `docker/docker-compose.demo.yaml`: a registry, a colour bar writer, the scope, Prometheus and Grafana on one machine.
+- `/metrics` also has `process_cpu_seconds_total`, `process_resident_memory_bytes`, `process_start_time_seconds` and `process_open_fds`.
+
+## Tests
+
+- `./build/unit-tests`: the engine (SIMD = scalar byte for byte, threads, cell widths), measurements, key, preview plan and scaler, widgets, API, config.
+- `tests/integration/scope.sh` and `tests/integration/preview.sh` (MediaMTX release binary): the process with MXL, NMOS, the output, the preview and the widget routes.
+- `tests/nmos/amwa.sh off build/mxl-scopes`: AMWA IS-04-01, IS-05-01, IS-05-02 and BCP-007-03-01 with an nmos-cpp registry (CI); every non-Pass result is listed with its reason in `tests/nmos/amwa-expected-off.json`.
 
 ## Exit codes
 

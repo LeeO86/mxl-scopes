@@ -1,6 +1,16 @@
 # Changelog
 
-## Unreleased (1.1.0: M3 and M4)
+## 1.1.0
+
+M3 and M4 of IMPLEMENTATION_PLAN.md in one release (the maintainer's decision of 2026-10-23): the WebRTC preview, the Vue UI, the widget, Blend2D texts, and the hardening for the platform. Release notes for the platform: `docs/release-notes-1.1.0.md`.
+
+### M4 (2026-10-23)
+
+- AMWA nmos-testing IS-04-01, IS-05-01, IS-05-02 and BCP-007-03-01 in CI (`tests/nmos/amwa.sh`), every non-Pass result listed with its reason. Fix: the receiver's IS-04 `caps` keep `media_types` (BCP-007-03-01 test_07 failed before).
+- Standard process metrics on `/metrics`: `process_cpu_seconds_total`, `process_resident_memory_bytes`, `process_start_time_seconds`, `process_open_fds`.
+- `deploy/k8s/deployment.yaml`, `deploy/grafana/mxl-scopes.json` with provisioning and a Prometheus config, `docker/docker-compose.demo.yaml`.
+- RSS per mode measured; the 1 h soak with two instances on one node; the platform's numbers (keyed scope over a picture on multiviewer 1.4.6, CPU and RSS per mode on the i9) in `docs/performance.md`.
+- `docs/cuda-design.md`: the design of a CUDA backend.
 
 ### M3 (2026-10-23)
 

@@ -308,7 +308,7 @@ The combined Y-against-chroma display is called **`luma-chroma`** in the API and
 2. **Kubernetes sizing works per instance.** The platform sets CPU requests and limits per function; one scope = one predictable budget (§13). A many-input process would need its own internal scheduling and fair share.
 3. **A simple NMOS model.** One receiver, one sender, one node. A controller routes a scope like any other function. The multiviewer already combines several scope outputs on one wall, so a multi-input scope adds nothing there.
 4. **The update rate is per instance.** A programme scope at every frame and a quiet camera scope at 10 Hz are two settings, not a per-input table.
-5. **Low fixed cost.** The reader does not copy grains. The per-process overhead (nmos-cpp node, web server, about 50–100 MB RAM, `TODO_` measure in M0) is small next to a 53 MB output flow on the tmpfs.
+5. **Low fixed cost.** The reader does not copy grains. The per-process overhead (nmos-cpp node, web server, about 50–100 MB RAM; measured 2026-10-23: 63–116 MB RSS on the platform) is small next to a 53 MB output flow on the tmpfs.
 
 The cost is one NMOS node and one web endpoint per scope. If productions need many scopes and the per-instance overhead turns out to matter, a later stage can add `SCOPES_INPUTS` (inputs × modes into a mosaic). The engine interface (§3.2) does not prevent it.
 
@@ -400,21 +400,21 @@ Precedence: environment > `SCOPES_CONFIG_FILE` (flat JSON, keys are the variable
 | `NMOS_REGISTRY_ADDRESS` / `NMOS_REGISTRY_PORT` | empty / 3210 | restart |
 | `NMOS_QUERY_ADDRESS` / `NMOS_QUERY_PORT` | registry address / registry port + 1 | restart |
 | `NMOS_DNS_SD` | `false` | restart |
-| `NMOS_PORT` | 3322 (`TODO_`, §15) | restart |
+| `NMOS_PORT` | 3322 (§15) | restart |
 | `NMOS_SEED` | `<HOST_ID>-scopes` | restart |
 | `NMOS_LABEL` | empty (`HOST_ID`) | restart |
 | `NMOS_HOST_ADDRESS` | first non-loopback IPv4 | restart |
 | `NMOS_TAGS` | `{}` | restart |
 | `WEB_ENABLE` | `true` | restart |
-| `WEB_PORT` | 8170 (`TODO_`, §15) | restart |
+| `WEB_PORT` | 8170 (§15) | restart |
 | `WIDGET_FRAME_ANCESTORS` | `'self'` | restart |
 | `PREVIEW_PUBLISH_URL` | empty (own MediaMTX) | restart |
 | `PREVIEW_PATH_PREFIX` | `mxl-scopes` | restart |
 | `PREVIEW_WHEP_URL` / `PREVIEW_HLS_URL` | empty (own MediaMTX) | restart |
-| `MEDIAMTX_RTSP_PORT` | 8574 (`TODO_`) | restart |
-| `MEDIAMTX_WHEP_PORT` | 8579 (`TODO_`) | restart |
-| `MEDIAMTX_HLS_PORT` | 8578 (`TODO_`) | restart |
-| `MEDIAMTX_ICE_UDP_PORT` | 8279 (`TODO_`) | restart |
+| `MEDIAMTX_RTSP_PORT` | 8574 | restart |
+| `MEDIAMTX_WHEP_PORT` | 8579 | restart |
+| `MEDIAMTX_HLS_PORT` | 8578 | restart |
+| `MEDIAMTX_ICE_UDP_PORT` | 8279 | restart |
 | `LOG_LEVEL` | `info` | live |
 | `LOG_FORMAT` | `json` | restart |
 | `SHUTDOWN_TIMEOUT_S` | 10 | restart |
@@ -546,7 +546,7 @@ The container runs as uid/gid 1000, needs no GPU, no `hostIPC`, no extra capabil
 
 ## 12. Deployment and CI
 
-- Image `ghcr.io/leeo86/mxl-scopes` (`TODO_` owner), public. Tags on `vX.Y.Z`: `X.Y.Z`, `X.Y`, `X`, never moved. `main`: `nightly-dev` and `git-<sha7>`. No `latest`. OCI labels: `org.opencontainers.image.source`, `.revision`, `.licenses`, `.version` (set explicitly), and `io.dmf.mxl.revision` = the MXL pin.
+- Image `ghcr.io/leeo86/mxl-scopes`, public. Tags on `vX.Y.Z`: `X.Y.Z`, `X.Y`, `X`, never moved. `main`: `nightly-dev` and `git-<sha7>`. No `latest`. OCI labels: `org.opencontainers.image.source`, `.revision`, `.licenses`, `.version` (set explicitly), and `io.dmf.mxl.revision` = the MXL pin.
 - The image carries MediaMTX (pinned, with its licence) and Ubuntu's FFmpeg libraries, and sets `NVIDIA_DRIVER_CAPABILITIES=compute,video,utility` so NVENC is injected when a GPU is assigned. The scopes need no GPU.
 - CI (`ci.yaml`): build MXL and nmos-cpp at the pins, build, unit tests (scalar and AVX2 on the runner; the bit-exact tests skip AVX2 only if the runner lacks it, and say so), integration tests on the CPU (`scope.sh`, `preview.sh` with the MediaMTX release binary), container build. `tests/nmos/amwa.sh` runs IS-04-01, IS-05-01, IS-05-02 and BCP-007-03-01 outside the default job.
 - `docker/docker-compose.demo.yaml`: registry stand-in, a bars/ramp writer, the scopes, and a note to attach mxl-webrtc-monitor or the multiviewer. `deploy/k8s/deployment.yaml`: pod network, uid 1000 with `supplementalGroups: [1000]`, MXL root `hostPath`, writable `/config`, probes, `terminationGracePeriodSeconds` > `SHUTDOWN_TIMEOUT_S`, `NMOS_HOST_ADDRESS` from `status.podIP`, `MXL_CLEANUP_ON_EXIT=true`.
@@ -567,7 +567,7 @@ Measured on hardware, not in CI; recorded in `docs/performance.md`. Hosts: the p
 | Scalar reference, luma 1080p50, every frame | still real time (p99 < 15 ms) |
 | Preview on (x264, 540p25) | adds < 0.25 core |
 | Scope latency | input grain origin → first output grain that shows it ≤ one update interval + 2 output frames |
-| Memory | < 300 MB RSS at 1080p (`TODO_` confirm in M0) |
+| Memory | < 300 MB RSS at 1080p (measured 2026-10-23: 63–116 MB on the platform; in the lab 80–160 MB anonymous plus the shared MXL grains the process maps, docs/performance.md "M4") |
 
 Accepted deviation (the maintainer, 2026-10-22): the RGB parade every frame on camera content takes 0.67–0.74 core on the lab class (analyse + render p99 11.8 ms), above the targets of its row; bars meet them (0.40 core). At the default 25 Hz it takes 0.39–0.46 core. With `SCOPES_THREADS=2` (M2) an update takes about 7 ms (p99 below 8 ms), the CPU stays the same; IMPLEMENTATION_PLAN.md deviation 25.
 
@@ -614,16 +614,16 @@ The Kubernetes default for the catalog (§15) comes from these numbers.
 
 Defaults in use by the siblings (from their READMEs): decklink 8080/3212, st2110-gateway 8090, fabrics-agent 8095/3232, webrtc-monitor 8100/3242 (MediaMTX 8554, 8889, 8888, 8189, 9997, 9998; TSL 8912/8913), multiviewer 8110/3262 (MediaMTX 8754, 8789, 8788, 8389; TSL 8910/8911), srt-gateway 8120/3272, test-player 8130/3282, color-corrector 8140/3292, replay 8150/3302 (MediaMTX 8854, 8689, 8688, 8489), audio-mixer 8160/3312 (MediaMTX 8954, 8599, 8199), browser-source 8160/3312, FlowXer 9620 (engine 8654, 8989, 8988, 8289, 9897), registry 3210/3211.
 
-Proposed for mxl-scopes (next free step of the pattern):
+For mxl-scopes (the next free step of the pattern; confirmed by the maintainer 2026-10-15):
 
 | Port | Setting | Default |
 | --- | --- | --- |
-| Web, REST, probes, metrics, widgets | `WEB_PORT` | `TODO_8170` |
-| NMOS Node and Connection APIs (+1 reserved) | `NMOS_PORT` | `TODO_3322` (3323) |
-| Own MediaMTX RTSP (127.0.0.1) | `MEDIAMTX_RTSP_PORT` | `TODO_8574` |
-| Own MediaMTX WHEP | `MEDIAMTX_WHEP_PORT` | `TODO_8579` |
-| Own MediaMTX HLS | `MEDIAMTX_HLS_PORT` | `TODO_8578` |
-| Own MediaMTX ICE (UDP and TCP) | `MEDIAMTX_ICE_UDP_PORT` | `TODO_8279` |
+| Web, REST, probes, metrics, widgets | `WEB_PORT` | 8170 |
+| NMOS Node and Connection APIs (+1 reserved) | `NMOS_PORT` | 3322 (3323) |
+| Own MediaMTX RTSP (127.0.0.1) | `MEDIAMTX_RTSP_PORT` | 8574 |
+| Own MediaMTX WHEP | `MEDIAMTX_WHEP_PORT` | 8579 |
+| Own MediaMTX HLS | `MEDIAMTX_HLS_PORT` | 8578 |
+| Own MediaMTX ICE (UDP and TCP) | `MEDIAMTX_ICE_UDP_PORT` | 8279 |
 
 On the platform the shared MediaMTX is used, so only the web and NMOS ports are Service ports. Finding: mxl-browser-source and mxl-audio-mixer both default to 8160/3312; that does not block this function but the platform should give one of them new defaults.
 
@@ -637,15 +637,15 @@ In `media_function_catalog` (`inventories/shared/group_vars/all/apps.yml`):
     short: scopes
     layers: [production]
     network: pod
-    web_port: 8170                   # TODO_ confirm
+    web_port: 8170
     websocket: true
-    ports: {web: 8170, nmos: 3322}   # TODO_ confirm
+    ports: {web: 8170, nmos: 3322}
     gpu: none                        # optional later (NVENC preview, CUDA engine)
     config_dir: /config
     default_values: {mode: luma, updateRate: 25, format: 1920x1080, key: false}
     export: [{path: /api/v1/config/export, file: config.json}]
     default_resources:
-      requests: {cpu: "500m", memory: 512Mi}   # TODO_ from M4 measurements
+      requests: {cpu: "500m", memory: 256Mi}   # M4: docs/performance.md, deploy/k8s/deployment.yaml
       limits: {cpu: "2", memory: 1Gi}
     default_flows:
       - {format: 1080p50-v210, count: 1, history_duration_ms: 200}   # 1080p50-v210a with key: true
@@ -657,7 +657,7 @@ A `mxl-common.type.scopes` template in the common chart, in the style of the col
 
 - env: `SCOPES_MODE`, `SCOPES_UPDATE_RATE`, `SCOPES_OUTPUT_FORMAT`, `SCOPES_OUTPUT_KEY` from `values`; `SCOPES_STATE_DIR=/config`; `MXL_DOMAIN_SCAN_PATH`, `MXL_OUTPUT_DOMAIN_DIR`, `MXL_OUTPUT_DOMAIN_ID`, `MXL_CLEANUP_ON_EXIT=true`; `WEB_PORT`, `NMOS_PORT`; the common NMOS env (registry, `NMOS_SEED=<production>-<function>`, label, tags, `NMOS_HOST_ADDRESS` = pod IP); the shared preview (`PREVIEW_PUBLISH_URL`, `PREVIEW_PATH_PREFIX=<production>/<function>`, `PREVIEW_WHEP_URL`, `PREVIEW_HLS_URL`); `WIDGET_FRAME_ANCESTORS='self' https://designer.<fqdn>`;
 - Service ports `http` and `nmos`; metrics on `http`; probes `/livez`, `/readyz`; MXL mount and config mount; `terminationGracePeriodSeconds` 20.
-- `docs/productions.md` types row: `scopes` | `LeeO86/mxl-scopes` | none (AVX2) | `mode`, `updateRate`, `format`, `key` | config | one input per instance; about 0.1 core per 1080p50 luma scope at 25 Hz (`TODO_` measured value).
+- `docs/productions.md` types row: `scopes` | `LeeO86/mxl-scopes` | none (AVX2) | `mode`, `updateRate`, `format`, `key` | config | one input per instance; about 0.1 core per 1080p50 luma scope at 25 Hz (measured on the platform 2026-10-23: 0.10 luma, 0.16–0.26 the other modes, 0.17 with a key).
 
 ### 15.4 Designer
 

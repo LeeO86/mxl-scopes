@@ -119,3 +119,69 @@ Lab host as in M2, the camera clip as 1080p50, the scope on one core with its ow
 - The preview adds about 0.15 core with x264 (§13: < 0.25), 0.08 with NVENC. MediaMTX ingesting the stream: 0.005 core.
 - A first build added 0.27 core and made one output grain late on the shared core; the scaler took 6.6 ms per picture. A straight-loop path for exactly half the raster and a faster v210 unpack bring it to 2.5 ms, and the publisher thread runs at nice 10 so the output writer never waits for it: 0 late and 0 missed output grains in every point above.
 - Quality (SPECIFICATION open question 11): at 540p the luma waveform of the camera clip keeps its traces readable; the area average dims one-pixel lines and the 4:2:0 chroma softens coloured traces. The MXL output keeps the full picture.
+
+## M4 (2026-10-23)
+
+### The platform (small hosts, i9-9900K, AVX2), scopes 1.0.0
+
+Measured by the platform on test-all, 1080p50 input, 25 Hz, no preview (1.0.0 has none):
+
+| Mode | CPU (core) | RSS |
+| --- | --- | --- |
+| `luma` | 0.10 | 63–116 MB |
+| `ycbcr-parade` | 0.16 | 87 MB |
+| `rgb-parade` | 0.19 | 103 MB |
+| `rgb-overlay` | 0.26 | 114 MB |
+| `ycbcr-overlay` | 0.18 | 114 MB |
+| `luma` with `SCOPES_OUTPUT_KEY=true` (v210a) | 0.17 | — |
+
+Keyed scope over a picture (the M2 exit check), 06:24–06:29Z: multiviewer 1.4.6 on CUDA, the scope's v210a tile (scale fill, on top) over a player tile. The picture shows through the key, with the trace and graticule over it (seen by the maintainer). Multiviewer compose 1.56 ms (1.54 unkeyed); 0 late and 0 missed on both.
+
+The platform host is about twice as fast per update as the lab's Skylake-SP at its idle clock (luma 0.10 against 0.23 core).
+
+### Memory per mode (lab, 1.1.0)
+
+`/proc/<pid>/status` of `mxl-scopes` after 20 s per mode, camera clip 1080p50, 25 Hz, 1080p50 out, MB:
+
+| Mode | Preview off: RSS (anonymous / shared) | Preview on | Preview on, 2 threads | Preview on, key |
+| --- | --- | --- | --- | --- |
+| `luma` | 319 (83 / 202) | 352 (97 / 217) | 342 (113 / 191) | 507 (126 / 343) |
+| `ycbcr-parade` | 319 (78 / 207) | 353 (92 / 222) | 336 (107 / 191) | 502 (121 / 343) |
+| `rgb-parade` | 339 (88 / 217) | 415 (102 / 275) | 365 (131 / 196) | 514 (134 / 343) |
+| `rgb-overlay` | 409 (105 / 269) | 447 (118 / 290) | 388 (148 / 202) | 539 (158 / 343) |
+| `ycbcr-overlay` | 409 (105 / 269) | 468 (118 / 311) | 393 (148 / 207) | 543 (162 / 343) |
+
+- "Shared" is RssShmem: the MXL grains the process has mapped and touched. That is the writer's input ring, which the input writer owns and is charged for, plus the scope's own output ring (5.5 MB per 1080p v210 grain, 8.3 MB with a key). How much of it is the scope's depends on the ring sizes; it is not memory the scope allocates. The process's own memory is the anonymous part: 80–160 MB. A further 33–37 MB is mapped files (libraries).
+- The built-in MediaMTX (own mode) adds about 41 MB RSS.
+- The platform measures 63–116 MB per scope.
+- `deploy/k8s/deployment.yaml` requests 256Mi and limits 768Mi: room for the anonymous memory, the scope's own output ring and the key.
+
+### Soak: two instances on one node, 1 h (lab, 1.1.0)
+
+The test player on its own core plays the camera clip at 1080p50. Two scopes, each on its own core, both with the preview (own MediaMTX each), read it:
+- A: `luma` at 25 Hz;
+- B: `rgb-parade` at 25 Hz with a key (v210a).
+
+Sampled every 60 s for 60 min:
+
+| Instance | Output grains | Late | Missed | Skipped ticks | Torn | CPU (mean) | RSS start → end |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| A | 181 213 | 1 (in the first minute) | 0 | 1 (first minute) | 0 | 0.42 | 442 → 453 MB |
+| B | 181 105 | 16 (6 in the first minute, then 7 and 4 in two bursts before minute 17, none after) | 1 (first minute) | 2 | 0 | 0.65 | 513 → 512 MB |
+
+- RSS stays flat over the hour; there is no leak.
+- The late grains of B come at start-up (MediaMTX starting and the encoder opening on the same core) and in two bursts while other work (the CI tools of this session) ran unpinned on the host; the last 43 minutes had none.
+- One core per scope is enough for these configurations, but not with headroom for B (0.65 core with a key and the preview). The platform's 2-CPU limit leaves that headroom.
+- An earlier attempt was discarded because a build ran on the same cores. In it, `rgb-overlay` with a key and the preview on one core (0.89 core) skipped ticks and made output grains late: that configuration needs more than one core.
+
+### AMWA (CI, 1.1.0)
+
+IS-04-01, IS-05-01, IS-05-02 and BCP-007-03-01 against the node with an nmos-cpp registry. Every test passes, except:
+- the tool's own set-up and tear-down steps;
+- IS-10 authorization (out of scope);
+- the RTP-only parts of IS-05 (the receiver and sender are MXL, and BCP-007-03-01 tests them);
+- the optional BCP-004-01 and BCP-002-02 details;
+- two manual checks.
+
+`tests/nmos/amwa-expected-off.json` lists each with its reason. The first run found one real failure: the receiver's `caps.media_types` was missing (BCP-007-03-01 test_07). It is fixed.
+
