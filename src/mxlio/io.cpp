@@ -913,9 +913,10 @@ struct MediaIo::Impl
         std::uint64_t previousIndex = 0;
         auto nextSnapshot = std::chrono::steady_clock::now();
         std::tuple<std::uint64_t, std::uint64_t, int, int> snapshotOf{};
-        // The snapshot buffers (§2.5): the published one, one a reader may still hold (the PNG
-        // cache, the preview), and spares; their vectors keep their capacity.
-        std::array<std::shared_ptr<Snapshot>, 4> shots;
+        // The snapshot buffers (§2.5): the published one, one a reader (the preview encoder, the
+        // PNG) may still hold, and the one written next; their vectors keep their capacity. When
+        // none is free the tick has no snapshot.
+        std::array<std::shared_ptr<Snapshot>, 3> shots;
         std::uint64_t snapshotNumber = 0;
         for (auto& shot : shots)
         {
