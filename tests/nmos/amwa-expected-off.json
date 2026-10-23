@@ -1,7 +1,411 @@
 {
   "_comment": "Every non-Pass result of tests/nmos/amwa.sh off against mxl-scopes, with the reason. tests/nmos/check_amwa.py fails on any other result.",
-  "IS-04-01": {},
-  "IS-05-01": {},
-  "IS-05-02": {},
-  "BCP-007-03-01": {}
+  "IS-04-01": {
+    "__init__": {
+      "state": "Not Applicable",
+      "reason": "tool set-up or tear-down step"
+    },
+    "set_up_tests": {
+      "state": "Not Applicable",
+      "reason": "tool set-up or tear-down step"
+    },
+    "auto_node_17": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "auto_node_18": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "auto_node_19": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "auto_node_20": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "auto_node_21": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "auto_node_22": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "auto_node_23": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "test_01": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "test_01_01": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "test_02": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "test_02_01": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "test_03": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "test_03_01": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "test_05": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "test_07_01": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "test_08_01": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "test_09_01": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "test_10_01": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "test_11_01": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "test_12": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "test_12_01": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "test_13": {
+      "state": "Could Not Test",
+      "reason": "the node has an MXL receiver, no RTP receiver"
+    },
+    "test_14": {
+      "state": "Could Not Test",
+      "reason": "the node has an MXL receiver, no RTP receiver"
+    },
+    "test_15": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "test_16": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "test_16_01": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "test_21": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "test_22": {
+      "state": "Manual",
+      "reason": "manual check: node ids are UUIDv5 of NMOS_SEED and survive a restart (scope.sh restores the route)"
+    },
+    "test_27_4": {
+      "state": "Not Implemented",
+      "reason": "BCP-004-01 labels, preferences and enabled flags are optional"
+    },
+    "test_27_5": {
+      "state": "Not Implemented",
+      "reason": "BCP-004-01 labels, preferences and enabled flags are optional"
+    },
+    "test_27_6": {
+      "state": "Not Implemented",
+      "reason": "BCP-004-01 labels, preferences and enabled flags are optional"
+    },
+    "test_27_8": {
+      "state": "Not Implemented",
+      "reason": "BCP-004-01 labels, preferences and enabled flags are optional"
+    },
+    "test_28": {
+      "state": "Not Implemented",
+      "reason": "BCP-002-02 asset tags are optional"
+    },
+    "tear_down_tests": {
+      "state": "Not Applicable",
+      "reason": "tool set-up or tear-down step"
+    }
+  },
+  "IS-05-01": {
+    "__init__": {
+      "state": "Not Applicable",
+      "reason": "tool set-up or tear-down step"
+    },
+    "set_up_tests": {
+      "state": "Not Applicable",
+      "reason": "tool set-up or tear-down step"
+    },
+    "auto_connection_23": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "auto_connection_24": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "auto_connection_25": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "auto_connection_26": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "auto_connection_27": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "auto_connection_28": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "auto_connection_29": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "test_01": {
+      "state": "Not Applicable",
+      "reason": "tool set-up or tear-down step"
+    },
+    "test_02": {
+      "state": "Not Applicable",
+      "reason": "tool set-up or tear-down step"
+    },
+    "test_03": {
+      "state": "Not Applicable",
+      "reason": "tool set-up or tear-down step"
+    },
+    "test_04": {
+      "state": "Not Applicable",
+      "reason": "tool set-up or tear-down step"
+    },
+    "test_05": {
+      "state": "Not Applicable",
+      "reason": "tool set-up or tear-down step"
+    },
+    "test_06": {
+      "state": "Not Applicable",
+      "reason": "tool set-up or tear-down step"
+    },
+    "test_07": {
+      "state": "Not Applicable",
+      "reason": "tool set-up or tear-down step"
+    },
+    "test_08": {
+      "state": "Not Applicable",
+      "reason": "tool set-up or tear-down step"
+    },
+    "test_09_01": {
+      "state": "Could Not Test",
+      "reason": "MXL transport: tested by BCP-007-03-01, not by the RTP parts of IS-05-01"
+    },
+    "test_11": {
+      "state": "Could Not Test",
+      "reason": "MXL transport: tested by BCP-007-03-01, not by the RTP parts of IS-05-01"
+    },
+    "test_11_02": {
+      "state": "Could Not Test",
+      "reason": "MXL transport: tested by BCP-007-03-01, not by the RTP parts of IS-05-01"
+    },
+    "test_12": {
+      "state": "Could Not Test",
+      "reason": "MXL transport: tested by BCP-007-03-01, not by the RTP parts of IS-05-01"
+    },
+    "test_12_02": {
+      "state": "Could Not Test",
+      "reason": "MXL transport: tested by BCP-007-03-01, not by the RTP parts of IS-05-01"
+    },
+    "test_15": {
+      "state": "Could Not Test",
+      "reason": "MXL transport: tested by BCP-007-03-01, not by the RTP parts of IS-05-01"
+    },
+    "test_16": {
+      "state": "Could Not Test",
+      "reason": "MXL transport: tested by BCP-007-03-01, not by the RTP parts of IS-05-01"
+    },
+    "test_33": {
+      "state": "Not Applicable",
+      "reason": "tool set-up or tear-down step"
+    },
+    "test_41": {
+      "state": "Could Not Test",
+      "reason": "MXL transport: tested by BCP-007-03-01, not by the RTP parts of IS-05-01"
+    },
+    "test_42": {
+      "state": "Could Not Test",
+      "reason": "MXL transport: tested by BCP-007-03-01, not by the RTP parts of IS-05-01"
+    },
+    "tear_down_tests": {
+      "state": "Not Applicable",
+      "reason": "tool set-up or tear-down step"
+    }
+  },
+  "IS-05-02": {
+    "__init__": {
+      "state": "Not Applicable",
+      "reason": "tool set-up or tear-down step"
+    },
+    "set_up_tests": {
+      "state": "Not Applicable",
+      "reason": "tool set-up or tear-down step"
+    },
+    "auto_connection_23": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "auto_connection_24": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "auto_connection_25": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "auto_connection_26": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "auto_connection_27": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "auto_connection_28": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "auto_connection_29": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "auto_node_17": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "auto_node_18": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "auto_node_19": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "auto_node_20": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "auto_node_21": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "auto_node_22": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "auto_node_23": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "test_18": {
+      "state": "Could Not Test",
+      "reason": "the node has an MXL receiver, no RTP receiver"
+    },
+    "tear_down_tests": {
+      "state": "Not Applicable",
+      "reason": "tool set-up or tear-down step"
+    }
+  },
+  "BCP-007-03-01": {
+    "__init__": {
+      "state": "Not Applicable",
+      "reason": "tool set-up or tear-down step"
+    },
+    "set_up_tests": {
+      "state": "Not Applicable",
+      "reason": "tool set-up or tear-down step"
+    },
+    "auto_connection_23": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "auto_connection_24": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "auto_connection_25": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "auto_connection_26": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "auto_connection_27": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "auto_connection_28": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "auto_connection_29": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "auto_node_17": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "auto_node_18": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "auto_node_19": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "auto_node_20": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "auto_node_21": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "auto_node_22": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "auto_node_23": {
+      "state": "Test Disabled",
+      "reason": "IS-10 authorization is out of scope"
+    },
+    "test_15": {
+      "state": "Manual",
+      "reason": "manual check: MXL reading starts and stops on activation (scope.sh routes and disables the receiver)"
+    },
+    "tear_down_tests": {
+      "state": "Not Applicable",
+      "reason": "tool set-up or tear-down step"
+    }
+  }
 }
