@@ -207,7 +207,7 @@ Cb and Cr panels: centre line at 512 (0 mV), solid lines at 64 and 960 (∓350 m
 
 `SCOPES_RANGE=full`: luma lines at 0 and 1023 as 0 % and 100 %; chroma 0–1023 around 512. Labels in % and code; mV is shown as mapped (0–700 mV).
 
-`SCOPES_GRATICULE_UNITS`: `mv` (default), `percent`, `code`. `SCOPES_GRATICULE_LEVEL`: brightness of the graticule, 0–100 %, default 60. 0 hides it. Labels sit in a margin to the left of each panel; their size scales with the output height (16 px at 1080).
+`SCOPES_GRATICULE_UNITS`: `mv` (default), `percent`, `code`. `SCOPES_GRATICULE_LEVEL`: brightness of the graticule, 0–100 %, default 60. 0 hides it. `SCOPES_GRATICULE_WIDTH`: thickness of the graticule lines in output pixels, 1–4, default 1 (one row per line, as before). A wider line covers that many rows around the line's row (2: the row and the one below; 3: one above and one below), cut at the plot edge; where wide lines overlap, the brighter one wins. The graticule lines are the only lines the scopes draw: the traces are counts per cell, not lines, and keep their size. Labels sit in a margin to the left of each panel; their size scales with the output height (16 px at 1080).
 
 ### 4.6 Update rate
 
@@ -367,6 +367,7 @@ Precedence: environment > `SCOPES_CONFIG_FILE` (flat JSON, keys are the variable
 | `SCOPES_RANGE` | `limited` | live | `limited` (BT.709 narrow) or `full` |
 | `SCOPES_GRATICULE_UNITS` | `mv` | live | `mv`, `percent`, `code` |
 | `SCOPES_GRATICULE_LEVEL` | 60 | live | 0–100 % |
+| `SCOPES_GRATICULE_WIDTH` | 1 | live | 1–4 px, the graticule lines (§4.5) |
 | `SCOPES_INTENSITY` | 100 | live | 1–400 % (§4.4) |
 | `SCOPES_TRACE_MIN` | 96 | live | 0–1023, the dimmest visible trace |
 | `SCOPES_TRACE_COLOR` | `green` | live | `green`, `white`, `amber` (luma mode) |

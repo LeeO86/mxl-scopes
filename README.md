@@ -33,6 +33,7 @@ Environment > `SCOPES_CONFIG_FILE` (flat JSON, else `<SCOPES_STATE_DIR>/config.j
 | `SCOPES_ACCUMULATE` | `latest` | `latest` or `all` (every frame between two updates), live |
 | `SCOPES_LINE_STEP`, `SCOPES_PIXEL_STEP` | 1, 1 | live; 32-bit histogram cells when 16 bits would not hold an update (UHD on a small output, a parade, `all`) |
 | `SCOPES_RANGE`, `SCOPES_GRATICULE_UNITS`, `SCOPES_GRATICULE_LEVEL` | `limited`, `mv`, 60 | live |
+| `SCOPES_GRATICULE_WIDTH` | 1 | live; thickness of the graticule lines, 1–4 px (the traces are not lines and keep their size) |
 | `SCOPES_INTENSITY`, `SCOPES_TRACE_MIN`, `SCOPES_TRACE_COLOR`, `SCOPES_CAPTION` | 100, 96, `green`, `true` | live; the trace colour applies to `luma` (the parades and the overlay colour each component) |
 | `SCOPES_OUTPUT_FORMAT`, `SCOPES_OUTPUT_RATE` | `1920x1080`, `input` | live with a new output flow id (`PUT /api/v1/config`; `input` follows the routed flow) |
 | `SCOPES_OUTPUT_KEY`, `SCOPES_BG_ALPHA` | `false`, 0 | `true`: `video/v210a`, the scope over a picture in a multiviewer (key: background `SCOPES_BG_ALPHA`, trace at its intensity, graticule at its level, texts opaque); the key live with a new output flow id, `SCOPES_BG_ALPHA` live |

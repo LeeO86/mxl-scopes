@@ -31,6 +31,7 @@ const DESCRIPTIONS = {
   SCOPES_RANGE: "limited (BT.709 narrow) or full.",
   SCOPES_GRATICULE_UNITS: "mv, percent or code.",
   SCOPES_GRATICULE_LEVEL: "Graticule brightness, 0–100 % (0 hides it).",
+  SCOPES_GRATICULE_WIDTH: "Graticule line thickness, 1–4 px (1 is the thin default).",
   SCOPES_INTENSITY: "Trace intensity, 1–400 %.",
   SCOPES_TRACE_MIN: "The dimmest visible trace, 0–1023.",
   SCOPES_TRACE_COLOR: "green, white or amber (luma waveform).",

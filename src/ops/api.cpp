@@ -245,7 +245,7 @@ std::string Api::scopeJson() const
     out << "{\"mode\":" << quote(s->mode) << ",\"title\":" << quote(modeTitle(s->mode)) << ",\"update_rate\":"
         << (s->updateRate <= 0 ? std::string("\"frame\"") : number(s->updateRate)) << ",\"accumulate\":" << quote(s->accumulate)
         << ",\"line_step\":" << s->lineStep << ",\"pixel_step\":" << s->pixelStep << ",\"range\":" << quote(s->limitedRange ? "limited" : "full")
-        << ",\"graticule_units\":" << quote(s->graticuleUnits) << ",\"graticule_level\":" << s->graticuleLevel << ",\"intensity\":" << s->intensity
+        << ",\"graticule_units\":" << quote(s->graticuleUnits) << ",\"graticule_level\":" << s->graticuleLevel << ",\"graticule_width\":" << s->graticuleWidth << ",\"intensity\":" << s->intensity
         << ",\"trace_min\":" << s->traceMin << ",\"trace_color\":" << quote(s->traceColor) << ",\"caption\":" << boolean(s->caption)
         << ",\"layout\":" << quote(s->layout) << ",\"bg_alpha\":" << s->bgAlpha << ",\"input_offset_grains\":" << s->inputOffsetGrains
         << ",\"hold_ms\":" << s->holdMs << ",\"preview_fps\":" << s->previewFps << ",\"sources\":{";

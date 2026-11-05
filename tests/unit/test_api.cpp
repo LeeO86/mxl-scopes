@@ -94,6 +94,11 @@ TEST_CASE("PATCH /api/v1/scope: valid subsets apply and persist, invalid ones ch
     CHECK(f.call("PATCH", "/api/v1/scope", R"({"intensity":0})").status == 400);
     CHECK(f.call("PATCH", "/api/v1/scope", R"({"intensity":10,"mode":"rainbow"})").status == 400);
     CHECK(f.state->settings()->intensity == 150);
+    auto wide = f.call("PATCH", "/api/v1/scope", R"({"graticule_width":3})");
+    CHECK(wide.status == 200);
+    CHECK(f.state->settings()->graticuleWidth == 3);
+    CHECK(parse(wide.body).get("scope").get("graticule_width").get<double>() == 3);
+    CHECK(f.call("PATCH", "/api/v1/scope", R"({"graticule_width":5})").status == 400);
     CHECK(f.call("PATCH", "/api/v1/scope", R"({"web_port":1})").status == 400);
     CHECK(f.call("PATCH", "/api/v1/scope", "not json").status == 400);
     CHECK(f.call("DELETE", "/api/v1/scope").status == 405);

@@ -118,6 +118,62 @@ TEST_CASE("graticule: rows for mV, percent, code and full range; labels in the m
     CHECK(makeRenderPlan(makeLayout(1920, 1080), off, 1728, 1000, 10).plotGraticule.empty());
 }
 
+TEST_CASE("graticule width: 1 is the default, wider lines cover more rows")
+{
+    for (auto const* mode : {"luma", "ycbcr-parade", "rgb-overlay"})
+    {
+        CAPTURE(mode);
+        DisplaySettings settings;
+        settings.mode = mode;
+        auto const layout = makeLayout(1920, 1080, panelCount(mode));
+        auto const thin = makeRenderPlan(layout, settings, layout.panelW, 1000, 10);
+        DisplaySettings one = settings;
+        one.graticuleWidth = 1;
+        auto const same = makeRenderPlan(layout, one, layout.panelW, 1000, 10);
+        REQUIRE(thin.plotGraticule.size() == same.plotGraticule.size());
+        for (std::size_t i = 0; i < thin.plotGraticule.size(); ++i)
+        {
+            CHECK(thin.plotGraticule[i].row == same.plotGraticule[i].row);
+            CHECK(thin.plotGraticule[i].x == same.plotGraticule[i].x);
+            CHECK(thin.plotGraticule[i].alpha == same.plotGraticule[i].alpha);
+        }
+        for (int width : {2, 3, 4})
+        {
+            CAPTURE(width);
+            DisplaySettings wide = settings;
+            wide.graticuleWidth = width;
+            auto const plan = makeRenderPlan(layout, wide, layout.panelW, 1000, 10);
+            CHECK(plan.plotGraticule.size() > thin.plotGraticule.size());
+            // One pixel per (row, x), all inside the plot, sorted by row.
+            for (std::size_t i = 0; i < plan.plotGraticule.size(); ++i)
+            {
+                auto const& p = plan.plotGraticule[i];
+                CHECK(p.row >= layout.plotY);
+                CHECK(p.row < layout.plotY + layout.plotH);
+                if (i > 0)
+                {
+                    auto const& q = plan.plotGraticule[i - 1];
+                    CHECK((q.row < p.row || (q.row == p.row && q.x < p.x)));
+                }
+            }
+            // The 0 % line (code 64) covers `width` rows of the empty plot, centred on its row.
+            auto const line = std::find_if(plan.lines.begin(), plan.lines.end(), [](GraticuleLine const& l) { return l.code == 64; });
+            REQUIRE(line != plan.lines.end());
+            Frame422 frame = plan.base;
+            renderEmptyPlot(plan, frame);
+            int const x = layout.panelX[0] + 10;
+            int lit = 0;
+            for (int row = line->row - 4; row <= line->row + 4; ++row)
+            {
+                lit += frame.y[static_cast<std::size_t>(row) * 1920 + static_cast<std::size_t>(x)] != kBackgroundY ? 1 : 0;
+            }
+            CHECK(lit == width);
+            CHECK(frame.y[static_cast<std::size_t>(line->row - (width - 1) / 2) * 1920 + static_cast<std::size_t>(x)] != kBackgroundY);
+            CHECK(frame.y[static_cast<std::size_t>(line->row + width / 2) * 1920 + static_cast<std::size_t>(x)] != kBackgroundY);
+        }
+    }
+}
+
 TEST_CASE("intensity: monotonic, background at zero, at least trace_min")
 {
     DisplaySettings settings;

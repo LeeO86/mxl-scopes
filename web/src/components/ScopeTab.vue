@@ -92,6 +92,9 @@ function setSampling(value) {
       <Field :label="`Graticule level ${s.graticule_level ?? ''} %`">
         <input type="range" min="0" max="100" :value="s.graticule_level" @input="set({ graticule_level: Number($event.target.value) })" />
       </Field>
+      <Field :label="`Graticule width ${s.graticule_width ?? ''} px`">
+        <input type="range" min="1" max="4" :value="s.graticule_width" @input="set({ graticule_width: Number($event.target.value) })" />
+      </Field>
       <Field label="Trace colour" help="Luma waveform only.">
         <select :value="s.trace_color" @change="set({ trace_color: $event.target.value })">
           <option value="green">green</option>
