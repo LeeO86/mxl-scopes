@@ -1,4 +1,6 @@
-# mxl-scopes 1.2.0
+# mxl-scopes 1.2.1
+
+1.2.1 is 1.2.0 with the version string fixed: the tag v1.2.0 had `SCOPES_VERSION` 1.1.0, so no 1.2.0 image was built. Use 1.2.1.
 
 Every input grain is read again, a skipped grain is counted, and the graticule lines can be thicker. Ports, NMOS resources and the other settings are unchanged from 1.1.0.
 
