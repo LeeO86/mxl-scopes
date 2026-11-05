@@ -624,10 +624,6 @@ struct MediaIo::Impl
             // never makes this loop spin. `all` reads every grain while it is still in the ring.
             bool const inRing = haveCursor && cursor + 1 < head && head - (cursor + 1) + 2 < grainCount;
             std::uint64_t const want = accumulateAll && inRing ? cursor + 1 : (!haveCursor || cursor + 1 < head ? head : cursor + 1);
-            if (accumulateAll && haveCursor && want == head && cursor + 1 < head)
-            {
-                metrics.inc("accumulate_dropped_total", {}, static_cast<double>(head - cursor - 1));
-            }
             std::uint64_t timeout = kGrainWaitNs;
             if (auto const tick = scheduler.nextTickNs(), now = mxlGetTime(); tick > now)
             {
@@ -643,12 +639,25 @@ struct MediaIo::Impl
             }
             if (status == MXL_STATUS_OK)
             {
+                if (haveCursor && grain.index > cursor + 1)
+                {
+                    // The jump to the head left grains out (§2.2): counted once, here, when the
+                    // grain after the gap is read.
+                    auto const skipped = static_cast<double>(grain.index - cursor - 1);
+                    metrics.inc("input_grains_skipped_total", {}, skipped);
+                    if (accumulateAll)
+                    {
+                        metrics.inc("accumulate_dropped_total", {}, skipped);
+                    }
+                }
                 cursor = grain.index;
                 haveCursor = true;
             }
-            else if (status != MXL_ERR_TIMEOUT && status != MXL_ERR_FLOW_INVALID)
+            else if (status != MXL_ERR_OUT_OF_RANGE_TOO_EARLY && status != MXL_ERR_TIMEOUT && status != MXL_ERR_FLOW_INVALID)
             {
-                // Any other answer (too early, ...) comes back at once: do not spin on it.
+                // Any other answer comes back at once: do not spin on it. (A wait that ran out
+                // answers MXL_ERR_OUT_OF_RANGE_TOO_EARLY, not MXL_ERR_TIMEOUT: no pause after it,
+                // or the grain that arrives meanwhile is read late and the next one is jumped over.)
                 wait(5);
             }
             if (status == MXL_ERR_FLOW_INVALID)

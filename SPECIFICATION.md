@@ -85,6 +85,7 @@ Out of scope for every stage here: audio scopes (the audio mixer and the multivi
 - The reader picks the newest grain whose origin is not newer than `now − SCOPES_INPUT_OFFSET_GRAINS × input frame duration` (default 0: the newest complete grain).
 - Slices: the reader waits for full grains (`validSlices = totalSlices`). Slice-progressive analysis is not needed: the scope adds latency of one update interval anyway.
 - Invalid or gap grains are skipped; the previous scope frame stays.
+- The reader reads the grain after the last one it read. When it fell behind (two or more new grains since, after a long update), it jumps to the newest grain: an update only needs the newest grain. The grains it jumps over count in `mxl_scopes_input_grains_skipped_total`. So `input_grains_total` plus `input_grains_skipped_total` grows at the input rate (less any invalid grains).
 
 ### 2.3 Scope renderer
 
@@ -485,7 +486,8 @@ Prefix `mxl_scopes_`.
 | `info` | gauge 1 | `version`, `mxl_revision`, `backend`, `simd` |
 | `simd_level` | gauge 1 | `level` |
 | `input_state` | gauge 1 for the state | `state` (`not_routed`, `waiting`, `running`, `holding`, `no_signal`, `format_mismatch`) |
-| `input_grains_total` | counter | |
+| `input_grains_total` | counter | grains read (valid, complete) |
+| `input_grains_skipped_total` | counter | grains the reader jumped over because it was behind (§2.2) |
 | `input_resyncs_total` | counter | |
 | `updates_total` | counter | `mode` |
 | `updates_skipped_total` | counter | |
