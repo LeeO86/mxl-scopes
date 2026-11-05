@@ -1,6 +1,10 @@
 # Changelog
 
-## 1.2.0 (2026-11-05)
+## 1.2.1 (2026-11-05)
+
+- Same as 1.2.0 below, with `SCOPES_VERSION` set right (v1.2.0 had 1.1.0 there; its image was refused, no 1.2.0 image exists).
+
+## 1.2.0 (2026-11-05, no image)
 
 - Fix: the input reader read fewer grains than the source wrote (about 48 of 50 per second at 1080p50 with 25 Hz updates in the field, 35 of 50 in the RGB parade in the lab). A wait for the next grain that ran out (MXL answers `MXL_ERR_OUT_OF_RANGE_TOO_EARLY`, not `MXL_ERR_TIMEOUT`) was followed by a 10 ms pause. The update that followed then often ended after the next grain had come, and the reader jumped over one grain. No pause after such a wait now.
 - New metric `mxl_scopes_input_grains_skipped_total`: grains the reader jumps over when it is behind (§2.2). Until now they were not counted anywhere. `accumulate_dropped_total` counts such a jump once (before, a wait that ran out could count the same gap again).

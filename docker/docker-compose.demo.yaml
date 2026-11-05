@@ -22,7 +22,7 @@ services:
 
   # 75 % colour bars, 1080p50, from the scope image's test pattern writer.
   writer:
-    image: ${SCOPES_IMAGE:-ghcr.io/leeo86/mxl-scopes:1.2.0}
+    image: ${SCOPES_IMAGE:-ghcr.io/leeo86/mxl-scopes:1.2.1}
     network_mode: host
     user: "1000:1000"
     volumes:
@@ -36,7 +36,7 @@ services:
           --pattern bars75 --width 1920 --height 1080 --rate 50 --label "Demo bars"
 
   scopes:
-    image: ${SCOPES_IMAGE:-ghcr.io/leeo86/mxl-scopes:1.2.0}
+    image: ${SCOPES_IMAGE:-ghcr.io/leeo86/mxl-scopes:1.2.1}
     network_mode: host
     user: "1000:1000"
     depends_on: [registry, writer]
