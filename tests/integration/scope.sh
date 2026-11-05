@@ -387,6 +387,27 @@ echo "partial grains: cpu ${CPU} %"
 (( CPU < 40 )) || fail "the renderer spins on partial grains (${CPU} % of a core)"
 kill "$W2"; wait "$W2" 2>/dev/null || true; W2=
 
+# 1080p50 into the RGB parade at 25 Hz (an update of about 10 ms): the reader reads every grain.
+# Before, a wait that ran out was followed by a 10 ms pause, and about every third grain
+# was jumped over without a count. Grains read plus grains skipped is what the writer wrote.
+metric() { curl -sf "$API/metrics" | awk -v n="$1" 'BEGIN {v = 0} $1 == n {v = int($2)} END {print v}'; }
+"$WRITER" --domain "$WORK/src" --flow "99999999-9999-4999-8999-999999999999" --pattern scene --width 1920 --height 1080 --rate 50 \
+  >"$WORK/writer-1080.log" 2>&1 &
+W2=$!
+sleep 0.5
+curl -sf -X PATCH -H 'Content-Type: application/json' -d '{"mode":"rgb-parade","update_rate":25}' "$API/api/v1/scope" >/dev/null || fail "PATCH rgb-parade 25 Hz"
+route "99999999-9999-4999-8999-999999999999"
+wait_state running
+sleep 1
+G0="$(metric mxl_scopes_input_grains_total)"; S0="$(metric mxl_scopes_input_grains_skipped_total)"
+sleep 4
+G1="$(metric mxl_scopes_input_grains_total)"; S1="$(metric mxl_scopes_input_grains_skipped_total)"
+echo "1080p50 rgb-parade 25 Hz: $((G1 - G0)) grains read, $((S1 - S0)) skipped in 4 s"
+(( G1 - G0 + S1 - S0 >= 194 && G1 - G0 + S1 - S0 <= 206 )) || fail "read plus skipped is $((G1 - G0 + S1 - S0)) in 4 s, not about 200"
+(( G1 - G0 >= 180 )) || fail "only $((G1 - G0)) of about 200 grains read in 4 s"
+curl -sf -X PATCH -H 'Content-Type: application/json' -d '{"mode":"luma","update_rate":10}' "$API/api/v1/scope" >/dev/null
+kill "$W2"; wait "$W2" 2>/dev/null || true; W2=
+
 kill -TERM "$SC_PID"
 set +e
 wait "$SC_PID"
