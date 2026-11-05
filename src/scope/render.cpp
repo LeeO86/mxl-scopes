@@ -410,6 +410,7 @@ RenderPlan makeRenderPlan(Layout const& layout, DisplaySettings const& settings,
     // The graticule (§4.5): lines in each panel, labels left of it (the left margin for the first
     // panel, the gap for a chroma panel).
     int const level = settings.graticuleLevel;
+    int const width = settings.graticuleWidth;
     int const lineLuma = 64 + static_cast<int>(std::lround(876 * 0.8));
     plan.base.allocate(layout.width, layout.height);
     plan.base.fill(kBackgroundY, kBackgroundC, kBackgroundC);
@@ -433,13 +434,19 @@ RenderPlan makeRenderPlan(Layout const& layout, DisplaySettings const& settings,
                 line.row = rowOfCode(plan, line.code);
                 double const strength = line.style == "solid" ? 1.0 : line.style == "dotted" ? 0.9 : 0.5;
                 auto const alpha = static_cast<std::uint16_t>(std::lround(1023.0 * strength * level / 100.0));
-                for (int x = 0; x < layout.panelW; ++x)
+                // SCOPES_GRATICULE_WIDTH rows around the line's row (1: the row only), inside the plot.
+                int const first = std::max(layout.plotY, line.row - (width - 1) / 2);
+                int const last = std::min(layout.plotY + layout.plotH - 1, line.row + width / 2);
+                for (int row = first; row <= last; ++row)
                 {
-                    if (line.style == "dotted" && ((x / (2 * s)) % 2) != 0)
+                    for (int x = 0; x < layout.panelW; ++x)
                     {
-                        continue;
+                        if (line.style == "dotted" && ((x / (2 * s)) % 2) != 0)
+                        {
+                            continue;
+                        }
+                        plan.plotGraticule.push_back({static_cast<std::uint16_t>(x0 + x), static_cast<std::uint16_t>(row), alpha, static_cast<std::uint16_t>(lineLuma)});
                     }
-                    plan.plotGraticule.push_back({static_cast<std::uint16_t>(x0 + x), static_cast<std::uint16_t>(line.row), alpha, static_cast<std::uint16_t>(lineLuma)});
                 }
                 if (labelled && !line.label.empty())
                 {
@@ -454,6 +461,22 @@ RenderPlan makeRenderPlan(Layout const& layout, DisplaySettings const& settings,
         }
         std::sort(plan.plotGraticule.begin(), plan.plotGraticule.end(),
             [](GraticulePixel const& a, GraticulePixel const& b) { return a.row != b.row ? a.row < b.row : a.x < b.x; });
+        if (width > 1)
+        {
+            // Wide lines close together overlap: one pixel each, the brightest line wins.
+            std::vector<GraticulePixel> merged;
+            merged.reserve(plan.plotGraticule.size());
+            for (auto const& p : plan.plotGraticule)
+            {
+                if (!merged.empty() && merged.back().row == p.row && merged.back().x == p.x)
+                {
+                    merged.back().alpha = std::max(merged.back().alpha, p.alpha);
+                    continue;
+                }
+                merged.push_back(p);
+            }
+            plan.plotGraticule = std::move(merged);
+        }
         // Units in the top-left corner of the margin.
         std::string const units = settings.graticuleUnits == "mv" ? "mV" : settings.graticuleUnits == "percent" ? "%" : "code";
         int const bandBottom = std::max(0, layout.plotY - 4 * s);

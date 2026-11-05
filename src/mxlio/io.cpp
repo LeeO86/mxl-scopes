@@ -406,7 +406,7 @@ struct MediaIo::Impl
         auto showState = [&](DisplaySettings const& s) {
             auto const text = stateText(view.state);
             auto const out = state.outputSettings();
-            auto const key = text + "\n" + caption(s) + "\n" + s.mode + "\n" + std::to_string(s.graticuleLevel) + s.graticuleUnits + (s.limitedRange ? "l" : "f") +
+            auto const key = text + "\n" + caption(s) + "\n" + s.mode + "\n" + std::to_string(s.graticuleLevel) + "w" + std::to_string(s.graticuleWidth) + s.graticuleUnits + (s.limitedRange ? "l" : "f") +
                              std::to_string(out.width) + "x" + std::to_string(out.height) + (out.key ? "a" : "") + std::to_string(s.bgAlpha);
             if (key == shownKey && firstFrame.load())
             {

@@ -32,6 +32,7 @@ TEST_CASE("defaults")
     CHECK(cfg.display.mode == "luma");
     CHECK(cfg.display.updateRate == 25);
     CHECK(cfg.display.graticuleUnits == "mv");
+    CHECK(cfg.display.graticuleWidth == 1);
     CHECK(cfg.display.traceColor == "green");
     CHECK(cfg.outputWidth == 1920);
     CHECK(cfg.outputHeight == 1080);
@@ -71,6 +72,8 @@ TEST_CASE("invalid values are configuration errors (exit 78)")
         {"SCOPES_PIXEL_STEP", "4"},
         {"SCOPES_RANGE", "wide"},
         {"SCOPES_GRATICULE_LEVEL", "101"},
+        {"SCOPES_GRATICULE_WIDTH", "0"},
+        {"SCOPES_GRATICULE_WIDTH", "5"},
         {"SCOPES_INTENSITY", "0"},
         {"SCOPES_TRACE_COLOR", "red"},
         {"SCOPES_OUTPUT_FORMAT", "1921x1080"},

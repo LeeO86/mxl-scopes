@@ -336,6 +336,7 @@ std::vector<SettingDef> const& settingSchema()
         {"SCOPES_RANGE", "limited", Apply::Live},
         {"SCOPES_GRATICULE_UNITS", "mv", Apply::Live},
         {"SCOPES_GRATICULE_LEVEL", "60", Apply::Live},
+        {"SCOPES_GRATICULE_WIDTH", "1", Apply::Live},
         {"SCOPES_INTENSITY", "100", Apply::Live},
         {"SCOPES_TRACE_MIN", "96", Apply::Live},
         {"SCOPES_TRACE_COLOR", "green", Apply::Live},
@@ -413,6 +414,7 @@ std::vector<std::pair<std::string, std::string>> const& scopeFields()
         {"range", "SCOPES_RANGE"},
         {"graticule_units", "SCOPES_GRATICULE_UNITS"},
         {"graticule_level", "SCOPES_GRATICULE_LEVEL"},
+        {"graticule_width", "SCOPES_GRATICULE_WIDTH"},
         {"intensity", "SCOPES_INTENSITY"},
         {"trace_min", "SCOPES_TRACE_MIN"},
         {"trace_color", "SCOPES_TRACE_COLOR"},
@@ -476,6 +478,7 @@ Config loadConfig(std::map<std::string, std::string> const& env, std::map<std::s
     d.limitedRange = requireEnum("SCOPES_RANGE", raw("SCOPES_RANGE"), {"limited", "full"}) == "limited";
     d.graticuleUnits = requireEnum("SCOPES_GRATICULE_UNITS", raw("SCOPES_GRATICULE_UNITS"), {"mv", "percent", "code"});
     d.graticuleLevel = requireInt("SCOPES_GRATICULE_LEVEL", raw("SCOPES_GRATICULE_LEVEL"), 0, 100);
+    d.graticuleWidth = requireInt("SCOPES_GRATICULE_WIDTH", raw("SCOPES_GRATICULE_WIDTH"), 1, 4);
     d.intensity = requireInt("SCOPES_INTENSITY", raw("SCOPES_INTENSITY"), 1, 400);
     d.traceMin = requireInt("SCOPES_TRACE_MIN", raw("SCOPES_TRACE_MIN"), 0, 1023);
     d.traceColor = requireEnum("SCOPES_TRACE_COLOR", raw("SCOPES_TRACE_COLOR"), {"green", "white", "amber"});

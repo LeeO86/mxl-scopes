@@ -1,9 +1,10 @@
 # Changelog
 
-## Unreleased
+## 1.2.0 (2026-11-05)
 
 - Fix: the input reader read fewer grains than the source wrote (about 48 of 50 per second at 1080p50 with 25 Hz updates in the field, 35 of 50 in the RGB parade in the lab). A wait for the next grain that ran out (MXL answers `MXL_ERR_OUT_OF_RANGE_TOO_EARLY`, not `MXL_ERR_TIMEOUT`) was followed by a 10 ms pause. The update that followed then often ended after the next grain had come, and the reader jumped over one grain. No pause after such a wait now.
 - New metric `mxl_scopes_input_grains_skipped_total`: grains the reader jumps over when it is behind (§2.2). Until now they were not counted anywhere. `accumulate_dropped_total` counts such a jump once (before, a wait that ran out could count the same gap again).
+- New setting `SCOPES_GRATICULE_WIDTH` (`graticule_width` in `PATCH /api/v1/scope`, a slider in the Scope tab): thickness of the graticule lines, 1–4 px, live. The default 1 draws the same picture as before (golden hashes unchanged).
 
 ## 1.1.0
 

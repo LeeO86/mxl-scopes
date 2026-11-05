@@ -18,6 +18,8 @@ struct DisplaySettings
     bool limitedRange = true;
     std::string graticuleUnits = "mv";
     int graticuleLevel = 60;
+    // Thickness of the graticule lines in output pixels, 1–4 (1: as before).
+    int graticuleWidth = 1;
     int intensity = 100;
     int traceMin = 96;
     std::string traceColor = "green";
