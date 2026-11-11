@@ -125,5 +125,5 @@ Details in `docs/performance.md` "M3" and "M4".
 - The preview on the shared MediaMTX:
   - state `publishing` in `/api/v1/status`;
   - the picture in the designer's `scope` widget (the M3 exit check, on an operator screen).
-- CPU per scope with the preview on small.
+- CPU per scope with the preview on the test platform.
 - Late or missed output grains.

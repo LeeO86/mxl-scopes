@@ -135,6 +135,6 @@ Measured on the lab host: a Skylake-SP Xeon Gold 6136 using AVX2. The platform's
 ## Please report back
 
 - The digest you pin.
-- CPU per scope on small: `luma` at 25 Hz, and one RGB mode.
+- CPU per scope on the test platform: `luma` at 25 Hz, and one RGB mode.
 - Late or missed output grains (`mxl_scopes_output_frames_late_total`, `…_missed_total`).
 - Whether the measurement gauges reach the dashboards.
