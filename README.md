@@ -4,6 +4,8 @@ Video scopes for MXL: a media function that reads one MXL video flow and writes 
 
 Part of [mxl-stack](https://github.com/LeeO86/mxl-stack), a collection of open-source MXL media functions with Docker Compose and Kubernetes examples.
 
+![mxl-scopes: RGB parade of colour bars](docs/images/web-ui.png)
+
 **Status: 1.2.1 (M0–M4).** Every stage-1 mode (luma waveform, YCbCr and RGB parades, RGB and YCbCr overlays) runs end to end: MXL in, MXL out (with a key if wanted), NMOS, REST, metrics with the measurements, a web page with a snapshot; strip workers share the work over several cores. A WebRTC preview, a Vue UI and an operator-screen widget show it in the browser. Release notes: [docs/release-notes-1.2.1.md](docs/release-notes-1.2.1.md). CPU per mode: [docs/performance.md](docs/performance.md). What differs from the specification today is listed under "Deviations" in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md). Read [SPECIFICATION.md](SPECIFICATION.md) for the design.
 
 ## At a glance
