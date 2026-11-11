@@ -122,7 +122,7 @@ Lab host as in M2, the camera clip as 1080p50, the scope on one core with its ow
 
 ## M4 (2026-10-23)
 
-### The platform (small hosts, i9-9900K, AVX2), scopes 1.0.0
+### The test platform (i9-9900K hosts, AVX2), scopes 1.0.0
 
 Measured by the platform on test-all, 1080p50 input, 25 Hz, no preview (1.0.0 has none):
 
