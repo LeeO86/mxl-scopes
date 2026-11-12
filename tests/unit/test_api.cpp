@@ -92,8 +92,11 @@ TEST_CASE("PATCH /api/v1/scope: valid subsets apply and persist, invalid ones ch
     CHECK(f.state->settings()->traceColor == "amber");
     CHECK(parse(env.body).get("not_persisted").get(0).get<std::string>() == "trace_color");
     CHECK(f.call("PATCH", "/api/v1/scope", R"({"intensity":0})").status == 400);
+    CHECK(f.call("PATCH", "/api/v1/scope", R"({"intensity":1001})").status == 400);
     CHECK(f.call("PATCH", "/api/v1/scope", R"({"intensity":10,"mode":"rainbow"})").status == 400);
     CHECK(f.state->settings()->intensity == 150);
+    CHECK(f.call("PATCH", "/api/v1/scope", R"({"intensity":1000})").status == 200);
+    CHECK(f.state->settings()->intensity == 1000);
     auto wide = f.call("PATCH", "/api/v1/scope", R"({"graticule_width":3})");
     CHECK(wide.status == 200);
     CHECK(f.state->settings()->graticuleWidth == 3);

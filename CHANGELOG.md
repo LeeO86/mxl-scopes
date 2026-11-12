@@ -3,6 +3,7 @@
 ## 1.3.0 (unreleased)
 
 - The graticule is behind the trace now (it was blended over it). A trace on a graticule line keeps its colour: a black picture is a green line on the 0 % line, not a grey one. The trace covers the line by its intensity, so a faint trace still lets the line show. The golden pictures and hashes changed for that.
+- `SCOPES_INTENSITY` goes up to 1000 % (was 400 %), also in `PATCH /api/v1/scope` and the Scope tab slider.
 
 ## 1.2.1 (2026-11-05)
 

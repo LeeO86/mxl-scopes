@@ -182,7 +182,7 @@ The plot area has `C` columns and `B` bins (rows). Defaults: the plot's width an
 
 - Each cell's count `c` maps to a trace intensity `I` (0–1023) through a lookup table `I = LUT[min(c, c_max)]`.
 - The table is built once per settings change in double precision and rounded to integers. Every backend uses the same table, so the mapping is exact.
-- Default curve: `I = 1023 × (1 − exp(−g × c / c_ref))`, where `c_ref` = samples taken per column (the count of a cell that holds a whole flat column) and `g` = `SCOPES_INTENSITY` / 100 × 20. Brightness grows with the hits per cell, as on broadcast waveform monitors: a cell with 1/20 of its column's samples is at 63 %, one with a few hits is dim (about 1–2 % at 1080 lines, so `SCOPES_TRACE_MIN` keeps it visible), a flat field saturates. `SCOPES_INTENSITY` is 1–400 %, default 100. (Changed 2026-10-15 by the maintainer: the first draft used `c_ref` / `B` and gain 4, which lit almost every cell at full brightness.)
+- Default curve: `I = 1023 × (1 − exp(−g × c / c_ref))`, where `c_ref` = samples taken per column (the count of a cell that holds a whole flat column) and `g` = `SCOPES_INTENSITY` / 100 × 20. Brightness grows with the hits per cell, as on broadcast waveform monitors: a cell with 1/20 of its column's samples is at 63 %, one with a few hits is dim (about 1–2 % at 1080 lines, so `SCOPES_TRACE_MIN` keeps it visible), a flat field saturates. `SCOPES_INTENSITY` is 1–1000 %, default 100. (Changed 2026-10-15 by the maintainer: the first draft used `c_ref` / `B` and gain 4, which lit almost every cell at full brightness.)
 - `c = 0` always maps to the background. Any `c ≥ 1` maps to at least `SCOPES_TRACE_MIN` (default 96 of 1023), so a single sample stays visible.
 - Trace colour: `I` scales a colour in Y′CbCr. Luma waveform: `SCOPES_TRACE_COLOR` (`green` default, `white`, `amber`). Parades and overlay: each component in its own colour (Y white, Cb blue, Cr red; R red, G green, B blue). In the RGB overlay, colours of the three components in one cell add in R′G′B′ and are clamped, so a neutral grey trace is white.
 - Persistence (decay over updates) is a stage 2 option.
@@ -368,7 +368,7 @@ Precedence: environment > `SCOPES_CONFIG_FILE` (flat JSON, keys are the variable
 | `SCOPES_GRATICULE_UNITS` | `mv` | live | `mv`, `percent`, `code` |
 | `SCOPES_GRATICULE_LEVEL` | 60 | live | 0–100 % |
 | `SCOPES_GRATICULE_WIDTH` | 1 | live | 1–4 px, the graticule lines (§4.5) |
-| `SCOPES_INTENSITY` | 100 | live | 1–400 % (§4.4) |
+| `SCOPES_INTENSITY` | 100 | live | 1–1000 % (§4.4) |
 | `SCOPES_TRACE_MIN` | 96 | live | 0–1023, the dimmest visible trace |
 | `SCOPES_TRACE_COLOR` | `green` | live | `green`, `white`, `amber` (luma mode) |
 | `SCOPES_CAPTION` | `true` | live | header line (§5.2) |

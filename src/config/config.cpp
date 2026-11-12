@@ -479,7 +479,7 @@ Config loadConfig(std::map<std::string, std::string> const& env, std::map<std::s
     d.graticuleUnits = requireEnum("SCOPES_GRATICULE_UNITS", raw("SCOPES_GRATICULE_UNITS"), {"mv", "percent", "code"});
     d.graticuleLevel = requireInt("SCOPES_GRATICULE_LEVEL", raw("SCOPES_GRATICULE_LEVEL"), 0, 100);
     d.graticuleWidth = requireInt("SCOPES_GRATICULE_WIDTH", raw("SCOPES_GRATICULE_WIDTH"), 1, 4);
-    d.intensity = requireInt("SCOPES_INTENSITY", raw("SCOPES_INTENSITY"), 1, 400);
+    d.intensity = requireInt("SCOPES_INTENSITY", raw("SCOPES_INTENSITY"), 1, 1000);
     d.traceMin = requireInt("SCOPES_TRACE_MIN", raw("SCOPES_TRACE_MIN"), 0, 1023);
     d.traceColor = requireEnum("SCOPES_TRACE_COLOR", raw("SCOPES_TRACE_COLOR"), {"green", "white", "amber"});
     d.caption = requireBool("SCOPES_CAPTION", raw("SCOPES_CAPTION"));

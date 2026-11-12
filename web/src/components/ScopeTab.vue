@@ -80,7 +80,7 @@ function setSampling(value) {
         </select>
       </Field>
       <Field :label="`Intensity ${s.intensity ?? ''} %`">
-        <input type="range" min="1" max="400" :value="s.intensity" @input="set({ intensity: Number($event.target.value) })" />
+        <input type="range" min="1" max="1000" :value="s.intensity" @input="set({ intensity: Number($event.target.value) })" />
       </Field>
       <Field label="Graticule units">
         <select :value="s.graticule_units" @change="set({ graticule_units: $event.target.value })">

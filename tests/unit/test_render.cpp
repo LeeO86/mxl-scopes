@@ -186,6 +186,13 @@ TEST_CASE("intensity: monotonic, background at zero, at least trace_min")
         CHECK(table[c] >= table[c - 1]);
     }
     CHECK(table.back() == 1023);
+    // At the top of SCOPES_INTENSITY (1000 %) the table is shorter, still at least trace_min.
+    settings.intensity = 1000;
+    auto const high = intensityTable(settings, 50.0, 60000);
+    CHECK(high[0] == 0);
+    CHECK(high[1] >= settings.traceMin);
+    CHECK(high.size() < table.size());
+    CHECK(high.back() == 1023);
 }
 
 TEST_CASE("intensity: a flat field keeps its brightness across line and pixel steps")
