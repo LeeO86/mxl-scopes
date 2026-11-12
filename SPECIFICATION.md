@@ -189,7 +189,7 @@ The plot area has `C` columns and `B` bins (rows). Defaults: the plot's width an
 
 ### 4.5 Graticule
 
-The graticule is drawn once per settings change into a layer of 10-bit Y′CbCr with alpha, then blended over the trace on each render. Only its non-transparent spans are stored, so the blend touches a few percent of the pixels.
+The graticule is drawn once per settings change into a layer of 10-bit Y′CbCr with alpha, then blended behind the trace on each render: the trace covers it by its intensity, so a trace on a line (black on the 0 % line, white on 100 %) keeps its colour. Only its non-transparent spans are stored, so the blend touches a few percent of the pixels.
 
 Luma and R′G′B′ panels, BT.709 limited range (10 bits):
 

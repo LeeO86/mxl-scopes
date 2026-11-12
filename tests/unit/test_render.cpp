@@ -320,6 +320,41 @@ TEST_CASE("intensity: brightness grows with the hits per cell (§4.4)")
     CHECK(static_cast<int>(intensityTable(settings, cRef, 65535)[30]) > at(30));
 }
 
+TEST_CASE("graticule behind the trace: a black picture on the 0 % line keeps its trace colour")
+{
+    // A flat field saturates the trace, so it covers the graticule line under it completely.
+    auto const frame = packPattern(makePattern("flat", 1920, 1080, 64));
+    auto renderWith = [&](int graticuleLevel) {
+        DisplaySettings settings;
+        settings.graticuleLevel = graticuleLevel;
+        ScopeEngine engine(SimdLevel::Scalar);
+        engine.configure({1920, 1080, v210RowBytes(1920)}, settings, 1920, 1080);
+        std::vector<std::uint8_t> out(engine.packedSize());
+        engine.analyse(frame.data());
+        engine.render("Luma waveform", "", out.data());
+        Frame422 picture;
+        picture.allocate(1920, 1080);
+        unpackV210(out.data(), v210RowBytes(1920), picture);
+        return std::pair{picture, engine.renderPlan()};
+    };
+    auto const [lined, plan] = renderWith(100);
+    auto const [bare, unused] = renderWith(0);
+    int const row = rowOfCode(plan, 64);
+    REQUIRE(plan.layout.plotY <= row);
+    for (int px : {0, 101, plan.layout.plotW / 2})
+    {
+        auto const at = static_cast<std::size_t>(row) * 1920 + static_cast<std::size_t>(plan.layout.plotX + px);
+        CHECK(lined.y[at] == bare.y[at]);
+        CHECK(lined.cb[at / 2] == bare.cb[at / 2]);
+        CHECK(lined.cr[at / 2] == bare.cr[at / 2]);
+    }
+    // Next to the trace the line still shows.
+    auto const line = std::find_if(plan.lines.begin(), plan.lines.end(), [](GraticuleLine const& l) { return l.code > 64 && l.style == "solid"; });
+    REQUIRE(line != plan.lines.end());
+    auto const above = static_cast<std::size_t>(line->row) * 1920 + static_cast<std::size_t>(plan.layout.plotX + 101);
+    CHECK(lined.y[above] > kBackgroundY);
+}
+
 TEST_CASE("writer delta: still + old trace, undone and redrawn, equals the full render")
 {
     // What the output writer does per ring slot (§2.4): restore the old trace groups to the

@@ -582,7 +582,7 @@ inline std::uint32_t word3(std::uint32_t a, std::uint32_t b, std::uint32_t c)
 
 namespace
 {
-// The cells of one panel row -> its trace groups (graticule blended over). Groups without
+// The cells of one panel row -> its trace groups (graticule behind the trace). Groups without
 // counts keep the still picture's bytes. `lines` holds the plane rows of the panel: one, or
 // three for the overlay. Returns true when the row got a trace group.
 template <bool OVERLAY, class C>
@@ -593,10 +593,7 @@ bool panelRow(RenderPlan const& plan, PanelPlan const& panel, C const* const* li
     int const groups = layout.panelW / 6;
     auto const traceBefore = trace.size();
     bool lastEmpty = true;
-    auto const* line = lines[0];
     auto const& colour = plan.colours[static_cast<std::size_t>(panel.colour)];
-    auto const* lut = plan.planeIntensity[static_cast<std::size_t>(panel.plane)].data();
-    auto const maxCount = plan.planeMax[static_cast<std::size_t>(panel.plane)];
     // The cells of eight groups (48) of every plane of the panel are zero.
     auto const eightEmpty = [&](int g) {
         std::uint64_t any = 0;
@@ -665,19 +662,24 @@ bool panelRow(RenderPlan const& plan, PanelPlan const& panel, C const* const* li
         std::uint16_t y[6];
         std::uint16_t cb[3];
         std::uint16_t cr[3];
-        // The key (§7): max(background alpha, trace intensity), the graticule over it.
+        // Trace intensity per pixel (the brightest plane of the overlay): the trace's opacity
+        // over the graticule behind it.
+        std::uint16_t level[6] = {};
+        for (int i = 0; i < 6; ++i)
+        {
+            for (int p = 0; p < (OVERLAY ? 3 : 1); ++p)
+            {
+                auto const plane = static_cast<std::size_t>(OVERLAY ? p : panel.plane);
+                level[i] = std::max(level[i], plan.planeIntensity[plane][std::min<std::uint32_t>(lines[p][6 * g + i], plan.planeMax[plane])]);
+            }
+        }
+        // The key (§7): max(background alpha, trace intensity), the graticule's alpha under it.
         std::uint16_t a[6] = {};
         if (plan.key)
         {
             for (int i = 0; i < 6; ++i)
             {
-                std::uint16_t level = 0;
-                for (int p = 0; p < (OVERLAY ? 3 : 1); ++p)
-                {
-                    auto const plane = static_cast<std::size_t>(OVERLAY ? p : panel.plane);
-                    level = std::max(level, plan.planeIntensity[plane][std::min<std::uint32_t>(lines[p][6 * g + i], plan.planeMax[plane])]);
-                }
-                a[i] = std::max(plan.bgAlpha, level);
+                a[i] = std::max(plan.bgAlpha, level[i]);
             }
         }
         if constexpr (OVERLAY)
@@ -707,14 +709,11 @@ bool panelRow(RenderPlan const& plan, PanelPlan const& panel, C const* const* li
         }
         else
         {
-            auto const* c = line + 6 * g;
             for (int p = 0; p < 6; p += 2)
             {
-                std::uint32_t const c0 = c[p];
-                std::uint32_t const c1 = c[p + 1];
                 // intensity[0] is 0: no branch on empty cells.
-                int const i0 = lut[std::min(c0, maxCount)];
-                int const i1 = lut[std::min(c1, maxCount)];
+                int const i0 = level[p];
+                int const i1 = level[p + 1];
                 y[p] = colour.y[static_cast<std::size_t>(i0)];
                 y[p + 1] = colour.y[static_cast<std::size_t>(i1)];
                 auto const mean = static_cast<std::size_t>((i0 + i1 + 1) >> 1);
@@ -722,17 +721,16 @@ bool panelRow(RenderPlan const& plan, PanelPlan const& panel, C const* const* li
                 cr[p / 2] = colour.cr[mean];
             }
         }
+        // The graticule behind the trace: the trace covers it by its intensity, so a trace on a
+        // line (a black picture on the 0 % line) stays visible. The graticule is neutral like
+        // the background, so only the luma changes.
         for (; gi < gend && plan.plotGraticule[gi].x < x0 + 6; ++gi)
         {
             auto const& gp = plan.plotGraticule[gi];
             int const at = gp.x - x0;
-            y[at] = blend(y[at], gp.luma, gp.alpha);
+            int const under = blend(kBackgroundY, gp.luma, gp.alpha) - kBackgroundY;
+            y[at] = static_cast<std::uint16_t>(std::clamp(y[at] + scale1023(under, 1023 - level[at]), 4, 1019));
             a[at] = std::max(a[at], gp.alpha);
-            if ((at & 1) == 0)
-            {
-                cb[at / 2] = blend(cb[at / 2], kBackgroundC, gp.alpha);
-                cr[at / 2] = blend(cr[at / 2], kBackgroundC, gp.alpha);
-            }
         }
         TraceGroup group;
         group.offset = static_cast<std::uint32_t>(rowOffset + 16 * static_cast<std::size_t>(x0 / 6));

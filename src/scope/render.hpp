@@ -119,7 +119,7 @@ struct RenderPlan
     std::array<std::uint16_t, 1024> crOf{};
     // The graticule lines of the first panel.
     std::vector<GraticuleLine> lines;
-    // Graticule pixels inside the plot, blended over the trace on every render, sorted by
+    // Graticule pixels inside the plot, blended behind the trace on every render, sorted by
     // row; the pixels of plot row r are [graticuleStart[r], graticuleStart[r + 1]).
     std::vector<GraticulePixel> plotGraticule;
     std::vector<std::uint32_t> graticuleStart;
@@ -172,7 +172,7 @@ struct TraceGroup
     std::uint8_t key[8] = {};
 };
 
-// Histogram -> the plot groups with a trace (graticule blended over), row by row. Groups
+// Histogram -> the plot groups with a trace (graticule behind the trace), row by row. Groups
 // without counts keep the still picture's bytes (background and graticule). Clears the counts.
 // Plot rows [rowBegin, rowEnd) only (rowEnd −1: to the last); the parts of traceRowSplit can run
 // on different threads and their traces, in order, are the whole trace.

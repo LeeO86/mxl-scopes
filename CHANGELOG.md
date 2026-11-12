@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.0 (unreleased)
+
+- The graticule is behind the trace now (it was blended over it). A trace on a graticule line keeps its colour: a black picture is a green line on the 0 % line, not a grey one. The trace covers the line by its intensity, so a faint trace still lets the line show. The golden pictures and hashes changed for that.
+
 ## 1.2.1 (2026-11-05)
 
 - Same as 1.2.0 below, with `SCOPES_VERSION` set right (v1.2.0 had 1.1.0 there; its image was refused, no 1.2.0 image exists).
