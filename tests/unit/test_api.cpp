@@ -102,6 +102,16 @@ TEST_CASE("PATCH /api/v1/scope: valid subsets apply and persist, invalid ones ch
     CHECK(f.state->settings()->graticuleWidth == 3);
     CHECK(parse(wide.body).get("scope").get("graticule_width").get<double>() == 3);
     CHECK(f.call("PATCH", "/api/v1/scope", R"({"graticule_width":5})").status == 400);
+    // The vectorscope and its zoom (1.3.0), live.
+    auto vector = f.call("PATCH", "/api/v1/scope", R"({"mode":"vectorscope","vector_zoom":2})");
+    CHECK(vector.status == 200);
+    CHECK(f.state->settings()->mode == "vectorscope");
+    CHECK(f.state->settings()->vectorZoom == 2);
+    CHECK(parse(vector.body).get("scope").get("vector_zoom").get<double>() == 2);
+    CHECK(parse(vector.body).get("scope").get("title").get<std::string>() == "Vectorscope");
+    CHECK(f.call("PATCH", "/api/v1/scope", R"({"vector_zoom":3})").status == 400);
+    CHECK(f.call("PATCH", "/api/v1/scope", R"({"trace_color":"picture"})").status == 200);
+    CHECK(f.state->settings()->traceColor == "picture");
     CHECK(f.call("PATCH", "/api/v1/scope", R"({"web_port":1})").status == 400);
     CHECK(f.call("PATCH", "/api/v1/scope", "not json").status == 400);
     CHECK(f.call("DELETE", "/api/v1/scope").status == 405);

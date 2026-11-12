@@ -340,6 +340,7 @@ std::vector<SettingDef> const& settingSchema()
         {"SCOPES_INTENSITY", "100", Apply::Live},
         {"SCOPES_TRACE_MIN", "96", Apply::Live},
         {"SCOPES_TRACE_COLOR", "green", Apply::Live},
+        {"SCOPES_VECTOR_ZOOM", "1", Apply::Live},
         {"SCOPES_CAPTION", "true", Apply::Live},
         {"SCOPES_LAYOUT", "single", Apply::Live},
         {"SCOPES_OUTPUT_FORMAT", "1920x1080", Apply::Flow},
@@ -418,6 +419,7 @@ std::vector<std::pair<std::string, std::string>> const& scopeFields()
         {"intensity", "SCOPES_INTENSITY"},
         {"trace_min", "SCOPES_TRACE_MIN"},
         {"trace_color", "SCOPES_TRACE_COLOR"},
+        {"vector_zoom", "SCOPES_VECTOR_ZOOM"},
         {"caption", "SCOPES_CAPTION"},
         {"layout", "SCOPES_LAYOUT"},
         {"bg_alpha", "SCOPES_BG_ALPHA"},
@@ -465,8 +467,8 @@ Config loadConfig(std::map<std::string, std::string> const& env, std::map<std::s
 
     Config cfg;
     auto& d = cfg.display;
-    // The stage-1 modes (§5.1); stage-2 modes are not in v1.
-    d.mode = requireEnum("SCOPES_MODE", raw("SCOPES_MODE"), {"luma", "ycbcr-parade", "rgb-parade", "rgb-overlay", "ycbcr-overlay"});
+    // The modes built so far (§5.1); `luma-chroma` is not.
+    d.mode = requireEnum("SCOPES_MODE", raw("SCOPES_MODE"), {"luma", "ycbcr-parade", "rgb-parade", "rgb-overlay", "ycbcr-overlay", "vectorscope"});
     d.updateRate = parseUpdateRate(raw("SCOPES_UPDATE_RATE"));
     d.accumulate = requireEnum("SCOPES_ACCUMULATE", raw("SCOPES_ACCUMULATE"), {"latest", "all"});
     d.lineStep = requireInt("SCOPES_LINE_STEP", raw("SCOPES_LINE_STEP"), 1, 8);
@@ -481,7 +483,12 @@ Config loadConfig(std::map<std::string, std::string> const& env, std::map<std::s
     d.graticuleWidth = requireInt("SCOPES_GRATICULE_WIDTH", raw("SCOPES_GRATICULE_WIDTH"), 1, 4);
     d.intensity = requireInt("SCOPES_INTENSITY", raw("SCOPES_INTENSITY"), 1, 1000);
     d.traceMin = requireInt("SCOPES_TRACE_MIN", raw("SCOPES_TRACE_MIN"), 0, 1023);
-    d.traceColor = requireEnum("SCOPES_TRACE_COLOR", raw("SCOPES_TRACE_COLOR"), {"green", "white", "amber"});
+    d.traceColor = requireEnum("SCOPES_TRACE_COLOR", raw("SCOPES_TRACE_COLOR"), {"green", "white", "amber", "picture"});
+    d.vectorZoom = requireInt("SCOPES_VECTOR_ZOOM", raw("SCOPES_VECTOR_ZOOM"), 1, 5);
+    if (d.vectorZoom != 1 && d.vectorZoom != 2 && d.vectorZoom != 5)
+    {
+        throw ConfigError("SCOPES_VECTOR_ZOOM must be 1, 2 or 5");
+    }
     d.caption = requireBool("SCOPES_CAPTION", raw("SCOPES_CAPTION"));
     d.layout = requireEnum("SCOPES_LAYOUT", raw("SCOPES_LAYOUT"), {"single"});
     d.bgAlpha = requireInt("SCOPES_BG_ALPHA", raw("SCOPES_BG_ALPHA"), 0, 1023);

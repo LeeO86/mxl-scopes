@@ -2,6 +2,8 @@
 
 #include "scope/analyse.hpp"
 
+#include <algorithm>
+
 namespace scopes::cpu
 {
 // These helpers are `static`: they are compiled into the AVX2 and AVX-512 units with their
@@ -117,9 +119,68 @@ static inline int analyseGroupRgb(AnalysePlan const& plan, std::uint8_t const* r
     return out;
 }
 
-// Returns the pixels out of gamut (`Rgb` only, else 0).
+// The reference step of `Luma` with the picture colour (§4.4): as analyseGroup, and each taken
+// luma sample adds its co-sited pair (k = i / 2) to the Cb and Cr sums of its cell.
 template <class C>
-static inline int analyseGroupAny(AnalysePlan const& plan, std::uint8_t const* row, int g, C* counts, C* scratch)
+static inline void analyseGroupLumaPicture(AnalysePlan const& plan, std::uint8_t const* row, int g, C* counts, C* scratch, std::uint64_t* sums)
+{
+    std::uint32_t w[4];
+    groupWords(row + 16 * static_cast<std::size_t>(g), w);
+    auto const f = [&](int word, int shift) { return static_cast<std::uint32_t>((w[word] >> shift) & 0x3ffu); };
+    std::uint32_t const y[6] = {f(0, 10), f(1, 0), f(1, 20), f(2, 10), f(3, 0), f(3, 20)};
+    std::uint32_t const cb[3] = {f(0, 0), f(1, 10), f(2, 20)};
+    std::uint32_t const cr[3] = {f(0, 20), f(2, 0), f(3, 10)};
+    int const x0 = 6 * g;
+    for (int i = 0; i < 6; i += plan.pixelStep)
+    {
+        int const x = x0 + i;
+        if (x >= plan.width)
+        {
+            break;
+        }
+        auto const idx = plan.rowOffset[y[i]] + plan.columnOf[static_cast<std::size_t>(x)];
+        ++(plan.twoSubs && (i & 1) != 0 ? scratch : counts)[idx];
+        // Both 32-bit sums in one add: the shift keeps the low one from carrying into the high one.
+        sums[idx] += (static_cast<std::uint64_t>(cr[i / 2] >> plan.sumShift) << 32) | (cb[i / 2] >> plan.sumShift);
+    }
+}
+
+// The reference step of `Vector` (§5.3): chroma pair k (x = 6g + 2k) when its co-sited luma
+// sample is taken, into the cell of its Cb (column) and Cr (bin) at the zoom, or the trash cell
+// outside it; with the picture colour its co-sited Y′ into the cell's sum.
+template <class C>
+static inline void analyseGroupVector(AnalysePlan const& plan, std::uint8_t const* row, int g, C* counts, std::uint64_t* sums)
+{
+    std::uint32_t w[4];
+    groupWords(row + 16 * static_cast<std::size_t>(g), w);
+    auto const f = [&](int word, int shift) { return static_cast<std::uint32_t>((w[word] >> shift) & 0x3ffu); };
+    std::uint32_t const y[3] = {f(0, 10), f(1, 20), f(3, 0)};
+    std::uint32_t const cb[3] = {f(0, 0), f(1, 10), f(2, 20)};
+    std::uint32_t const cr[3] = {f(0, 20), f(2, 0), f(3, 10)};
+    int const x0 = 6 * g;
+    for (int k = 0; k < 3; ++k)
+    {
+        if ((2 * k) % plan.pixelStep != 0)
+        {
+            continue;
+        }
+        if (x0 + 2 * k >= plan.width)
+        {
+            break;
+        }
+        auto const idx = std::min(plan.rowOffset[cr[k]] + plan.chromaColumn[cb[k]], plan.trashCell);
+        ++counts[idx];
+        if (sums != nullptr)
+        {
+            sums[idx] += y[k] >> plan.sumShift;
+        }
+    }
+}
+
+// Returns the pixels out of gamut (`Rgb` only, else 0). `sums`: the picture colour's
+// (Histogram::sums), null without it.
+template <class C>
+static inline int analyseGroupAny(AnalysePlan const& plan, std::uint8_t const* row, int g, C* counts, C* scratch, std::uint64_t* sums = nullptr)
 {
     switch (plan.kind)
     {
@@ -128,8 +189,18 @@ static inline int analyseGroupAny(AnalysePlan const& plan, std::uint8_t const* r
         return 0;
     case ScopeKind::Rgb:
         return analyseGroupRgb(plan, row, g, counts, scratch);
+    case ScopeKind::Vector:
+        analyseGroupVector(plan, row, g, counts, sums);
+        return 0;
     default:
-        analyseGroup(plan, row, g, counts, scratch);
+        if (sums != nullptr)
+        {
+            analyseGroupLumaPicture(plan, row, g, counts, scratch, sums);
+        }
+        else
+        {
+            analyseGroup(plan, row, g, counts, scratch);
+        }
         return 0;
     }
 }

@@ -22,7 +22,10 @@ struct DisplaySettings
     int graticuleWidth = 1;
     int intensity = 100;
     int traceMin = 96;
+    // `green`, `white`, `amber`, or `picture`: each cell in the colour of its samples (§4.4).
     std::string traceColor = "green";
+    // Vectorscope zoom around the centre: 1, 2 or 5 (§5.3).
+    int vectorZoom = 1;
     bool caption = true;
     std::string layout = "single";
     int bgAlpha = 0;
@@ -55,6 +58,10 @@ inline std::string modeTitle(std::string const& mode)
     if (mode == "ycbcr-overlay")
     {
         return "YCbCr overlay";
+    }
+    if (mode == "vectorscope")
+    {
+        return "Vectorscope";
     }
     return mode;
 }

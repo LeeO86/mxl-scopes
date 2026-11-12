@@ -13,8 +13,8 @@ bool ScopePainter::configure(PaintParams const& params)
     {
         return false;
     }
-    render_ = makeRenderPlan(makeLayout(params.outputWidth, params.outputHeight, panelCount(params.settings.mode)), params.settings, params.columns, params.counts,
-        params.key);
+    render_ = makeRenderPlan(makeModeLayout(params.outputWidth, params.outputHeight, params.settings.mode), params.settings, params.columns, params.counts,
+        params.key, params.sumShift);
     int const parts = pool_ ? pool_->threads() : 1;
     rowSplit_ = traceRowSplit(render_, parts);
     parts_.resize(static_cast<std::size_t>(parts));
@@ -114,7 +114,7 @@ bool ScopeEngine::configure(InputFormat const& input, DisplaySettings const& set
     {
         return false;
     }
-    auto const layout = makeLayout(outputWidth, outputHeight, panelCount(settings.mode));
+    auto const layout = makeModeLayout(outputWidth, outputHeight, settings.mode);
     int const columns = histogramColumns(layout, input.width);
     int const bins = histogramBins(layout);
     maxGrains_ = 1;
@@ -126,7 +126,7 @@ bool ScopeEngine::configure(InputFormat const& input, DisplaySettings const& set
         // when they fit, else 32-bit cells (AnalysePlan::wide).
         auto const grainsWanted = std::max(1, input.fields) * std::max(1, input.frames);
         analyse_ = makeAnalysePlan(input.width, input.height, input.stride, std::max(1, settings.lineStep), settings.pixelStep, columns, bins, stripColumns_,
-            scopeKindOf(settings.mode), grainsWanted, threads());
+            scopeKindOf(settings.mode), grainsWanted, threads(), settings.vectorZoom, settings.traceColor == "picture");
         auto const perGrain = std::max<std::uint64_t>(1, analyse_.maxCellCount);
         maxGrains_ = static_cast<int>(std::min<std::uint64_t>(1u << 20, std::max<std::uint64_t>(1, (analyse_.wide ? 0xffffffffull : 65535ull) / perGrain)));
         hist_.reset(analyse_);
@@ -149,7 +149,7 @@ bool ScopeEngine::configure(InputFormat const& input, DisplaySettings const& set
 
 PaintParams ScopeEngine::paintParams() const
 {
-    auto const layout = makeLayout(outputWidth_, outputHeight_, panelCount(settings_.mode));
+    auto const layout = makeModeLayout(outputWidth_, outputHeight_, settings_.mode);
     // Per grain; the painter scales them by the grains of each update.
     PlaneCounts counts;
     for (std::size_t p = 0; p < 3; ++p)
@@ -158,13 +158,14 @@ PaintParams ScopeEngine::paintParams() const
         counts.samples[p] = analyse_.planeSamples[plane];
         counts.maxCount[p] = analyse_.planeMaxCell[plane];
     }
-    return PaintParams{settings_, outputWidth_, outputHeight_, histogramColumns(layout, input_.width), counts, input_.width > 0, key_};
+    return PaintParams{settings_, outputWidth_, outputHeight_, histogramColumns(layout, input_.width), counts, input_.width > 0, key_, analyse_.sumShift};
 }
 
 void ScopeEngine::fit(Histogram& hist) const
 {
     bool const sized = hist.columns == analyse_.columns && hist.bins == analyse_.bins && hist.planes == analyse_.planes && hist.wide == analyse_.wide &&
-                       hist.scratchCells() == (analyse_.twoSubs ? hist.cells() : 0) &&
+                       hist.extra == (analyse_.trashCell != 0 ? 1u : 0u) && hist.sums.size() == (analyse_.sums > 0 ? hist.cells() + hist.extra : 0) &&
+                       hist.scratchCells() == (analyse_.twoSubs ? hist.cells() + hist.extra : 0) &&
                        hist.cells() == analyse_.planeCells * static_cast<std::size_t>(analyse_.planes);
     if (!sized)
     {
@@ -240,7 +241,7 @@ void ScopeEngine::measureUpdate(int grains)
 void ScopeEngine::render(std::string const& caption, std::string const& state, std::uint8_t* dst)
 {
     // Without analysed grains (a redraw whose grain left the ring) the last measurements stay.
-    if (painter_.render(hist_, caption, state, dst, grains_, analyse_.kind == ScopeKind::Rgb ? nullptr : &totals_) && grains_ > 0)
+    if (painter_.render(hist_, caption, state, dst, grains_, analyse_.kind == ScopeKind::Rgb || analyse_.kind == ScopeKind::Vector ? nullptr : &totals_) && grains_ > 0)
     {
         measureUpdate(grains_);
     }
@@ -251,7 +252,7 @@ void ScopeEngine::render(std::string const& caption, std::string const& state, s
 void ScopeEngine::trace(std::string const& caption, std::string const& state, std::vector<TraceGroup>& out)
 {
     // Without analysed grains (a redraw whose grain left the ring) the last measurements stay.
-    if (painter_.trace(hist_, caption, state, out, grains_, analyse_.kind == ScopeKind::Rgb ? nullptr : &totals_) && grains_ > 0)
+    if (painter_.trace(hist_, caption, state, out, grains_, analyse_.kind == ScopeKind::Rgb || analyse_.kind == ScopeKind::Vector ? nullptr : &totals_) && grains_ > 0)
     {
         measureUpdate(grains_);
     }

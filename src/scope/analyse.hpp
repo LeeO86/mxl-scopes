@@ -13,6 +13,11 @@
 
 namespace scopes
 {
+// The vectorscope (§5.3) at zoom 1 shows 1200 chroma codes across its plot: 600 from the centre to
+// the edge, so the 100 % targets (magenta and green 534 codes from the centre in BT.709) and every
+// code 0..1023 fit.
+inline constexpr int kVectorCodes = 1200;
+
 // Column-strip width in plot columns (SPECIFICATION §4.3), fixed at 64 by the M0 numbers
 // (IMPLEMENTATION_PLAN.md): best or within 6 % of the best of 64, 128 and 512 in every case.
 inline constexpr int kDefaultStripColumns = 64;
@@ -20,18 +25,20 @@ inline constexpr int kDefaultStripColumns = 64;
 // What the analyse step counts (SPECIFICATION §5.1). `Luma`: one plane, Y′. `Ycbcr`: three
 // planes, Y′, Cb, Cr (the chroma samples at their co-sited luma x). `Rgb`: three planes, R′, G′,
 // B′ from each luma sample and its co-sited chroma pair (§4.8). A parade shows the planes side
-// by side, an overlay in one panel; the counts are the same.
+// by side, an overlay in one panel; the counts are the same. `Vector`: one plane, the Cb/Cr 2D
+// histogram of the vectorscope (§5.3): columns are Cb, bins are Cr.
 enum class ScopeKind
 {
     Luma,
     Ycbcr,
     Rgb,
+    Vector,
 };
 
 ScopeKind scopeKindOf(std::string const& mode);
 inline int planesOf(ScopeKind kind)
 {
-    return kind == ScopeKind::Luma ? 1 : 3;
+    return kind == ScopeKind::Luma || kind == ScopeKind::Vector ? 1 : 3;
 }
 
 // §4.8: BT.709 narrow range Y′CbCr -> R′G′B′ in the Y code scale, Q13 coefficients, rounded,
@@ -78,8 +85,22 @@ struct AnalysePlan
     std::vector<std::uint32_t> columnOf;
     // Per 10-bit code: the bin (code × bins) >> 10 (codes 0..1023 are the visible range,
     // §4.3) and its offset bin × columns. A cell is rowOffset[code] + columnOf[x].
+    // `Vector`: the bin of a Cr code at the zoom (rowOffset) and the column of a Cb code
+    // (chromaColumn); a cell is min(rowOffset[cr] + chromaColumn[cb], trashCell): a code outside
+    // the zoomed range is `trashCell` in both, so its sample goes to the trash cell.
     std::array<std::uint16_t, 1024> binOf{};
     std::array<std::uint32_t, 1024> rowOffset{};
+    std::array<std::uint32_t, 1024> chromaColumn{};
+    // `Vector`: the zoom (1, 2, 5) and the cell after the plot that takes the samples outside it;
+    // the trace step never draws it and clears it. 0 for the other kinds (no trash cell).
+    int zoom = 1;
+    std::uint32_t trashCell = 0;
+    // The picture trace colour (§4.4): per cell, `sums` 32-bit sums next to the count (`Luma`: Cb
+    // and Cr of each sample's co-sited pair; `Vector`: the co-sited Y′), each code >> sumShift so
+    // that the largest sum of an update fits 32 bits. They share one 64-bit word per cell (Cb in
+    // the low half, Cr in the high half), so one add takes both. 0 without the picture colour.
+    int sums = 0;
+    int sumShift = 0;
     struct Strip
     {
         int g0 = 0;     // first v210 group
@@ -125,6 +146,10 @@ struct Histogram
     std::vector<std::uint16_t> scratch;
     std::vector<std::uint32_t> counts32;
     std::vector<std::uint32_t> scratch32;
+    // The picture colour's sums, one 64-bit word per cell (AnalysePlan::sums), else empty.
+    std::vector<std::uint64_t> sums;
+    // Cells after the planes (the vectorscope's trash cell), not part of cells().
+    std::size_t extra = 0;
     // Pixels of the counted grains with an R′G′B′ component out of gamut (`Rgb`, §4.7).
     std::uint64_t outOfGamut = 0;
 
@@ -133,7 +158,8 @@ struct Histogram
     void clear();
     [[nodiscard]] std::size_t cells() const
     {
-        return wide ? counts32.size() : counts.size();
+        auto const n = wide ? counts32.size() : counts.size();
+        return n > extra ? n - extra : 0;
     }
     [[nodiscard]] std::size_t scratchCells() const
     {
@@ -179,9 +205,10 @@ struct CellOverflow : std::invalid_argument
 
 // `grains`: the grains one update adds up; the plan is `wide` when their counts could pass 16
 // bits. `parts`: the strip workers that share the strips (AnalysePlan::partStart). Throws CellOverflow when they could pass 32 bits, std::invalid_argument for other
-// invalid values.
+// invalid values. `zoom`: the vectorscope's (1, 2, 5). `picture`: the per-cell sums of the
+// picture trace colour (`Luma` and `Vector` only).
 AnalysePlan makeAnalysePlan(int width, int height, std::size_t stride, int lineStep, int pixelStep, int columns, int bins,
-    int stripColumns = kDefaultStripColumns, ScopeKind kind = ScopeKind::Luma, int grains = 1, int parts = 1);
+    int stripColumns = kDefaultStripColumns, ScopeKind kind = ScopeKind::Luma, int grains = 1, int parts = 1, int zoom = 1, bool picture = false);
 
 // Strips [begin, end) of a plan; end −1 is the last. A strip worker analyses one range: the
 // ranges of the workers share no histogram column (ScopeEngine splits them so).

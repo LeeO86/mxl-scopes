@@ -18,6 +18,10 @@ ScopeKind scopeKindOf(std::string const& mode)
     {
         return ScopeKind::Rgb;
     }
+    if (mode == "vectorscope")
+    {
+        return ScopeKind::Vector;
+    }
     return ScopeKind::Luma;
 }
 
@@ -27,11 +31,13 @@ void Histogram::reset(AnalysePlan const& plan)
     bins = plan.bins;
     planes = plan.planes;
     wide = plan.wide;
-    auto const cells = plan.planeCells * static_cast<std::size_t>(plan.planes);
+    extra = plan.trashCell != 0 ? 1 : 0;
+    auto const cells = plan.planeCells * static_cast<std::size_t>(plan.planes) + extra;
     counts.assign(wide ? 0 : cells, 0);
     scratch.assign(!wide && plan.twoSubs ? cells : 0, 0);
     counts32.assign(wide ? cells : 0, 0);
     scratch32.assign(wide && plan.twoSubs ? cells : 0, 0);
+    sums.assign(plan.sums > 0 ? cells : 0, 0);
     outOfGamut = 0;
 }
 
@@ -41,17 +47,19 @@ void Histogram::clear()
     std::fill(scratch.begin(), scratch.end(), std::uint16_t{0});
     std::fill(counts32.begin(), counts32.end(), 0u);
     std::fill(scratch32.begin(), scratch32.end(), 0u);
+    std::fill(sums.begin(), sums.end(), std::uint64_t{0});
     outOfGamut = 0;
 }
 
 AnalysePlan makeAnalysePlan(int width, int height, std::size_t stride, int lineStep, int pixelStep, int columns, int bins, int stripColumns, ScopeKind kind,
-    int grains, int parts)
+    int grains, int parts, int zoom, bool picture)
 {
     if (parts < 1 || grains < 1 || width < 1 || height < 1 || columns < 1 || bins < 1 || bins > 1024 || stride < v210RowBytes(width) || lineStep < 1 || pixelStep < 1 ||
-        6 % pixelStep != 0 || stripColumns < 1)
+        6 % pixelStep != 0 || stripColumns < 1 || zoom < 1 || (kind == ScopeKind::Vector && columns > 1024))
     {
         throw std::invalid_argument("invalid analyse plan");
     }
+    bool const vector = kind == ScopeKind::Vector;
     AnalysePlan plan;
     plan.width = width;
     plan.height = height;
@@ -63,8 +71,9 @@ AnalysePlan makeAnalysePlan(int width, int height, std::size_t stride, int lineS
     plan.kind = kind;
     plan.planes = planesOf(kind);
     plan.planeCells = static_cast<std::size_t>(columns) * static_cast<std::size_t>(bins);
-    // §4.3: two sub-histograms when at least two input samples fall into one column.
-    plan.twoSubs = width / columns >= 2;
+    // §4.3: two sub-histograms when at least two input samples fall into one column. Not for the
+    // vectorscope: its cells do not follow x, so a strip would fold the whole histogram.
+    plan.twoSubs = !vector && width / columns >= 2;
     plan.columnOf.resize(static_cast<std::size_t>(width));
     std::vector<int> col(static_cast<std::size_t>(width));
     for (int x = 0; x < width; ++x)
@@ -77,6 +86,22 @@ AnalysePlan makeAnalysePlan(int width, int height, std::size_t stride, int lineS
         plan.binOf[static_cast<std::size_t>(v)] = static_cast<std::uint16_t>((v * bins) >> 10);
         plan.rowOffset[static_cast<std::size_t>(v)] = static_cast<std::uint32_t>(plan.binOf[static_cast<std::size_t>(v)]) * static_cast<std::uint32_t>(columns);
     }
+    if (vector)
+    {
+        // §5.3: the code's distance from 512 times the zoom, from the plot's edge: q = (v − 512) ×
+        // zoom + 600, column (Cb) or bin (Cr) q × size / 1200; outside 0..1199 the sample goes to
+        // the trash cell after the plot.
+        plan.zoom = zoom;
+        plan.trashCell = static_cast<std::uint32_t>(plan.planeCells);
+        for (int v = 0; v < 1024; ++v)
+        {
+            int const q = (v - 512) * zoom + kVectorCodes / 2;
+            bool const inside = q >= 0 && q < kVectorCodes;
+            auto const i = static_cast<std::size_t>(v);
+            plan.chromaColumn[i] = inside ? static_cast<std::uint32_t>(q * columns / kVectorCodes) : plan.trashCell;
+            plan.rowOffset[i] = inside ? static_cast<std::uint32_t>(q * bins / kVectorCodes) * static_cast<std::uint32_t>(columns) : plan.trashCell;
+        }
+    }
     int const groups = (width + 5) / 6;
     plan.fullGroups = width / 6;
     for (int g = 0; g < groups;)
@@ -88,7 +113,8 @@ AnalysePlan makeAnalysePlan(int width, int height, std::size_t stride, int lineS
         // every strip in full loads.
         int end = std::min(groups, g + 4);
         auto lastCol = [&](int group) { return col[static_cast<std::size_t>(std::min(width - 1, 6 * group + 5))]; };
-        while (end < groups && lastCol(std::min(groups, end + 4) - 1) < strip.col0 + stripColumns)
+        // The vectorscope: one strip, whole lines (its cells do not follow x).
+        while (end < groups && (vector || lastCol(std::min(groups, end + 4) - 1) < strip.col0 + stripColumns))
         {
             end = std::min(groups, end + 4);
         }
@@ -100,9 +126,16 @@ AnalysePlan makeAnalysePlan(int width, int height, std::size_t stride, int lineS
     // Strip workers (SCOPES_THREADS): `parts` ranges of strips of about equal size whose
     // boundaries start a new histogram column, so no cell is shared between two workers. A strip
     // across such a boundary is split there; the other strips stay as they are.
+    // The vectorscope's cells do not follow x, so its one strip stays with the first worker; the
+    // other parts are empty (deviation 27).
     plan.partStart.assign(1, 0);
     for (int k = 1; k < parts; ++k)
     {
+        if (vector)
+        {
+            plan.partStart.push_back(static_cast<int>(plan.strips.size()));
+            continue;
+        }
         if (static_cast<std::size_t>(plan.partStart.back()) >= plan.strips.size())
         {
             // The earlier parts took every strip: this one is empty.
@@ -194,7 +227,8 @@ AnalysePlan makeAnalysePlan(int width, int height, std::size_t stride, int lineS
             }
         }
     }
-    auto const maxLuma = static_cast<std::uint64_t>(*std::max_element(perColumn.begin(), perColumn.end())) * rows;
+    // The vectorscope counts chroma pairs, all of a flat picture in one cell.
+    auto const maxLuma = vector ? perRowChroma * rows : static_cast<std::uint64_t>(*std::max_element(perColumn.begin(), perColumn.end())) * rows;
     auto const maxChroma = static_cast<std::uint64_t>(*std::max_element(perColumnChroma.begin(), perColumnChroma.end())) * rows;
     auto const maxUpdate = maxLuma * static_cast<std::uint64_t>(grains);
     if (maxUpdate > 0xffffffffull)
@@ -202,11 +236,21 @@ AnalysePlan makeAnalysePlan(int width, int height, std::size_t stride, int lineS
         throw CellOverflow("a histogram cell could exceed 32 bits (" + std::to_string(maxUpdate) + ")");
     }
     plan.wide = maxUpdate > 65535;
+    if (picture && (kind == ScopeKind::Luma || vector))
+    {
+        // §4.4 picture colour: Cb and Cr per luma cell, Y′ per vectorscope cell; the codes are
+        // shifted right until the largest sum of an update fits 32 bits.
+        plan.sums = vector ? 1 : 2;
+        while ((maxUpdate * (1023u >> plan.sumShift)) > 0xffffffffull)
+        {
+            ++plan.sumShift;
+        }
+    }
     for (int p = 0; p < plan.planes; ++p)
     {
-        bool const chroma = kind == ScopeKind::Ycbcr && p > 0;
+        bool const chroma = (kind == ScopeKind::Ycbcr && p > 0) || vector;
         plan.planeSamples[static_cast<std::size_t>(p)] = (chroma ? perRowChroma : perRow) * rows;
-        plan.planeMaxCell[static_cast<std::size_t>(p)] = static_cast<std::uint32_t>(chroma ? maxChroma : maxLuma);
+        plan.planeMaxCell[static_cast<std::size_t>(p)] = static_cast<std::uint32_t>(chroma && !vector ? maxChroma : maxLuma);
     }
     plan.samples = plan.planeSamples[0];
     plan.maxCellCount = *std::max_element(plan.planeMaxCell.begin(), plan.planeMaxCell.begin() + plan.planes);
@@ -221,6 +265,7 @@ std::uint64_t analyseScalarCells(AnalysePlan const& plan, std::uint8_t const* v2
     std::uint64_t out = 0;
     auto* counts = hist.data<C>();
     auto* scratch = hist.scratchData<C>();
+    auto* sums = plan.sums > 0 ? hist.sums.data() : nullptr;
     for (auto const& strip : stripsOf(plan, range))
     {
         for (int y = 0; y < plan.height; y += plan.lineStep)
@@ -229,7 +274,7 @@ std::uint64_t analyseScalarCells(AnalysePlan const& plan, std::uint8_t const* v2
             cpu::prefetchStrip(plan, strip, v210, y);
             for (int g = strip.g0; g < strip.g1; ++g)
             {
-                out += static_cast<std::uint64_t>(cpu::analyseGroupAny(plan, row, g, counts, scratch));
+                out += static_cast<std::uint64_t>(cpu::analyseGroupAny(plan, row, g, counts, scratch, sums));
             }
         }
         if (plan.twoSubs)

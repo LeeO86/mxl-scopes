@@ -169,7 +169,7 @@ std::string Api::infoJson() const
         << ",\"label\":" << quote(config_.nmosLabel.empty() ? config_.hostId : config_.nmosLabel) << ",\"backend\":\"cpu\""
         << ",\"simd\":{\"level\":" << quote(simdName(build_.simd.level)) << ",\"requested\":" << quote(build_.simd.requested)
         << ",\"cpu\":" << quote(build_.simd.cpu) << ",\"cpu_family\":" << quote(build_.simd.family) << "}"
-        << ",\"modes\":[\"luma\",\"ycbcr-parade\",\"rgb-parade\",\"rgb-overlay\",\"ycbcr-overlay\"],\"node_id\":" << quote(ids.node) << ",\"device_id\":" << quote(ids.device)
+        << ",\"modes\":[\"luma\",\"ycbcr-parade\",\"rgb-parade\",\"rgb-overlay\",\"ycbcr-overlay\",\"vectorscope\"],\"node_id\":" << quote(ids.node) << ",\"device_id\":" << quote(ids.device)
         << ",\"receiver_id\":" << quote(ids.receiver) << ",\"sender_id\":" << quote(ids.sender) << ",\"domain_id\":" << quote(config_.outputDomainId)
         << ",\"output\":{\"format\":" << quote(std::to_string(output.width) + "x" + std::to_string(output.height))
         << ",\"rate\":" << quote(output.rate ? rateToken(*output.rate) : "input") << ",\"key\":" << boolean(output.key) << "}"
@@ -205,7 +205,7 @@ std::string Api::outputJson() const
     // The layout of the picture on the output (its mode), else of the current settings.
     auto const mode = o.mode.empty() ? state_.settings()->mode : o.mode;
     out << ",\"mode\":" << quote(mode);
-    auto const layout = makeLayout(o.width, o.height, panelCount(mode));
+    auto const layout = makeModeLayout(o.width, o.height, mode);
     out << ",\"plot\":{\"x\":" << layout.plotX << ",\"y\":" << layout.plotY << ",\"width\":" << layout.plotW << ",\"height\":" << layout.plotH
         << ",\"bins\":" << histogramBins(layout) << ",\"panels\":[";
     for (int k = 0; k < layout.panels; ++k)
@@ -246,7 +246,7 @@ std::string Api::scopeJson() const
         << (s->updateRate <= 0 ? std::string("\"frame\"") : number(s->updateRate)) << ",\"accumulate\":" << quote(s->accumulate)
         << ",\"line_step\":" << s->lineStep << ",\"pixel_step\":" << s->pixelStep << ",\"range\":" << quote(s->limitedRange ? "limited" : "full")
         << ",\"graticule_units\":" << quote(s->graticuleUnits) << ",\"graticule_level\":" << s->graticuleLevel << ",\"graticule_width\":" << s->graticuleWidth << ",\"intensity\":" << s->intensity
-        << ",\"trace_min\":" << s->traceMin << ",\"trace_color\":" << quote(s->traceColor) << ",\"caption\":" << boolean(s->caption)
+        << ",\"trace_min\":" << s->traceMin << ",\"trace_color\":" << quote(s->traceColor) << ",\"vector_zoom\":" << s->vectorZoom << ",\"caption\":" << boolean(s->caption)
         << ",\"layout\":" << quote(s->layout) << ",\"bg_alpha\":" << s->bgAlpha << ",\"input_offset_grains\":" << s->inputOffsetGrains
         << ",\"hold_ms\":" << s->holdMs << ",\"preview_fps\":" << s->previewFps << ",\"sources\":{";
     bool first = true;
