@@ -4,6 +4,8 @@ This plan comes before any code. It is updated as the work goes on: every decisi
 
 ## Status (2026-10-23)
 
+1.3.0 (2026-11-12, unreleased, `feat/1.3.0`): the graticule behind the trace, `SCOPES_INTENSITY` up to 1000 %, the `vectorscope` mode with `SCOPES_VECTOR_ZOOM` (SPECIFICATION §5.3) and the `picture` trace colour (§4.4); deviations 27–29; numbers in `docs/performance.md` "1.3.0".
+
 1.1.0 (M3 and M4 together, the maintainer's decision of 2026-10-23) is ready on `feat/m3` and `feat/m4`: the WebRTC preview, the Vue UI, the widget, Blend2D texts, AMWA in CI, the deployment files and the measurements; release notes `docs/release-notes-1.1.0.md`. 1.0.0 was the first release, made after M2 (deviation 26), release notes `docs/release-notes-1.0.0.md`.
 
 M2 merged (PR #4), decided by the maintainer on 2026-10-22 to come before the first release: 32-bit cells (deviation 23 closed), `SCOPES_THREADS` strip workers, the measurements (deviation 9 closed), the key output and live output flow changes (deviation 4 closed), `ycbcr-overlay` (deviation 5 closed); numbers in `docs/performance.md`. The keyed scope over a picture on the multiviewer 1.4.4 does not show the picture through the key: the multiviewer's CPU backend blends a tile's key into the tile, not into the canvas (question 1 below). What M2 leaves open is listed under M2 below.
@@ -290,7 +292,7 @@ Progress (2026-10-23, `feat/m4`, for 1.1.0 with M3; 1.0.0 was released after M2,
 
 | Release | Work |
 | --- | --- |
-| 1.1 | vectorscope, `luma-chroma`, multi-pane layouts, persistence |
+| 1.1 | vectorscope (done in 1.3), `luma-chroma`, multi-pane layouts, persistence |
 | 1.2 | HDR (PQ, HLG, BT.2020) |
 | 2.0 | CUDA backend; single-line select; false colour |
 
@@ -354,6 +356,10 @@ Progress (2026-10-23, `feat/m4`, for 1.1.0 with M3; 1.0.0 was released after M2,
 24. **A settings change redraws at once.** After a change of mode or another display setting the newest grain (if still in the ring) is analysed and drawn without waiting for the next tick, also while the input holds; `/api/v1/output` reports the mode of the picture on the output.
 25. **RGB parade every frame above §13, accepted** (the maintainer, 2026-10-22; also noted in §13; M2: with `SCOPES_THREADS=2` the time target is met, the CPU is not): camera content at 1080p50 every frame takes 0.67–0.74 core on the lab class (§13: < 0.4) and analyse + render p99 11.8 ms (< 8 ms); bars meet both. At the default 25 Hz it takes 0.39–0.46 core. A second analysis thread (`SCOPES_THREADS`, strip workers) stays M2 work.
 26. **1.0.0 after M2** (the maintainer, 2026-10-23; the plan has 1.0.0 at the end of M4): the stage-1 scopes, the key output, the measurements and the strip workers make 1.0.0. Of M3 and M4 the WebRTC preview, the `scope` widget, the Vue UI, the 1 h soak, the AMWA tests, `deploy/k8s/deployment.yaml` and the Grafana dashboard are not in it; they follow as 1.x releases. The image is tagged `1.0.0`, `1.0` and `1` (G11); the Container workflow refuses a `v*` tag that differs from `SCOPES_VERSION` and the CMake project version.
+
+27. **SIMD and threads of the new analyse steps (1.3.0).** The vectorscope analyses with the scalar reference on every SIMD level: three chroma pairs a group, the increments (and their store-forwarding chains on flat colours) dominate; a vector unpack would save little. Two sub-histograms were tried and were slower (the fold of the whole 2D histogram per frame costs more than the chains save: 2.9 → 4.1 ms, bars, 1080p). Its cells do not follow x, so its one strip stays with the first strip worker: `SCOPES_THREADS` does not split this step (§4.3), only its trace step. The luma picture colour has an AVX2 step (the luma step plus the co-sited Cb and Cr lanes; 4.5 ms against 9.5 ms scalar on `scene` at 1080p); the AVX-512 level calls it (an AVX-512 CPU has AVX2). Bytes are equal on every level (unit tests).
+28. **The picture colour is float maths** (SPECIFICATION §3.2 says the render step uses integer tables): single-precision IEEE in the shared trace step, baseline x86-64 code without FMA or fast-math, so every engine path draws the same bytes; a CUDA backend must use the same correctly rounded operations (no fused multiply-add) or a table. The other trace colours keep their integer tables.
+29. **No measurements in the vectorscope** (§4.7; the maintainer allowed leaving them out, 2026-11-12): every value is null and no measurement metric is exported in this mode. Its cells are Cb/Cr pairs (no luma plane), and a zoom drops the samples outside the plot.
 
 ## M0 review fixes (2026-10-16)
 

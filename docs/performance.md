@@ -193,3 +193,31 @@ IS-04-01, IS-05-01, IS-05-02 and BCP-007-03-01 against the node with an nmos-cpp
 
 `tests/nmos/amwa-expected-off.json` lists each with its reason. The first run found one real failure: the receiver's `caps.media_types` was missing (BCP-007-03-01 test_07). It is fixed.
 
+
+## 1.3.0 (2026-11-12): vectorscope and picture colour
+
+`mxl-scopes-bench`, lab class (Xeon Gold 6136), one thread pinned to one core, 1920×1080 output, strip width 64, every line and sample, median ms (p99 of analyse + render in brackets), as "Engine (M1)" above; `--trace-color picture` for the picture colour. The vectorscope analyses with the scalar step on every level (deviation 27), so its AVX2 column is the scalar one.
+
+1080p input:
+
+| Mode | Pattern | Scalar analyse | AVX2 analyse | Render | AVX2 total |
+| --- | --- | --- | --- | --- | --- |
+| `luma` | bars75 | 4.65 | 1.45 | 0.91 | 2.36 (2.65) |
+| `luma` | scene | 4.97 | 1.70 | 2.46 | 4.17 (4.46) |
+| `luma` | random | 5.94 | 2.65 | 6.43 | 9.08 (9.69) |
+| `luma` picture | bars75 | 7.21 | 3.02 | 0.91 | 3.95 (4.25) |
+| `luma` picture | scene | 9.40 | 4.54 | 7.00 | 11.5 (12.7) |
+| `luma` picture | random | 19.2 | 10.2 | 22.6 | 32.8 (33.6) |
+| `vectorscope` | bars75 | 2.94 | = scalar | 1.17 | 4.11 (4.35) |
+| `vectorscope` | scene | 2.96 | = scalar | 1.43 | 4.39 (4.80) |
+| `vectorscope` | random | 3.66 | = scalar | 3.74 | 7.43 (7.65) |
+| `vectorscope` picture | bars75 | 4.17 | = scalar | 1.62 | 5.80 (6.20) |
+| `vectorscope` picture | scene | 4.23 | = scalar | 2.42 | 6.67 (7.00) |
+| `vectorscope` picture | random | 7.26 | = scalar | 10.6 | 17.9 (18.0) |
+
+2160p input (`scene`, total at the AVX2 level; line step 2 in brackets): `luma` 13.3 (8.5), `luma` picture 28.1 (18.3), `vectorscope` 14.1 (9.1), `vectorscope` picture 20.4 (11.5). Scalar level, line step 1: 27.4, 47.6, 14.0, 20.4.
+
+- The vectorscope costs about what the luma waveform costs on a picture. It counts half the samples (one per chroma pair), but neighbouring pairs of a flat or smooth colour hit the same cell, so the increments wait on each other (store forwarding, §4.3). Two sub-histograms were slower (deviation 27). At zoom 5 the render takes longer (2.8 ms on `scene`: the cells spread over more pixels).
+- The picture colour adds the sums (one 64-bit add per luma sample, one 32-bit add per chroma pair; the luma sums are 8 bytes a cell, 13.7 MB at a 1920×1080 output) and the colour of every drawn cell (two divisions per cell). Green, white and amber do not change.
+- `SCOPES_THREADS=2` (1080p, `scene`, AVX2): `luma` picture 8.1 ms, `vectorscope` picture 5.8 ms (the vectorscope splits only its trace step).
+- Against §13 (targets for `luma`): at 1080p every frame the vectorscope is at p99 4.4–4.8 ms (bars, scene) and the luma picture colour 4.3 ms on bars, just above the 4 ms bars target; the luma picture colour on a picture (12.7 ms) is three times the green trace and above the 15 ms scalar target at the scalar level (17.5 ms). At 2160p the vectorscope needs line step 2 for the 12 ms target (9.5 ms p99); the luma picture colour does not meet it even with line step 2 (18.8 ms), so it fits 2160p at 25 Hz (about 0.5 core in the engine), not every frame. The process figures (CPU of the whole function per mode on MXL) are still to be measured in the lab.

@@ -4,6 +4,9 @@
 
 - The graticule is behind the trace now (it was blended over it). A trace on a graticule line keeps its colour: a black picture is a green line on the 0 % line, not a grey one. The trace covers the line by its intensity, so a faint trace still lets the line show. The golden pictures and hashes changed for that.
 - `SCOPES_INTENSITY` goes up to 1000 % (was 400 %), also in `PATCH /api/v1/scope` and the Scope tab slider.
+- New mode `vectorscope` ("Vectorscope"): the Cb/Cr 2D histogram in a square plot in the middle of the output, with a hue ring, rings, vectors to the six colours, the skin-tone line and BT.709 target boxes at 75 % and 100 %. The graticule level and width apply; the graticule is behind the trace. No measurements in this mode. Works with the key output, the NMOS `scope-mode` tag and flow description, the UI and the widget.
+- New setting `SCOPES_VECTOR_ZOOM` (`vector_zoom` in `PATCH /api/v1/scope`, a select in the Scope tab): 1, 2 or 5, live; the zoom shows as "2×" right of the plot.
+- New trace colour `picture` ("picture colour") for `luma` and `vectorscope`: each trace point in the colour of the picture samples in it, brightened so it stays readable on black, its brightness still from the intensity. It costs more CPU than the other colours (numbers in `docs/performance.md`); green, white and amber keep their speed.
 
 ## 1.2.1 (2026-11-05)
 
