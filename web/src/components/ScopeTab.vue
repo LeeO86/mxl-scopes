@@ -95,11 +95,17 @@ function setSampling(value) {
       <Field :label="`Graticule width ${s.graticule_width ?? ''} px`">
         <input type="range" min="1" max="4" :value="s.graticule_width" @input="set({ graticule_width: Number($event.target.value) })" />
       </Field>
-      <Field label="Trace colour" help="Luma waveform only.">
+      <Field label="Trace colour" help="Luma waveform and vectorscope.">
         <select :value="s.trace_color" @change="set({ trace_color: $event.target.value })">
           <option value="green">green</option>
           <option value="white">white</option>
           <option value="amber">amber</option>
+          <option value="picture">picture colour</option>
+        </select>
+      </Field>
+      <Field v-if="s.mode === 'vectorscope'" label="Vectorscope zoom">
+        <select :value="String(s.vector_zoom)" @change="set({ vector_zoom: Number($event.target.value) })">
+          <option v-for="z in ['1', '2', '5']" :key="z" :value="z">{{ z }}×</option>
         </select>
       </Field>
       <Field label="Range">

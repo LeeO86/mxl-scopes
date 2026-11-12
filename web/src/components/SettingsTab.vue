@@ -23,7 +23,7 @@ const GROUPS = [
 ];
 // One line per key, from SPECIFICATION §8.
 const DESCRIPTIONS = {
-  SCOPES_MODE: "luma, ycbcr-parade, rgb-parade, rgb-overlay or ycbcr-overlay.",
+  SCOPES_MODE: "luma, ycbcr-parade, rgb-parade, rgb-overlay, ycbcr-overlay or vectorscope.",
   SCOPES_UPDATE_RATE: "frame or 1–60 Hz; the overlays at most 30 Hz.",
   SCOPES_ACCUMULATE: "latest (newest frame per update) or all (every frame between updates).",
   SCOPES_LINE_STEP: "Analyse every n-th line (1–8).",
@@ -34,7 +34,8 @@ const DESCRIPTIONS = {
   SCOPES_GRATICULE_WIDTH: "Graticule line thickness, 1–4 px (1 is the thin default).",
   SCOPES_INTENSITY: "Trace intensity, 1–1000 %.",
   SCOPES_TRACE_MIN: "The dimmest visible trace, 0–1023.",
-  SCOPES_TRACE_COLOR: "green, white or amber (luma waveform).",
+  SCOPES_TRACE_COLOR: "green, white, amber or picture (the colour of the picture; luma waveform and vectorscope).",
+  SCOPES_VECTOR_ZOOM: "Vectorscope zoom around the centre: 1, 2 or 5.",
   SCOPES_CAPTION: "The header line with mode, input and rate.",
   SCOPES_LAYOUT: "single (the only layout in v1).",
   SCOPES_BG_ALPHA: "Key of the background with SCOPES_OUTPUT_KEY, 0–1023.",
