@@ -190,7 +190,216 @@ ModeLook modeLook(DisplaySettings const& settings)
         // the YCbCr parade so a full-intensity chroma trace stays readable on black.
         return {{0}, {false}, {}, {white}, true, {{{1, 1, 1}, {0.35, 0.55, 1}, {1, 0.3, 0.3}}}};
     }
+    // Luma and the vectorscope: SCOPES_TRACE_COLOR (`picture` does not use this colour).
     return {{0}, {false}, {}, {traceColor(settings.traceColor)}, false};
+}
+
+// The hue of the Cb/Cr direction (pb, pr) as a fully saturated colour: R′G′B′ of that chroma at
+// zero luma, stretched to 0..1 (adding grey and scaling keep the direction).
+Ycbcr10 hueColour(double pb, double pr)
+{
+    double rgb[3] = {1.5748 * pr, -0.187324 * pb - 0.468124 * pr, 1.8556 * pb};
+    double const lo = std::min({rgb[0], rgb[1], rgb[2]});
+    double const hi = std::max({rgb[0], rgb[1], rgb[2]});
+    for (auto& v : rgb)
+    {
+        v = hi > lo ? (v - lo) / (hi - lo) : 1.0;
+    }
+    return rgbToYcbcr709(rgb[0], rgb[1], rgb[2]);
+}
+
+// The vectorscope graticule (§5.3) into plan.plotGraticule, behind the trace: the hue ring at the
+// edge, rings every 10 % of 350 mV of chroma, the Cb and Cr axes, a vector towards each colour,
+// the skin-tone line, the 75 % and 100 % target boxes and the colour names; the zoom ("2×") right
+// of the plot. Drawn on a grid of the plot first, the brightest element wins a pixel.
+void vectorGraticule(RenderPlan& plan, DisplaySettings const& settings, int lineLuma)
+{
+    auto const& layout = plan.layout;
+    int const side = layout.panelW;
+    int const s = layout.textScale;
+    int const level = settings.graticuleLevel;
+    int const width = settings.graticuleWidth;
+    int const zoom = plan.zoom;
+    // A chroma code -> the centre of its cell in plot pixels (x right, y down), or none outside.
+    auto const position = [&](int code, bool vertical, double& at) {
+        int const q = (code - 512) * zoom + kVectorCodes / 2;
+        if (q < 0 || q >= kVectorCodes)
+        {
+            return false;
+        }
+        int const cell = q * (vertical ? plan.bins : plan.columns) / kVectorCodes;
+        int first = -1;
+        int last = -1;
+        int const n = vertical ? layout.plotH : side;
+        for (int i = 0; i < n; ++i)
+        {
+            int const c = vertical ? plan.binOfRow[static_cast<std::size_t>(i)] : static_cast<int>(plan.columnOf[static_cast<std::size_t>(i)]);
+            if (c == cell)
+            {
+                first = first < 0 ? i : first;
+                last = i;
+            }
+        }
+        at = (first + last + 1) / 2.0;
+        return first >= 0;
+    };
+    double cx = 0;
+    double cy = 0;
+    position(512, false, cx);
+    position(512, true, cy);
+    // Plot pixels per chroma code at this zoom; the hue ring's outer edge touches the plot.
+    double const perCode = zoom * static_cast<double>(side) / kVectorCodes;
+    double const outer = side / 2.0 - 0.5;
+    double const ringWidth = 2.0 * s * width;
+    double const inner = outer - ringWidth;
+    struct Cell
+    {
+        std::uint16_t alpha = 0;
+        std::uint16_t y = 0;
+        std::uint16_t cb = 512;
+        std::uint16_t cr = 512;
+    };
+    std::vector<Cell> grid(static_cast<std::size_t>(side) * static_cast<std::size_t>(side));
+    auto const alphaOf = [&](double strength) { return static_cast<std::uint16_t>(std::lround(1023.0 * strength * level / 100.0)); };
+    auto const put = [&](int x, int y, std::uint16_t alpha, int luma, int cb = 512, int cr = 512) {
+        if (x < 0 || y < 0 || x >= side || y >= side)
+        {
+            return;
+        }
+        auto& cell = grid[static_cast<std::size_t>(y) * static_cast<std::size_t>(side) + static_cast<std::size_t>(x)];
+        if (alpha > cell.alpha)
+        {
+            cell = {alpha, static_cast<std::uint16_t>(luma), static_cast<std::uint16_t>(cb), static_cast<std::uint16_t>(cr)};
+        }
+    };
+    // A line of the graticule width from (x0, y0) along the unit vector (dx, dy), `length` pixels.
+    auto const line = [&](double x0, double y0, double dx, double dy, double length, std::uint16_t alpha) {
+        for (double t = 0; t <= length; t += 0.5)
+        {
+            int const x = static_cast<int>(std::floor(x0 + t * dx - (width - 1) / 2.0));
+            int const y = static_cast<int>(std::floor(y0 + t * dy - (width - 1) / 2.0));
+            for (int j = 0; j < width; ++j)
+            {
+                for (int i = 0; i < width; ++i)
+                {
+                    put(x + i, y + j, alpha, lineLuma);
+                }
+            }
+        }
+    };
+    if (level > 0)
+    {
+        // The hue ring and the rings (every 44.8 codes: 10 % of the 448 codes of 350 mV).
+        double const ringStep = 44.8 * perCode;
+        auto const ringAlpha = alphaOf(0.5);
+        auto const hueAlpha = alphaOf(1.0);
+        for (int y = 0; y < side; ++y)
+        {
+            for (int x = 0; x < side; ++x)
+            {
+                double const dx = x + 0.5 - cx;
+                double const dy = cy - (y + 0.5);
+                double const d = std::sqrt(dx * dx + dy * dy);
+                if (d >= inner && d <= outer + 0.5)
+                {
+                    auto const hue = hueColour(dx / std::max(d, 1e-9), dy / std::max(d, 1e-9));
+                    put(x, y, hueAlpha, hue.y, hue.cb, hue.cr);
+                    continue;
+                }
+                double const n = std::round(d / ringStep);
+                if (n >= 1 && d < inner && std::fabs(d - n * ringStep) <= width / 2.0)
+                {
+                    put(x, y, ringAlpha, lineLuma);
+                }
+            }
+        }
+        // The Cb and Cr axes.
+        for (auto [dx, dy] : {std::pair{1.0, 0.0}, std::pair{-1.0, 0.0}, std::pair{0.0, 1.0}, std::pair{0.0, -1.0}})
+        {
+            line(cx, cy, dx, dy, inner, ringAlpha);
+        }
+        // The skin-tone line at 123° (from +Cb towards +Cr).
+        double const skin = 123.0 * 3.14159265358979323846 / 180.0;
+        line(cx, cy, std::cos(skin), -std::sin(skin), inner, alphaOf(0.9));
+        // The six colours: a vector to the hue ring, boxes at 75 % and 100 % (BT.709), the name.
+        struct Target
+        {
+            char const* name;
+            double r, g, b;
+        };
+        Target const targets[] = {{"R", 1, 0, 0}, {"Mg", 1, 0, 1}, {"B", 0, 0, 1}, {"Cy", 0, 1, 1}, {"G", 0, 1, 0}, {"Yl", 1, 1, 0}};
+        int const box = std::max(3, static_cast<int>(std::lround(side / 100.0)));
+        auto const boxAlpha = alphaOf(1.0);
+        for (auto const& t : targets)
+        {
+            auto const full = rgbToYcbcr709(t.r, t.g, t.b);
+            double const vx = full.cb - 512;
+            double const vy = -(full.cr - 512);
+            double const norm = std::sqrt(vx * vx + vy * vy);
+            line(cx, cy, vx / norm, vy / norm, inner, ringAlpha);
+            for (double amount : {0.75, 1.0})
+            {
+                auto const c = rgbToYcbcr709(amount * t.r, amount * t.g, amount * t.b);
+                double bx = 0;
+                double by = 0;
+                if (!position(c.cb, false, bx) || !position(c.cr, true, by))
+                {
+                    continue;
+                }
+                int const x0 = static_cast<int>(std::floor(bx)) - box;
+                int const y0 = static_cast<int>(std::floor(by)) - box;
+                for (int k = 0; k <= 2 * box; ++k)
+                {
+                    for (int w = 0; w < width; ++w)
+                    {
+                        put(x0 + k, y0 + w, boxAlpha, lineLuma);
+                        put(x0 + k, y0 + 2 * box - w, boxAlpha, lineLuma);
+                        put(x0 + w, y0 + k, boxAlpha, lineLuma);
+                        put(x0 + 2 * box - w, y0 + k, boxAlpha, lineLuma);
+                    }
+                }
+            }
+            // The name just inside the hue ring, on the colour's vector (its box clear of the
+            // ring): rasterised, then graticule pixels of its coverage.
+            int const tw = textWidth(t.name, s);
+            double const radius = inner - 3.0 * s - std::fabs(vx / norm) * tw / 2.0 - std::fabs(vy / norm) * 4.0 * s;
+            int const tx = static_cast<int>(std::lround(cx + radius * vx / norm - tw / 2.0));
+            int const ty = static_cast<int>(std::lround(cy + radius * vy / norm - 4.0 * s));
+            Frame422 text;
+            text.allocate(even(tw + 2) + 2, 10 * s + 2);
+            text.fill(0, kBackgroundC, kBackgroundC);
+            drawText(text, 1, 1, s, t.name, 1023);
+            for (int y = 0; y < text.height; ++y)
+            {
+                for (int x = 0; x < text.width; ++x)
+                {
+                    int const cover = text.y[static_cast<std::size_t>(y) * static_cast<std::size_t>(text.width) + static_cast<std::size_t>(x)];
+                    if (cover > 0)
+                    {
+                        put(tx + x - 1, ty + y - 1, static_cast<std::uint16_t>((cover * level + 50) / 100), lineLuma);
+                    }
+                }
+            }
+        }
+        for (int y = 0; y < side; ++y)
+        {
+            for (int x = 0; x < side; ++x)
+            {
+                auto const& cell = grid[static_cast<std::size_t>(y) * static_cast<std::size_t>(side) + static_cast<std::size_t>(x)];
+                if (cell.alpha > 0)
+                {
+                    plan.plotGraticule.push_back({static_cast<std::uint16_t>(layout.plotX + x), static_cast<std::uint16_t>(layout.plotY + y), cell.alpha, cell.y, cell.cb, cell.cr});
+                }
+            }
+        }
+    }
+    // The zoom, right of the plot's top corner, like the caption (§5.3).
+#ifdef SCOPES_WITH_BLEND2D
+    std::string const times = "×";
+#else
+    std::string const times = "x";
+#endif
+    drawText(plan.base, layout.plotX + layout.plotW + 3 * s, layout.plotY, s, std::to_string(zoom) + times, 700);
 }
 } // namespace
 
@@ -199,7 +408,12 @@ int panelCount(std::string const& mode)
     return mode == "ycbcr-parade" || mode == "rgb-parade" ? 3 : 1;
 }
 
-Layout makeLayout(int width, int height, int panels)
+Layout makeModeLayout(int width, int height, std::string const& mode)
+{
+    return makeLayout(width, height, panelCount(mode), mode == "vectorscope");
+}
+
+Layout makeLayout(int width, int height, int panels, bool square)
 {
     Layout layout;
     layout.width = width;
@@ -215,6 +429,17 @@ Layout makeLayout(int width, int height, int panels)
     layout.plotY = top;
     layout.plotW = ((width - layout.plotX - right) / 6) * 6;
     layout.plotH = height - top - bottom;
+    layout.captionX = layout.plotX;
+    if (square)
+    {
+        // §5.3: the largest square of whole v210 groups that fits, in the middle of the raster.
+        int const side = std::max(6, (std::min(layout.plotH, layout.plotW) / 6) * 6);
+        layout.square = true;
+        layout.plotX = 6 * ((width - side) / 12);
+        layout.plotY = top + (layout.plotH - side) / 2;
+        layout.plotW = side;
+        layout.plotH = side;
+    }
     layout.panelX[0] = layout.plotX;
     layout.panelW = layout.plotW;
     if (panels == 3)
@@ -234,12 +459,17 @@ Layout makeLayout(int width, int height, int panels)
 
 int histogramColumns(Layout const& layout, int inputWidth)
 {
+    if (layout.square)
+    {
+        // The vectorscope: one cell per 2×2 pixels, so a flat colour is a dot, not one pixel.
+        return std::min(layout.panelW / 2, 1024);
+    }
     return inputWidth <= 0 ? layout.panelW : std::min(layout.panelW, inputWidth);
 }
 
 int histogramBins(Layout const& layout)
 {
-    return std::min(layout.plotH, 1024);
+    return layout.square ? histogramColumns(layout, 0) : std::min(layout.plotH, 1024);
 }
 
 std::vector<int> traceRowSplit(RenderPlan const& plan, int parts)
@@ -340,7 +570,7 @@ RenderPlan makeRenderPlan(Layout const& layout, DisplaySettings const& settings,
     return makeRenderPlan(layout, settings, columns, counts);
 }
 
-RenderPlan makeRenderPlan(Layout const& layout, DisplaySettings const& settings, int columns, PlaneCounts const& counts, bool key)
+RenderPlan makeRenderPlan(Layout const& layout, DisplaySettings const& settings, int columns, PlaneCounts const& counts, bool key, int sumShift)
 {
     RenderPlan plan;
     plan.layout = layout;
@@ -386,6 +616,36 @@ RenderPlan makeRenderPlan(Layout const& layout, DisplaySettings const& settings,
         plan.binOfRow[static_cast<std::size_t>(r)] =
             static_cast<std::uint16_t>((static_cast<std::int64_t>(layout.plotH - 1 - r) * plan.bins) / layout.plotH);
     }
+    plan.vector = settings.mode == "vectorscope";
+    plan.zoom = plan.vector ? std::max(1, settings.vectorZoom) : 1;
+    plan.picture = settings.traceColor == "picture" && (plan.vector || settings.mode == "luma");
+    if (plan.picture)
+    {
+        plan.sumShift = sumShift;
+        if (plan.vector)
+        {
+            // The chroma at the centre of a cell: its code range at the zoom (§5.3), − 512.
+            auto const centre = [&](int cell, int cells) {
+                double const q = (cell + 0.5) * kVectorCodes / cells;
+                return static_cast<std::int16_t>(std::lround((q - kVectorCodes / 2.0) / plan.zoom));
+            };
+            for (int px = 0; px < layout.panelW; ++px)
+            {
+                plan.pictureCb.push_back(centre(static_cast<int>(plan.columnOf[static_cast<std::size_t>(px)]), columns));
+            }
+            for (int r = 0; r < layout.plotH; ++r)
+            {
+                plan.pictureCr.push_back(centre(plan.binOfRow[static_cast<std::size_t>(r)], plan.bins));
+            }
+        }
+        else
+        {
+            for (int r = 0; r < layout.plotH; ++r)
+            {
+                plan.pictureY.push_back(static_cast<std::uint16_t>(binCentreCode(plan.binOfRow[static_cast<std::size_t>(r)], plan.bins)));
+            }
+        }
+    }
     setIntensity(plan, settings, counts);
     for (auto const& trace : look.colours)
     {
@@ -420,7 +680,11 @@ RenderPlan makeRenderPlan(Layout const& layout, DisplaySettings const& settings,
     }
     int const s = layout.textScale;
     auto const labelLuma = static_cast<std::uint16_t>(kBackgroundY + scale1023(lineLuma - kBackgroundY, level * 1023 / 100));
-    if (level > 0)
+    if (plan.vector)
+    {
+        vectorGraticule(plan, settings, lineLuma);
+    }
+    else if (level > 0)
     {
         for (int k = 0; k < layout.panels; ++k)
         {
@@ -470,7 +734,10 @@ RenderPlan makeRenderPlan(Layout const& layout, DisplaySettings const& settings,
             {
                 if (!merged.empty() && merged.back().row == p.row && merged.back().x == p.x)
                 {
-                    merged.back().alpha = std::max(merged.back().alpha, p.alpha);
+                    if (p.alpha > merged.back().alpha)
+                    {
+                        merged.back() = p;
+                    }
                     continue;
                 }
                 merged.push_back(p);
@@ -480,7 +747,7 @@ RenderPlan makeRenderPlan(Layout const& layout, DisplaySettings const& settings,
         // Units in the top-left corner of the margin.
         std::string const units = settings.graticuleUnits == "mv" ? "mV" : settings.graticuleUnits == "percent" ? "%" : "code";
         int const bandBottom = std::max(0, layout.plotY - 4 * s);
-        drawText(plan.base, std::max(0, layout.plotX - 3 * s - textWidth(units, s)), std::max(0, (bandBottom - 8 * s) / 2), s, units, labelLuma, plan.labelAlpha);
+        drawText(plan.base, std::max(0, layout.captionX - 3 * s - textWidth(units, s)), std::max(0, (bandBottom - 8 * s) / 2), s, units, labelLuma, plan.labelAlpha);
     }
     // Panel names under the parade panels, when the bottom margin has room.
     int const bottom = layout.height - layout.plotY - layout.plotH;
@@ -524,8 +791,8 @@ void blendGraticuleRow(RenderPlan const& plan, int r, std::uint16_t* ys, std::ui
         }
         if ((g.x & 1) == 0)
         {
-            cbs[g.x / 2] = blend(cbs[g.x / 2], kBackgroundC, g.alpha);
-            crs[g.x / 2] = blend(crs[g.x / 2], kBackgroundC, g.alpha);
+            cbs[g.x / 2] = blend(cbs[g.x / 2], g.cb, g.alpha);
+            crs[g.x / 2] = blend(crs[g.x / 2], g.cr, g.alpha);
         }
     }
 }
@@ -582,21 +849,83 @@ inline std::uint32_t word3(std::uint32_t a, std::uint32_t b, std::uint32_t c)
 
 namespace
 {
-// The cells of one panel row -> its trace groups (graticule blended over). Groups without
+// Half of a signed sum rounded up (the chroma of a pixel pair); no branch.
+int half(int v)
+{
+    return (v + 1) >> 1;
+}
+
+// The picture colour of the six cells of a group (§4.4): each cell's luma lifted to
+// kPictureLumaFloor (adding grey keeps the hue), then brightened to the brightest colour of that
+// hue and saturation (the largest R′G′B′ component at 100 %), then scaled by its intensity
+// `level` like the other trace colours; an empty cell (level 0) comes out as background. Out: Y′
+// and the chroma offsets from 512. `counts` and `sums` are the cells', `px` the first one's pixel
+// column in the panel, `r` the plot row. Single-precision IEEE maths in baseline code (no FMA, no
+// fast-math), so every engine path draws the same bytes; plain loops over the six cells without
+// branches or tables, which the compiler vectorises.
+template <bool VECTOR, class C>
+void pictureColours(RenderPlan const& plan, C const* counts, std::uint64_t const* sums, int px, int r, std::uint16_t const* level, std::uint16_t* y, int* cb, int* cr)
+{
+    // The mean code of a sum: sums of code >> sumShift, so × 2^sumShift and half a step back.
+    float const step = static_cast<float>(1 << plan.sumShift);
+    float const bias = (step - 1.0f) / 2.0f + 0.5f;
+    float lo[6];
+    float hi[6];
+    float scale[6];
+    for (int i = 0; i < 6; ++i)
+    {
+        // Sums below 2^32 and counts below 2^31: exact through int64 and int32.
+        lo[i] = static_cast<float>(static_cast<std::int64_t>(sums[i] & 0xffffffffu));
+        hi[i] = static_cast<float>(static_cast<std::int64_t>(sums[i] >> 32));
+        scale[i] = step / static_cast<float>(std::max(1, static_cast<int>(counts[i])));
+    }
+    // In codes: Y′ − 64 of 876, chroma of 896 (the BT.709 matrix scaled by 876 / 896).
+    float yy[6];
+    float pb[6];
+    float pr[6];
+    for (int i = 0; i < 6; ++i)
+    {
+        if constexpr (VECTOR)
+        {
+            // Truncation is the floor here: every value is positive.
+            float const luma = static_cast<float>(static_cast<int>(lo[i] * scale[i] + bias));
+            yy[i] = std::min(std::max(luma, static_cast<float>(kPictureLumaFloor)), 940.0f) - 64.0f;
+            pb[i] = plan.pictureCb[static_cast<std::size_t>(px + i)];
+            pr[i] = plan.pictureCr[static_cast<std::size_t>(r)];
+        }
+        else
+        {
+            yy[i] = static_cast<float>(std::clamp<int>(plan.pictureY[static_cast<std::size_t>(r)], kPictureLumaFloor, 940) - 64);
+            pb[i] = static_cast<float>(static_cast<int>(lo[i] * scale[i] + bias) - 512);
+            pr[i] = static_cast<float>(static_cast<int>(hi[i] * scale[i] + bias) - 512);
+        }
+    }
+    for (int i = 0; i < 6; ++i)
+    {
+        // The largest of R′, G′, B′ (BT.709); at least yy, as Y′ is their weighted mean.
+        float const top = yy[i] + std::max(std::max(1.5397f * pr[i], -0.183143f * pb[i] - 0.457675f * pr[i]), 1.81418f * pb[i]);
+        float const gain = static_cast<float>(level[i]) * (876.0f / 1023.0f) / top;
+        // Rounded to the nearest code (halves up): every value is above −1024.
+        y[i] = static_cast<std::uint16_t>(kBackgroundY + static_cast<int>(yy[i] * gain + 1024.5f) - 1024);
+        cb[i] = static_cast<int>(pb[i] * gain + 1024.5f) - 1024;
+        cr[i] = static_cast<int>(pr[i] * gain + 1024.5f) - 1024;
+    }
+}
+
+// The cells of one panel row -> its trace groups (graticule behind the trace). Groups without
 // counts keep the still picture's bytes. `lines` holds the plane rows of the panel: one, or
-// three for the overlay. Returns true when the row got a trace group.
-template <bool OVERLAY, class C>
+// three for the overlay. PICTURE: the picture colour, `sumLine` the sum words of the row's bin
+// (one per histogram column), `r` the plot row; with `clearSums` the words of each group with a trace are cleared
+// here (the row is the bin's only one), so the caller need not clear the whole row. Returns true when the row got a trace group.
+template <bool OVERLAY, class C, bool PICTURE = false>
 bool panelRow(RenderPlan const& plan, PanelPlan const& panel, C const* const* lines, std::uint32_t& gi, std::uint32_t gend, std::size_t rowOffset,
-    std::vector<TraceGroup>& trace)
+    std::vector<TraceGroup>& trace, std::uint64_t* sumLine = nullptr, int r = 0, bool clearSums = false)
 {
     auto const& layout = plan.layout;
     int const groups = layout.panelW / 6;
     auto const traceBefore = trace.size();
     bool lastEmpty = true;
-    auto const* line = lines[0];
     auto const& colour = plan.colours[static_cast<std::size_t>(panel.colour)];
-    auto const* lut = plan.planeIntensity[static_cast<std::size_t>(panel.plane)].data();
-    auto const maxCount = plan.planeMax[static_cast<std::size_t>(panel.plane)];
     // The cells of eight groups (48) of every plane of the panel are zero.
     auto const eightEmpty = [&](int g) {
         std::uint64_t any = 0;
@@ -665,19 +994,24 @@ bool panelRow(RenderPlan const& plan, PanelPlan const& panel, C const* const* li
         std::uint16_t y[6];
         std::uint16_t cb[3];
         std::uint16_t cr[3];
-        // The key (§7): max(background alpha, trace intensity), the graticule over it.
+        // Trace intensity per pixel (the brightest plane of the overlay): the trace's opacity
+        // over the graticule behind it.
+        std::uint16_t level[6] = {};
+        for (int i = 0; i < 6; ++i)
+        {
+            for (int p = 0; p < (OVERLAY ? 3 : 1); ++p)
+            {
+                auto const plane = static_cast<std::size_t>(OVERLAY ? p : panel.plane);
+                level[i] = std::max(level[i], plan.planeIntensity[plane][std::min<std::uint32_t>(lines[p][6 * g + i], plan.planeMax[plane])]);
+            }
+        }
+        // The key (§7): max(background alpha, trace intensity), the graticule's alpha under it.
         std::uint16_t a[6] = {};
         if (plan.key)
         {
             for (int i = 0; i < 6; ++i)
             {
-                std::uint16_t level = 0;
-                for (int p = 0; p < (OVERLAY ? 3 : 1); ++p)
-                {
-                    auto const plane = static_cast<std::size_t>(OVERLAY ? p : panel.plane);
-                    level = std::max(level, plan.planeIntensity[plane][std::min<std::uint32_t>(lines[p][6 * g + i], plan.planeMax[plane])]);
-                }
-                a[i] = std::max(plan.bgAlpha, level);
+                a[i] = std::max(plan.bgAlpha, level[i]);
             }
         }
         if constexpr (OVERLAY)
@@ -705,16 +1039,47 @@ bool panelRow(RenderPlan const& plan, PanelPlan const& panel, C const* const* li
                 cr[k] = static_cast<std::uint16_t>(std::clamp(kBackgroundC + ((crs[2 * k] + crs[2 * k + 1] + 64) >> 7), 4, 1019));
             }
         }
+        else if constexpr (PICTURE)
+        {
+            int cbs[6];
+            int crs[6];
+            // No branch on empty cells: their intensity is 0, so they come out as background.
+            // The group's sum words: its cells' (a column per pixel), else through columnOf.
+            std::uint64_t sampled[6];
+            std::uint64_t const* sums = sumLine + 6 * g;
+            if (!plan.identityColumns)
+            {
+                for (int i = 0; i < 6; ++i)
+                {
+                    sampled[i] = sumLine[plan.columnOf[static_cast<std::size_t>(6 * g + i)]];
+                }
+                sums = sampled;
+            }
+            if (plan.vector)
+            {
+                pictureColours<true>(plan, lines[0] + 6 * g, sums, 6 * g, r, level, y, cbs, crs);
+            }
+            else
+            {
+                pictureColours<false>(plan, lines[0] + 6 * g, sums, 6 * g, r, level, y, cbs, crs);
+            }
+            if (clearSums)
+            {
+                std::memset(sumLine + 6 * g, 0, 6 * sizeof(std::uint64_t));
+            }
+            for (int k = 0; k < 3; ++k)
+            {
+                cb[k] = static_cast<std::uint16_t>(std::clamp(kBackgroundC + half(cbs[2 * k] + cbs[2 * k + 1]), 4, 1019));
+                cr[k] = static_cast<std::uint16_t>(std::clamp(kBackgroundC + half(crs[2 * k] + crs[2 * k + 1]), 4, 1019));
+            }
+        }
         else
         {
-            auto const* c = line + 6 * g;
             for (int p = 0; p < 6; p += 2)
             {
-                std::uint32_t const c0 = c[p];
-                std::uint32_t const c1 = c[p + 1];
                 // intensity[0] is 0: no branch on empty cells.
-                int const i0 = lut[std::min(c0, maxCount)];
-                int const i1 = lut[std::min(c1, maxCount)];
+                int const i0 = level[p];
+                int const i1 = level[p + 1];
                 y[p] = colour.y[static_cast<std::size_t>(i0)];
                 y[p + 1] = colour.y[static_cast<std::size_t>(i1)];
                 auto const mean = static_cast<std::size_t>((i0 + i1 + 1) >> 1);
@@ -722,16 +1087,23 @@ bool panelRow(RenderPlan const& plan, PanelPlan const& panel, C const* const* li
                 cr[p / 2] = colour.cr[mean];
             }
         }
+        // The graticule behind the trace: the trace covers it by its intensity, so a trace on a
+        // line (a black picture on the 0 % line) stays visible. The graticule is neutral like
+        // the background (only the luma changes), except the vectorscope's hue ring, whose
+        // chroma the pixel pair's trace covers by its mean intensity.
         for (; gi < gend && plan.plotGraticule[gi].x < x0 + 6; ++gi)
         {
             auto const& gp = plan.plotGraticule[gi];
             int const at = gp.x - x0;
-            y[at] = blend(y[at], gp.luma, gp.alpha);
+            int const under = blend(kBackgroundY, gp.luma, gp.alpha) - kBackgroundY;
+            y[at] = static_cast<std::uint16_t>(std::clamp(y[at] + scale1023(under, 1023 - level[at]), 4, 1019));
             a[at] = std::max(a[at], gp.alpha);
-            if ((at & 1) == 0)
+            if ((at & 1) == 0 && (gp.cb != kBackgroundC || gp.cr != kBackgroundC))
             {
-                cb[at / 2] = blend(cb[at / 2], kBackgroundC, gp.alpha);
-                cr[at / 2] = blend(cr[at / 2], kBackgroundC, gp.alpha);
+                int const cover = 1023 - ((level[at] + level[at + 1] + 1) >> 1);
+                int const k = at / 2;
+                cb[k] = static_cast<std::uint16_t>(std::clamp(cb[k] + scale1023(blend(kBackgroundC, gp.cb, gp.alpha) - kBackgroundC, cover), 4, 1019));
+                cr[k] = static_cast<std::uint16_t>(std::clamp(cr[k] + scale1023(blend(kBackgroundC, gp.cr, gp.alpha) - kBackgroundC, cover), 4, 1019));
             }
         }
         TraceGroup group;
@@ -783,6 +1155,8 @@ void collectTraceCells(RenderPlan const& plan, Histogram& hist, std::vector<Trac
             sampled[static_cast<std::size_t>(p)].resize(static_cast<std::size_t>(layout.panelW) + 8);
         }
     }
+    // The picture colour's sums: one word per cell, next to the counts of plane 0.
+    bool const picture = plan.picture;
     // Every plot row shows its own bin and column (the usual case up to 1080 lines): a row whose
     // cells are all zero need not be cleared.
     bool const inlineClear = plan.identityColumns && plan.bins == layout.plotH;
@@ -806,6 +1180,7 @@ void collectTraceCells(RenderPlan const& plan, Histogram& hist, std::vector<Trac
                 lines[i] = sampled[i].data();
             }
         }
+        std::uint64_t* sumRow = picture ? hist.sums.data() + static_cast<std::size_t>(bin) * static_cast<std::size_t>(plan.columns) : nullptr;
         if (totals != nullptr && (r == 0 || plan.binOfRow[static_cast<std::size_t>(r) - 1] != bin))
         {
             // The first plot row of this bin: its samples over all columns (§4.7).
@@ -830,6 +1205,10 @@ void collectTraceCells(RenderPlan const& plan, Histogram& hist, std::vector<Trac
                     had[0] = had[1] = had[2] = true;
                 }
             }
+            else if (picture)
+            {
+                had[0] = panelRow<false, C, true>(plan, panel, lines, gi, gend, rowBytes * row, trace, sumRow, r, inlineClear) || had[0];
+            }
             else if (panelRow<false, C>(plan, panel, lines + panel.plane, gi, gend, rowBytes * row, trace))
             {
                 had[panel.plane] = true;
@@ -844,8 +1223,22 @@ void collectTraceCells(RenderPlan const& plan, Histogram& hist, std::vector<Trac
                 if (!inlineClear || had[p])
                 {
                     std::memset(rows[p], 0, sizeof(C) * static_cast<std::size_t>(plan.columns));
+                    if (p == 0 && sumRow != nullptr && !inlineClear)
+                    {
+                        std::memset(sumRow, 0, sizeof(std::uint64_t) * static_cast<std::size_t>(plan.columns));
+                    }
                 }
             }
+        }
+    }
+    // The vectorscope's trash cell (samples outside the zoomed plot) after its last row.
+    if (hist.extra > 0 && rowEnd == layout.plotH)
+    {
+        auto const trash = static_cast<std::size_t>(plan.planes) * planeCells;
+        hist.data<C>()[trash] = 0;
+        if (picture)
+        {
+            hist.sums[trash] = 0;
         }
     }
 }
@@ -858,7 +1251,8 @@ void collectTrace(RenderPlan const& plan, Histogram& hist, std::vector<TraceGrou
     rowBegin = std::clamp(rowBegin, 0, rowEnd);
     auto const planeCells = static_cast<std::size_t>(plan.columns) * static_cast<std::size_t>(plan.bins);
     bool const hasCounts = hist.cells() > 0 && hist.columns == plan.columns && hist.bins == plan.bins && hist.planes == plan.planes &&
-                           hist.cells() == planeCells * static_cast<std::size_t>(plan.planes);
+                           hist.cells() == planeCells * static_cast<std::size_t>(plan.planes) &&
+                           hist.sums.empty() != plan.picture;
     if (!hasCounts)
     {
         return;
@@ -893,23 +1287,24 @@ void renderTexts(RenderPlan const& plan, Frame422& frame, std::string const& cap
     int const cw = frame.chromaWidth();
     // The caption band: the top margin right of the label column.
     int const bandBottom = std::max(0, layout.plotY - 4 * s);
+    int const x0 = layout.captionX;
     for (int row = 0; row < bandBottom; ++row)
     {
         if (!frame.a.empty())
         {
-            std::fill(frame.a.begin() + static_cast<std::ptrdiff_t>(row) * width + layout.plotX, frame.a.begin() + static_cast<std::ptrdiff_t>(row + 1) * width,
+            std::fill(frame.a.begin() + static_cast<std::ptrdiff_t>(row) * width + x0, frame.a.begin() + static_cast<std::ptrdiff_t>(row + 1) * width,
                 plan.bgAlpha);
         }
-        std::fill(frame.y.begin() + static_cast<std::ptrdiff_t>(row) * width + layout.plotX, frame.y.begin() + static_cast<std::ptrdiff_t>(row + 1) * width,
+        std::fill(frame.y.begin() + static_cast<std::ptrdiff_t>(row) * width + x0, frame.y.begin() + static_cast<std::ptrdiff_t>(row + 1) * width,
             kBackgroundY);
-        std::fill(frame.cb.begin() + static_cast<std::ptrdiff_t>(row) * cw + layout.plotX / 2, frame.cb.begin() + static_cast<std::ptrdiff_t>(row + 1) * cw,
+        std::fill(frame.cb.begin() + static_cast<std::ptrdiff_t>(row) * cw + x0 / 2, frame.cb.begin() + static_cast<std::ptrdiff_t>(row + 1) * cw,
             kBackgroundC);
-        std::fill(frame.cr.begin() + static_cast<std::ptrdiff_t>(row) * cw + layout.plotX / 2, frame.cr.begin() + static_cast<std::ptrdiff_t>(row + 1) * cw,
+        std::fill(frame.cr.begin() + static_cast<std::ptrdiff_t>(row) * cw + x0 / 2, frame.cr.begin() + static_cast<std::ptrdiff_t>(row + 1) * cw,
             kBackgroundC);
     }
     if (!caption.empty())
     {
-        drawText(frame, layout.plotX, std::max(0, (bandBottom - 8 * s) / 2), s, caption, 700);
+        drawText(frame, x0, std::max(0, (bandBottom - 8 * s) / 2), s, caption, 700);
     }
     if (!state.empty())
     {

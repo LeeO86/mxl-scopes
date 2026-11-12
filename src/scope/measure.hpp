@@ -22,7 +22,7 @@ struct BinTotals
 
 // The measurements of one update (§4.7). A value the mode has no plane for is empty (null in the
 // API): luma in `luma` and the YCbCr modes, chroma in the YCbCr modes, the gamut in the RGB
-// modes. Luma and chroma come from the bins: a bin's value is its centre code, so they are exact
+// modes, none in the vectorscope. Luma and chroma come from the bins: a bin's value is its centre code, so they are exact
 // to `codesPerBin` codes (1024 / bins: about 1 at 1080 lines, 6 at 180).
 struct Measurements
 {

@@ -159,6 +159,7 @@ export const MODES = [
   { id: "rgb-parade", title: "RGB parade" },
   { id: "rgb-overlay", title: "RGB overlay" },
   { id: "ycbcr-overlay", title: "YCbCr overlay" },
+  { id: "vectorscope", title: "Vectorscope" },
 ];
 
 export const shortId = (id) => (id ? String(id).slice(0, 8) : "–");

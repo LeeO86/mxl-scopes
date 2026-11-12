@@ -118,6 +118,7 @@ if(SCOPES_BUILD_TESTS)
         tests/unit/test_render.cpp
         tests/unit/test_scheduler.cpp
         tests/unit/test_threads.cpp
+        tests/unit/test_vector.cpp
         tests/unit/test_measure.cpp
         tests/unit/test_key.cpp
         tests/unit/test_preview.cpp

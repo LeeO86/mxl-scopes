@@ -45,12 +45,21 @@ struct Lanes<6>
 
 constexpr int kChunkPairs = 32;
 
-template <class C, int PS, bool TWO>
+// PIC: the picture colour (§4.4); each sample also adds its co-sited Cb and Cr (>> sumShift) to
+// its cell's sum word, the lanes moved next to the luma lanes as in Avx2V (permCbA ... shiftCrB).
+template <class C, int PS, bool TWO, bool PIC = false>
 void analyseRows(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range)
 {
     auto* counts = hist.data<C>();
     auto* scratch = hist.scratchData<C>();
+    auto* sums = hist.sums.data();
     alignas(32) std::uint32_t buffer[16 * kChunkPairs];
+    alignas(32) std::uint32_t cbBuffer[PIC ? 16 * kChunkPairs : 1];
+    alignas(32) std::uint32_t crBuffer[PIC ? 16 * kChunkPairs : 1];
+    __m128i const sumShift = _mm_cvtsi32_si128(plan.sumShift);
+    auto const chroma = [&](__m256i words, __m256i perm, __m256i shift) {
+        return _mm256_srl_epi32(_mm256_and_si256(_mm256_srlv_epi32(_mm256_permutevar8x32_epi32(words, perm), shift), _mm256_set1_epi32(0x3ff)), sumShift);
+    };
     __m256i const mask = _mm256_set1_epi32(0x3ff);
     __m256i const shiftA = _mm256_setr_epi32(10, 0, 10, 0, 10, 0, 10, 0);
     __m256i const bins = _mm256_set1_epi32(plan.bins);
@@ -84,13 +93,30 @@ void analyseRows(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& h
                     __m256i const idxB = _mm256_add_epi32(binB, _mm256_loadu_si256(reinterpret_cast<__m256i const*>(offB + 4 * static_cast<std::size_t>(g))));
                     _mm256_store_si256(reinterpret_cast<__m256i*>(buffer + 16 * p), idxA);
                     _mm256_store_si256(reinterpret_cast<__m256i*>(buffer + 16 * p + 8), idxB);
+                    if constexpr (PIC)
+                    {
+                        auto* cb = cbBuffer + 16 * p;
+                        auto* cr = crBuffer + 16 * p;
+                        _mm256_store_si256(reinterpret_cast<__m256i*>(cb), chroma(words, _mm256_setr_epi32(0, 0, 1, 2, 4, 4, 5, 6), _mm256_setr_epi32(0, 0, 10, 20, 0, 0, 10, 20)));
+                        _mm256_store_si256(reinterpret_cast<__m256i*>(cr), chroma(words, _mm256_setr_epi32(0, 0, 2, 3, 4, 4, 6, 7), _mm256_setr_epi32(20, 20, 0, 10, 20, 20, 0, 10)));
+                        _mm256_store_si256(reinterpret_cast<__m256i*>(cb + 8), chroma(words, _mm256_setr_epi32(0, 1, 0, 2, 4, 5, 4, 6), _mm256_setr_epi32(0, 10, 0, 20, 0, 10, 0, 20)));
+                        _mm256_store_si256(reinterpret_cast<__m256i*>(cr + 8), chroma(words, _mm256_setr_epi32(0, 2, 0, 3, 4, 6, 4, 7), _mm256_setr_epi32(0, 0, 0, 10, 0, 0, 0, 10)));
+                    }
                 }
                 for (int p = 0; p < n; ++p)
                 {
                     auto const* lane = buffer + 16 * p;
+                    // The sum word of lane k's sample (both 32-bit sums in one add, as the scalar step).
+                    auto const sum = [&](int k) {
+                        if constexpr (PIC)
+                        {
+                            sums[lane[k]] += (static_cast<std::uint64_t>(crBuffer[16 * p + k]) << 32) | cbBuffer[16 * p + k];
+                        }
+                    };
                     for (int k : Lanes<PS>::even)
                     {
                         ++counts[lane[k]];
+                        sum(k);
                     }
                     if constexpr (Lanes<PS>::odd[0] >= 0)
                     {
@@ -104,13 +130,21 @@ void analyseRows(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& h
                             {
                                 ++counts[lane[k]];
                             }
+                            sum(k);
                         }
                     }
                 }
             }
             for (int g = tail; g < strip.g1; ++g)
             {
-                cpu::analyseGroup(plan, row, g, counts, scratch);
+                if constexpr (PIC)
+                {
+                    cpu::analyseGroupLumaPicture(plan, row, g, counts, scratch, sums);
+                }
+                else
+                {
+                    cpu::analyseGroup(plan, row, g, counts, scratch);
+                }
             }
         }
         if constexpr (TWO)
@@ -267,27 +301,47 @@ struct Avx2V
     }
 };
 
-template <int PS>
+template <int PS, bool PIC>
 void analyseStep(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range)
 {
     if (plan.wide)
     {
         if (plan.twoSubs)
         {
-            analyseRows<std::uint32_t, PS, true>(plan, v210, hist, range);
+            analyseRows<std::uint32_t, PS, true, PIC>(plan, v210, hist, range);
         }
         else
         {
-            analyseRows<std::uint32_t, PS, false>(plan, v210, hist, range);
+            analyseRows<std::uint32_t, PS, false, PIC>(plan, v210, hist, range);
         }
     }
     else if (plan.twoSubs)
     {
-        analyseRows<std::uint16_t, PS, true>(plan, v210, hist, range);
+        analyseRows<std::uint16_t, PS, true, PIC>(plan, v210, hist, range);
     }
     else
     {
-        analyseRows<std::uint16_t, PS, false>(plan, v210, hist, range);
+        analyseRows<std::uint16_t, PS, false, PIC>(plan, v210, hist, range);
+    }
+}
+
+template <bool PIC>
+void analyseLuma(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range)
+{
+    switch (plan.pixelStep)
+    {
+    case 1:
+        analyseStep<1, PIC>(plan, v210, hist, range);
+        break;
+    case 2:
+        analyseStep<2, PIC>(plan, v210, hist, range);
+        break;
+    case 3:
+        analyseStep<3, PIC>(plan, v210, hist, range);
+        break;
+    default:
+        analyseStep<6, PIC>(plan, v210, hist, range);
+        break;
     }
 }
 } // namespace
@@ -299,24 +353,23 @@ bool avx2Compiled()
 
 std::uint64_t analyseAvx2(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range)
 {
+    // The vectorscope takes the scalar step on every level: three samples a group, the increments
+    // dominate (IMPLEMENTATION_PLAN.md deviation 27).
+    if (plan.kind == ScopeKind::Vector)
+    {
+        return analyseScalar(plan, v210, hist, range);
+    }
     if (std::uint64_t outOfGamut = 0; cpu::analyseMulti<Avx2V>(plan, v210, hist, range, outOfGamut))
     {
         return outOfGamut;
     }
-    switch (plan.pixelStep)
+    if (plan.sums > 0)
     {
-    case 1:
-        analyseStep<1>(plan, v210, hist, range);
-        break;
-    case 2:
-        analyseStep<2>(plan, v210, hist, range);
-        break;
-    case 3:
-        analyseStep<3>(plan, v210, hist, range);
-        break;
-    default:
-        analyseStep<6>(plan, v210, hist, range);
-        break;
+        analyseLuma<true>(plan, v210, hist, range);
+    }
+    else
+    {
+        analyseLuma<false>(plan, v210, hist, range);
     }
     return 0;
 }

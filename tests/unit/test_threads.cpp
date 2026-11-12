@@ -41,7 +41,7 @@ bool quick()
     return value != nullptr && std::string(value) == "1";
 }
 
-constexpr char const* kModes[] = {"luma", "ycbcr-parade", "rgb-parade", "rgb-overlay", "ycbcr-overlay"};
+constexpr char const* kModes[] = {"luma", "ycbcr-parade", "rgb-parade", "rgb-overlay", "ycbcr-overlay", "vectorscope"};
 } // namespace
 
 TEST_CASE("worker pool: every part runs once per step, the caller runs part 0")
@@ -115,8 +115,9 @@ TEST_CASE("strip workers: the ranges share no histogram column")
                         CHECK(strips[i - 1].col1 < strips[i].col0);
                     }
                 }
-                // Real work for more than one thread at 1080p.
-                if (w == 1920 && threads == 2)
+                // Real work for more than one thread at 1080p (the vectorscope's cells do not follow
+                // x: its one strip stays with the first worker).
+                if (w == 1920 && threads == 2 && std::string(mode) != "vectorscope")
                 {
                     CHECK(split[1] > 0);
                     CHECK(split[1] < static_cast<int>(strips.size()));
@@ -249,7 +250,10 @@ TEST_CASE("strip workers: stress with changing settings, rasters and accumulated
     {
         CAPTURE(it);
         DisplaySettings settings;
-        settings.mode = kModes[pick(5)];
+        settings.mode = kModes[pick(6)];
+        // The picture colour (luma, vectorscope) and the vectorscope's zoom too.
+        settings.traceColor = pick(2) != 0 ? "picture" : "green";
+        settings.vectorZoom = std::array{1, 2, 5}[static_cast<std::size_t>(pick(3))];
         settings.pixelStep = std::array{1, 2, 3, 6}[static_cast<std::size_t>(pick(4))];
         settings.lineStep = 1 + pick(3);
         settings.intensity = 50 + pick(300);

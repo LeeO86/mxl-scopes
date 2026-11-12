@@ -28,7 +28,7 @@ Design principles:
 | Stage | Release | Content |
 | --- | --- | --- |
 | 1 | 1.0 (this spec, normative) | Luma waveform. YCbCr parade, RGB parade, RGB overlay. Graticule in mV, % and 10-bit code. BT.709 limited range (full range as an option). Update rate and reduced sampling. v210 or v210a output. WebRTC preview and the `scope` widget. Out-of-range measurements as metrics. CPU (AVX2, scalar) |
-| 2 | 1.1 (informative) | Vectorscope (Cb/Cr 2D histogram, 75 % and 100 % targets). The luma–chroma display (§5.5). Multi-pane layouts (for example waveform + vectorscope side by side). Optional trace persistence |
+| 2 | 1.1 (informative) | Vectorscope (Cb/Cr 2D histogram, 75 % and 100 % targets; built in 1.3, §5.3). The luma–chroma display (§5.5). Multi-pane layouts (for example waveform + vectorscope side by side). Optional trace persistence |
 | 3 | 1.2 (informative) | HDR: PQ and HLG graticules (cd/m² and %), BT.2020 matrix, colorimetry from `flow_def.json` |
 | 4 | 2.0 (informative) | CUDA backend (§3.2). Single-line select. False colour. More inputs per instance only if the one-input rule proves too costly (§6) |
 
@@ -182,14 +182,21 @@ The plot area has `C` columns and `B` bins (rows). Defaults: the plot's width an
 
 - Each cell's count `c` maps to a trace intensity `I` (0–1023) through a lookup table `I = LUT[min(c, c_max)]`.
 - The table is built once per settings change in double precision and rounded to integers. Every backend uses the same table, so the mapping is exact.
-- Default curve: `I = 1023 × (1 − exp(−g × c / c_ref))`, where `c_ref` = samples taken per column (the count of a cell that holds a whole flat column) and `g` = `SCOPES_INTENSITY` / 100 × 20. Brightness grows with the hits per cell, as on broadcast waveform monitors: a cell with 1/20 of its column's samples is at 63 %, one with a few hits is dim (about 1–2 % at 1080 lines, so `SCOPES_TRACE_MIN` keeps it visible), a flat field saturates. `SCOPES_INTENSITY` is 1–400 %, default 100. (Changed 2026-10-15 by the maintainer: the first draft used `c_ref` / `B` and gain 4, which lit almost every cell at full brightness.)
+- Default curve: `I = 1023 × (1 − exp(−g × c / c_ref))`, where `c_ref` = samples taken per column (the count of a cell that holds a whole flat column) and `g` = `SCOPES_INTENSITY` / 100 × 20. Brightness grows with the hits per cell, as on broadcast waveform monitors: a cell with 1/20 of its column's samples is at 63 %, one with a few hits is dim (about 1–2 % at 1080 lines, so `SCOPES_TRACE_MIN` keeps it visible), a flat field saturates. `SCOPES_INTENSITY` is 1–1000 %, default 100. (Changed 2026-10-15 by the maintainer: the first draft used `c_ref` / `B` and gain 4, which lit almost every cell at full brightness.)
 - `c = 0` always maps to the background. Any `c ≥ 1` maps to at least `SCOPES_TRACE_MIN` (default 96 of 1023), so a single sample stays visible.
-- Trace colour: `I` scales a colour in Y′CbCr. Luma waveform: `SCOPES_TRACE_COLOR` (`green` default, `white`, `amber`). Parades and overlay: each component in its own colour (Y white, Cb blue, Cr red; R red, G green, B blue). In the RGB overlay, colours of the three components in one cell add in R′G′B′ and are clamped, so a neutral grey trace is white.
+- Trace colour: `I` scales a colour in Y′CbCr. Luma waveform and vectorscope: `SCOPES_TRACE_COLOR` (`green` default, `white`, `amber`, `picture`). Parades and overlay: each component in its own colour (Y white, Cb blue, Cr red; R red, G green, B blue). In the RGB overlay, colours of the three components in one cell add in R′G′B′ and are clamped, so a neutral grey trace is white.
+- **Picture colour** (`picture`, from 1.3): each cell shows the colour of the samples in it. The analyse step keeps, next to each cell's count, 32-bit sums of its samples: in the luma waveform the Cb and Cr of each sample's co-sited pair (§4.8), in the vectorscope the co-sited Y′ (the cell's position is its chroma). Each code is shifted right before it is added when the largest sum of an update could pass 32 bits (UHD with many grains); the mean adds the half step back. The cell's colour is (Y′, Cb, Cr) with Y′ the cell's luma (the waveform row's bin centre code, or the vectorscope cell's mean Y′) and Cb, Cr its chroma (the mean, or the vectorscope cell's centre). The rule, so a trace stays readable on black:
+  1. Y′ is lifted to at least 25 % (code 283) and capped at 100 %. Lifting adds grey, so the hue stays; the chroma noise of black stays grey.
+  2. The colour is brightened to the brightest colour of its hue and saturation: Y′ and the chroma are multiplied by 100 % / (its largest R′G′B′ component, BT.709). A neutral cell is white, a saturated one shows its hue at full brightness, a dark blue a clear blue.
+  3. `I` scales it like any trace colour, so the brightness still shows the density.
+  The colour is single-precision IEEE maths in the shared trace step (baseline code, no FMA, no fast-math), the same bytes on every engine path. The pixel pair's chroma is the mean of both pixels' (an empty pixel counts as background). The other trace colours keep their tables and cost nothing extra.
 - Persistence (decay over updates) is a stage 2 option.
 
 ### 4.5 Graticule
 
-The graticule is drawn once per settings change into a layer of 10-bit Y′CbCr with alpha, then blended over the trace on each render. Only its non-transparent spans are stored, so the blend touches a few percent of the pixels.
+The graticule is drawn once per settings change into a layer of 10-bit Y′CbCr with alpha, then blended behind the trace on each render: the trace covers it by its intensity, so a trace on a line (black on the 0 % line, white on 100 %) keeps its colour. Only its non-transparent spans are stored, so the blend touches a few percent of the pixels.
+
+The vectorscope's graticule is in §5.3.
 
 Luma and R′G′B′ panels, BT.709 limited range (10 bits):
 
@@ -226,7 +233,7 @@ From the same histograms, at no extra pass over the picture, each update compute
 - Cb/Cr share outside 64–960 — in the YCbCr modes;
 - in the RGB modes: share of pixels with any R′G′B′ component outside the EBU R 103 tolerance (−5 % to 105 %, codes 20–984 rounded), from the unclamped values of §4.8.
 
-A value the mode has no plane for is null (and its metric is not exported). The luma and chroma values come from the bin totals of each plane, summed by the trace step while it reads the counts: a bin counts as its centre code, so they are exact to one bin, `codes_per_bin` = 1024 / bins (about 1 code at a 1080-line output, about 6 at 180 lines). The R′G′B′ share is counted exactly per pixel in the RGB analyse step (a compare per component, on every SIMD path). No per-code histogram is kept. The thresholds are the BT.709 limits whatever `SCOPES_RANGE` is. While a state text shows (no input), every value is null.
+A value the mode has no plane for is null (and its metric is not exported). The vectorscope has none (every value null, decided 2026-11-12: its cells are Cb/Cr pairs, a zoom drops samples). The luma and chroma values come from the bin totals of each plane, summed by the trace step while it reads the counts: a bin counts as its centre code, so they are exact to one bin, `codes_per_bin` = 1024 / bins (about 1 code at a 1080-line output, about 6 at 180 lines). The R′G′B′ share is counted exactly per pixel in the RGB analyse step (a compare per component, on every SIMD path). No per-code histogram is kept. The thresholds are the BT.709 limits whatever `SCOPES_RANGE` is. While a state text shows (no input), every value is null.
 
 They are exported as metrics, at `GET /api/v1/measurements` and on the WebSocket (§9, §10). They raise no alarms in v1 (open question 12).
 
@@ -286,7 +293,7 @@ How it maps to AVX2:
 | `rgb-parade` | 1 | R′, G′, B′ waveforms side by side | three |
 | `rgb-overlay` | 1 | R′, G′, B′ waveforms in one panel, each in its colour | one |
 | `ycbcr-overlay` | 1 (SHOULD) | Y′, Cb, Cr in one panel: the raw codes on the shared code axis (neutral chroma on the 50 % line), Y′ white, Cb blue, Cr red | one |
-| `vectorscope` | 2 | Cb/Cr 2D histogram, 75 % and 100 % colour targets, skin-tone line | one, square |
+| `vectorscope` | 1.3 | Cb/Cr 2D histogram, hue ring, 75 % and 100 % colour targets, skin-tone line (§5.3) | one, square |
 | `luma-chroma` | 2 | Y′ against Cb (upper half) and Y′ against Cr (lower half), the combined display used to check colour bars, timing and gamut | one, two halves |
 
 The combined Y-against-chroma display is called **`luma-chroma`** in the API and the UI ("Luma/Chroma" as the title). Vendor trade names MUST NOT be used for it, nor for any other mode.
@@ -297,7 +304,18 @@ The combined Y-against-chroma display is called **`luma-chroma`** in the API and
 - Panels have a left margin for the graticule labels (8 % of the width at one panel, shared at three) and 4 % margins top and bottom. The plot sizes `C` and `B` follow from that; `B` is at most 1024.
 - A thin header line (SHOULD, `SCOPES_CAPTION=true`) shows the mode, the input label (IS-04 sender label of the routed flow, else the MXL flow label), the input format and the update rate.
 - While the input is not `running`, the panels show the graticule and the state (`NO SIGNAL`, `WAITING`, `NOT ROUTED`, `FORMAT`) in the centre.
+- The vectorscope's plot is the largest square of whole v210 groups between the top and bottom margins, in the middle of the raster; the caption stays at the 8 % margin (§5.3).
 - Multi-pane layouts (for example waveform left, vectorscope right) are stage 2: `SCOPES_LAYOUT=single` is the only v1 value.
+
+### 5.3 Vectorscope (1.3)
+
+- **Cells.** One chroma pair (Cb, Cr) per counted sample: pair k of a group when its co-sited luma sample is taken (§4.2, as the YCbCr modes). Cb runs to the right, Cr up. The histogram is square, `N` = min(side / 2, 1024) cells a side, so one cell is 2×2 output pixels at 1080 lines (a flat colour is a dot, not one pixel).
+- **Scale.** At zoom 1 the plot spans 1200 chroma codes, 600 from the centre (512) to the edge: every code 0–1023 and every 100 % target fit (BT.709 magenta and green are 534 codes from the centre). A code `v` sits at `q = (v − 512) × zoom + 600`; its column (Cb) or bin (Cr) is `q × N / 1200`. A sample with a `q` outside 0–1199 goes to a trash cell after the plot that is never drawn.
+- **Zoom.** `SCOPES_VECTOR_ZOOM`: 1, 2 or 5, around the centre. It shows as a small "2×" text right of the plot's top corner.
+- **Graticule** (behind the trace, §4.5; `SCOPES_GRATICULE_LEVEL` and `SCOPES_GRATICULE_WIDTH` apply): a hue ring at the edge, 2 × width × text scale pixels thick (4 px at 1080), each angle in the hue of its Cb/Cr direction (that chroma at zero luma, stretched to R′G′B′ 0–1); rings every 44.8 codes (10 % of 350 mV of chroma) at the zoom; the Cb and Cr axes; a vector from the centre to the ring towards each of R, Mg, B, Cy, G, Yl; the skin-tone line at 123° (from +Cb towards +Cr); square target boxes (side / 100 px from the centre to a side) on the cells of the BT.709 75 % and 100 % colours; the names R, Mg, B, Cy, G, Yl just inside the ring on their vectors. The hue ring is the only coloured graticule; under a trace its chroma is covered like its luma.
+- **Trace colour** as the luma waveform (§4.4), `picture` included.
+- **Measurements:** none (§4.7).
+- **Analyse step:** the scalar reference on every SIMD level (the increments dominate; IMPLEMENTATION_PLAN.md deviation 27). The cells do not follow x, so one strip covers the whole picture and `SCOPES_THREADS` does not split this step (the trace step still splits its rows).
 
 ---
 
@@ -344,7 +362,7 @@ The cost is one NMOS node and one web endpoint per scope. If productions need ma
 | Video source, flow, sender | `Scopes Out Video` | `Scopes Out:Video` |
 
 - `NMOS_TAGS` on the node and the device. The flow carries `description` = the mode title (for example `Luma waveform`), updated when the mode changes (same flow id).
-- The output flow and sender carry the tag `urn:x-mxl:tag:scope-mode/v1.0` = `[<mode>]` (`TODO_` confirm the tag namespace with the platform).
+- The output flow and sender carry the tag `urn:x-mxl:tag:scope-mode/v1.0` = `[<mode>]` (any mode of §5.1 that is built, `vectorscope` included) (`TODO_` confirm the tag namespace with the platform).
 - UUIDv5 ids from `NMOS_SEED` (RFC 4122 URL namespace) with the names `mxl-scopes/<seed>/node`, `/device`, `/domain`, `/in/video`, `/out/video/source`, `/out/video/sender`, `/out/video/flow/<format-token>`; the token is `<width>x<height>p<rate>`, with `a` appended for a v210a output, so format, rate and key each give their own flow id.
 - Senders report `mxl_domain_id` and the current `mxl_flow_id`; `master_enable` is true while the writer writes.
 - No audio flows. No output receivers.
@@ -359,7 +377,7 @@ Precedence: environment > `SCOPES_CONFIG_FILE` (flat JSON, keys are the variable
 
 | Key | Default | Apply | Meaning |
 | --- | --- | --- | --- |
-| `SCOPES_MODE` | `luma` | live | §5.1 (stage 2 values exit 78 in v1) |
+| `SCOPES_MODE` | `luma` | live | §5.1 (`luma-chroma` is not built and exits 78) |
 | `SCOPES_UPDATE_RATE` | `25` | live | `frame` or 1–60 Hz (§4.6) |
 | `SCOPES_ACCUMULATE` | `latest` | live | `latest` or `all` (§4.3) |
 | `SCOPES_LINE_STEP` | 1 | live | 1–8 (§4.2) |
@@ -368,9 +386,10 @@ Precedence: environment > `SCOPES_CONFIG_FILE` (flat JSON, keys are the variable
 | `SCOPES_GRATICULE_UNITS` | `mv` | live | `mv`, `percent`, `code` |
 | `SCOPES_GRATICULE_LEVEL` | 60 | live | 0–100 % |
 | `SCOPES_GRATICULE_WIDTH` | 1 | live | 1–4 px, the graticule lines (§4.5) |
-| `SCOPES_INTENSITY` | 100 | live | 1–400 % (§4.4) |
+| `SCOPES_INTENSITY` | 100 | live | 1–1000 % (§4.4) |
 | `SCOPES_TRACE_MIN` | 96 | live | 0–1023, the dimmest visible trace |
-| `SCOPES_TRACE_COLOR` | `green` | live | `green`, `white`, `amber` (luma mode) |
+| `SCOPES_TRACE_COLOR` | `green` | live | `green`, `white`, `amber`, `picture` (§4.4; luma and vectorscope) |
+| `SCOPES_VECTOR_ZOOM` | 1 | live | 1, 2, 5: the vectorscope's zoom (§5.3) |
 | `SCOPES_CAPTION` | `true` | live | header line (§5.2) |
 | `SCOPES_LAYOUT` | `single` | live | `single` only in v1 |
 | `SCOPES_OUTPUT_FORMAT` | `1920x1080` | flow | output raster |
@@ -433,7 +452,7 @@ Unauthenticated, protected networks only, as the siblings. `WEB_ENABLE=false` an
 
 The family look of the siblings: header with label, state and registration pills and the version; tabs with their own address.
 
-- **Scope** (`#scope`): the live preview (WHEP, HLS fallback) and the live controls: mode, update rate, sampling preset, intensity, graticule units and level, trace colour, range. The measurements (§4.7) under the picture. Changes are sent at most 10 times per second.
+- **Scope** (`#scope`): the live preview (WHEP, HLS fallback) and the live controls: mode, update rate, sampling preset, intensity, graticule units, level and width, trace colour, vectorscope zoom, range. The measurements (§4.7) under the picture. Changes are sent at most 10 times per second.
 - **Input** (`#input`): state, routed sender and flow, format, colorimetry warning, grains, resyncs, update counters.
 - **NMOS** (`#nmos`): node, registration, receiver and sender, IS-05 activation and disable (the NMOS Node and Connection APIs answer on `NMOS_PORT` only; the tab shows their state and ids, and IS-05 activation goes to `NMOS_PORT`).
 - **Status** (`#status`): probes, SIMD level, backend, preview state, the counters of `/metrics`.
@@ -576,6 +595,8 @@ Accepted deviation (the maintainer, 2026-10-22): the RGB parade every frame on c
 
 The process figures are the M0 measurements on the lab class (Skylake-SP, 3 GHz; accepted by the maintainer 2026-10-15; IMPLEMENTATION_PLAN.md "Analyse in the process"). They include an idle-clock effect: the process is idle most of the time, so the host's power management runs its core at about two thirds of the clock (2.2 against 3.3 GHz measured), and the same work takes up to twice as long as in the busy benchmark. A performance power profile on the host lowers the figures; the desktop class is expected lower as well.
 
+The vectorscope and the picture colour (1.3) have no targets of their own yet; their engine numbers are in `docs/performance.md` ("1.3.0"): at 1080p the vectorscope takes about what the luma waveform takes on a picture (more on bars), the picture colour 1.5 to 3.5 times the time of the green trace.
+
 The Kubernetes default for the catalog (§15) comes from these numbers.
 
 ---
@@ -590,7 +611,7 @@ The Kubernetes default for the catalog (§15) comes from these numbers.
 - Bin mapping: code 64 lands on the 0 % graticule row and 940 on the 100 % row for every supported `B`; columns cover the plot without gaps.
 - Intensity LUT: monotonic, `c = 0` is background, `c ≥ 1` is at least `SCOPES_TRACE_MIN`; normalisation keeps a flat field's intensity within ±1 code across line and pixel steps.
 - Graticule: lines at the computed rows for mV, %, code and full range; labels inside the margin.
-- Golden pictures: a luma ramp gives a diagonal; 75 % and 100 % colour bars give horizontal segments at the known codes in every mode; a flat grey gives one line at its code. Stored as hashes of the output plus PNGs for review.
+- Golden pictures: a luma ramp gives a diagonal; 75 % and 100 % colour bars give horizontal segments at the known codes in every mode, and in the vectorscope dots inside their 75 % and 100 % target boxes; a flat grey gives one line at its code. Stored as hashes of the output plus PNGs for review.
 - Update scheduler: 25 Hz from 50p takes every second grain; 10 Hz from 59.94p never analyses a grain twice and never drifts; `frame` analyses each grain once; a slow update skips a tick; `rgb-overlay` at `frame` takes every second grain from 50p and 59.94p.
 - Measurements from known histograms.
 - Config precedence, validation (78), UUIDv5 ids, ports, widget list and pages (params, CSP, CORS, no `X-Frame-Options`), preview settings.
