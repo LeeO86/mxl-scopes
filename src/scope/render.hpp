@@ -140,10 +140,6 @@ struct RenderPlan
     std::vector<std::uint16_t> pictureY;
     std::vector<std::int16_t> pictureCb;
     std::vector<std::int16_t> pictureCr;
-    // 2^sumShift / count for counts below 4096 (larger counts divide), and per value t of the
-    // largest R′G′B′ component (codes above 64) the gain (876 / 1023) / t: no division per cell.
-    std::vector<float> pictureMean;
-    std::vector<float> pictureGain;
     // The graticule lines of the first panel.
     std::vector<GraticuleLine> lines;
     // Graticule pixels inside the plot, blended behind the trace on every render, sorted by

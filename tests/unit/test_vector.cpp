@@ -620,11 +620,11 @@ TEST_CASE("golden hashes of the vectorscope and the picture colour")
 #ifdef SCOPES_WITH_BLEND2D
     std::initializer_list<Golden> const goldens = {Golden{"vectorscope-bars75", "vectorscope", "bars75", "green", 17380955653712384831ull},
         Golden{"vectorscope-bars100", "vectorscope", "bars100", "green", 15799791018308207453ull}, Golden{"vectorscope-scene", "vectorscope", "scene", "green", 9342981987738370560ull},
-        Golden{"vectorscope-picture-scene", "vectorscope", "scene", "picture", 9120397409882150199ull}, Golden{"luma-picture-scene", "luma", "scene", "picture", 5776308671246701587ull}};
+        Golden{"vectorscope-picture-scene", "vectorscope", "scene", "picture", 10197902513117317895ull}, Golden{"luma-picture-scene", "luma", "scene", "picture", 1995332149750024895ull}};
 #else
     std::initializer_list<Golden> const goldens = {Golden{"vectorscope-bars75", "vectorscope", "bars75", "green", 11188988094391039281ull},
         Golden{"vectorscope-bars100", "vectorscope", "bars100", "green", 11879374138297924487ull}, Golden{"vectorscope-scene", "vectorscope", "scene", "green", 18206093701666561454ull},
-        Golden{"vectorscope-picture-scene", "vectorscope", "scene", "picture", 7122250611559328977ull}, Golden{"luma-picture-scene", "luma", "scene", "picture", 10392446800692886596ull}};
+        Golden{"vectorscope-picture-scene", "vectorscope", "scene", "picture", 15886855153057354733ull}, Golden{"luma-picture-scene", "luma", "scene", "picture", 3739531868033787636ull}};
 #endif
     for (auto const& golden : goldens)
     {

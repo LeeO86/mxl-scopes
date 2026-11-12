@@ -622,16 +622,6 @@ RenderPlan makeRenderPlan(Layout const& layout, DisplaySettings const& settings,
     if (plan.picture)
     {
         plan.sumShift = sumShift;
-        plan.pictureMean.assign(4096, 0.0f);
-        for (std::size_t c = 1; c < plan.pictureMean.size(); ++c)
-        {
-            plan.pictureMean[c] = static_cast<float>(1u << sumShift) / static_cast<float>(c);
-        }
-        plan.pictureGain.assign(2048, 0.0f);
-        for (std::size_t t = 1; t < plan.pictureGain.size(); ++t)
-        {
-            plan.pictureGain[t] = (876.0f / 1023.0f) / static_cast<float>(t);
-        }
         if (plan.vector)
         {
             // The chroma at the centre of a cell: its code range at the zoom (§5.3), − 512.
@@ -870,56 +860,62 @@ int half(int v)
 // hue and saturation (the largest R′G′B′ component at 100 %), then scaled by its intensity
 // `level` like the other trace colours; an empty cell (level 0) comes out as background. Out: Y′
 // and the chroma offsets from 512. `counts` and `sums` are the cells', `px` the first one's pixel
-// column in the panel, `r` the plot row. Single-precision IEEE maths in baseline code (no FMA),
-// so every engine path draws the same bytes; stage by stage over the six cells, so their chains
-// overlap.
-template <class C>
+// column in the panel, `r` the plot row. Single-precision IEEE maths in baseline code (no FMA, no
+// fast-math), so every engine path draws the same bytes; plain loops over the six cells without
+// branches or tables, which the compiler vectorises.
+template <bool VECTOR, class C>
 void pictureColours(RenderPlan const& plan, C const* counts, std::uint64_t const* sums, int px, int r, std::uint16_t const* level, std::uint16_t* y, int* cb, int* cr)
 {
     // The mean code of a sum: sums of code >> sumShift, so × 2^sumShift and half a step back.
-    float const bias = static_cast<float>((1 << plan.sumShift) - 1) / 2.0f + 0.5f;
-    auto const* meanOf = plan.pictureMean.data();
-    auto const means = static_cast<std::uint32_t>(plan.pictureMean.size());
+    float const step = static_cast<float>(1 << plan.sumShift);
+    float const bias = (step - 1.0f) / 2.0f + 0.5f;
+    float lo[6];
+    float hi[6];
     float scale[6];
     for (int i = 0; i < 6; ++i)
     {
-        auto const count = std::max<std::uint32_t>(1, counts[i]);
-        scale[i] = count < means ? meanOf[count] : static_cast<float>(1u << plan.sumShift) / static_cast<float>(count);
+        // Sums below 2^32 and counts below 2^31: exact through int64 and int32.
+        lo[i] = static_cast<float>(static_cast<std::int64_t>(sums[i] & 0xffffffffu));
+        hi[i] = static_cast<float>(static_cast<std::int64_t>(sums[i] >> 32));
+        scale[i] = step / static_cast<float>(std::max(1, static_cast<int>(counts[i])));
     }
-    auto const mean = [&](int i, int half) { return static_cast<int>(static_cast<float>(static_cast<std::uint32_t>(sums[i] >> (32 * half))) * scale[i] + bias); };
     // In codes: Y′ − 64 of 876, chroma of 896 (the BT.709 matrix scaled by 876 / 896).
     float yy[6];
     float pb[6];
     float pr[6];
     for (int i = 0; i < 6; ++i)
     {
-        int const luma = plan.vector ? mean(i, 0) : plan.pictureY[static_cast<std::size_t>(r)];
-        yy[i] = static_cast<float>(std::clamp(luma, kPictureLumaFloor, 940) - 64);
-        pb[i] = static_cast<float>(plan.vector ? plan.pictureCb[static_cast<std::size_t>(px + i)] : mean(i, 0) - 512);
-        pr[i] = static_cast<float>(plan.vector ? plan.pictureCr[static_cast<std::size_t>(r)] : mean(i, 1) - 512);
+        if constexpr (VECTOR)
+        {
+            // Truncation is the floor here: every value is positive.
+            float const luma = static_cast<float>(static_cast<int>(lo[i] * scale[i] + bias));
+            yy[i] = std::min(std::max(luma, static_cast<float>(kPictureLumaFloor)), 940.0f) - 64.0f;
+            pb[i] = plan.pictureCb[static_cast<std::size_t>(px + i)];
+            pr[i] = plan.pictureCr[static_cast<std::size_t>(r)];
+        }
+        else
+        {
+            yy[i] = static_cast<float>(std::clamp<int>(plan.pictureY[static_cast<std::size_t>(r)], kPictureLumaFloor, 940) - 64);
+            pb[i] = static_cast<float>(static_cast<int>(lo[i] * scale[i] + bias) - 512);
+            pr[i] = static_cast<float>(static_cast<int>(hi[i] * scale[i] + bias) - 512);
+        }
     }
-    float gain[6];
-    auto const last = plan.pictureGain.size() - 1;
     for (int i = 0; i < 6; ++i)
     {
         // The largest of R′, G′, B′ (BT.709); at least yy, as Y′ is their weighted mean.
         float const top = yy[i] + std::max(std::max(1.5397f * pr[i], -0.183143f * pb[i] - 0.457675f * pr[i]), 1.81418f * pb[i]);
-        gain[i] = static_cast<float>(level[i]) * plan.pictureGain[std::min(static_cast<std::size_t>(top + 0.5f), last)];
-    }
-    // Rounded to the nearest code (halves up) without a branch: every value is above −1024.
-    auto const round = [](float v) { return static_cast<int>(v + 1024.5f) - 1024; };
-    for (int i = 0; i < 6; ++i)
-    {
-        y[i] = static_cast<std::uint16_t>(kBackgroundY + round(yy[i] * gain[i]));
-        cb[i] = round(pb[i] * gain[i]);
-        cr[i] = round(pr[i] * gain[i]);
+        float const gain = static_cast<float>(level[i]) * (876.0f / 1023.0f) / top;
+        // Rounded to the nearest code (halves up): every value is above −1024.
+        y[i] = static_cast<std::uint16_t>(kBackgroundY + static_cast<int>(yy[i] * gain + 1024.5f) - 1024);
+        cb[i] = static_cast<int>(pb[i] * gain + 1024.5f) - 1024;
+        cr[i] = static_cast<int>(pr[i] * gain + 1024.5f) - 1024;
     }
 }
 
 // The cells of one panel row -> its trace groups (graticule behind the trace). Groups without
 // counts keep the still picture's bytes. `lines` holds the plane rows of the panel: one, or
-// three for the overlay. PICTURE: the picture colour, `sumLine` the row's sum words (one per
-// pixel), `r` the plot row; with `clearSums` the words of each group with a trace are cleared
+// three for the overlay. PICTURE: the picture colour, `sumLine` the sum words of the row's bin
+// (one per histogram column), `r` the plot row; with `clearSums` the words of each group with a trace are cleared
 // here (the row is the bin's only one), so the caller need not clear the whole row. Returns true when the row got a trace group.
 template <bool OVERLAY, class C, bool PICTURE = false>
 bool panelRow(RenderPlan const& plan, PanelPlan const& panel, C const* const* lines, std::uint32_t& gi, std::uint32_t gend, std::size_t rowOffset,
@@ -1048,7 +1044,25 @@ bool panelRow(RenderPlan const& plan, PanelPlan const& panel, C const* const* li
             int cbs[6];
             int crs[6];
             // No branch on empty cells: their intensity is 0, so they come out as background.
-            pictureColours(plan, lines[0] + 6 * g, sumLine + 6 * g, 6 * g, r, level, y, cbs, crs);
+            // The group's sum words: its cells' (a column per pixel), else through columnOf.
+            std::uint64_t sampled[6];
+            std::uint64_t const* sums = sumLine + 6 * g;
+            if (!plan.identityColumns)
+            {
+                for (int i = 0; i < 6; ++i)
+                {
+                    sampled[i] = sumLine[plan.columnOf[static_cast<std::size_t>(6 * g + i)]];
+                }
+                sums = sampled;
+            }
+            if (plan.vector)
+            {
+                pictureColours<true>(plan, lines[0] + 6 * g, sums, 6 * g, r, level, y, cbs, crs);
+            }
+            else
+            {
+                pictureColours<false>(plan, lines[0] + 6 * g, sums, 6 * g, r, level, y, cbs, crs);
+            }
             if (clearSums)
             {
                 std::memset(sumLine + 6 * g, 0, 6 * sizeof(std::uint64_t));
@@ -1143,7 +1157,6 @@ void collectTraceCells(RenderPlan const& plan, Histogram& hist, std::vector<Trac
     }
     // The picture colour's sums: one word per cell, next to the counts of plane 0.
     bool const picture = plan.picture;
-    std::vector<std::uint64_t> sampledSums(plan.identityColumns || !picture ? 0 : static_cast<std::size_t>(layout.panelW));
     // Every plot row shows its own bin and column (the usual case up to 1080 lines): a row whose
     // cells are all zero need not be cleared.
     bool const inlineClear = plan.identityColumns && plan.bins == layout.plotH;
@@ -1167,21 +1180,7 @@ void collectTraceCells(RenderPlan const& plan, Histogram& hist, std::vector<Trac
                 lines[i] = sampled[i].data();
             }
         }
-        std::uint64_t* sumRow = nullptr;
-        std::uint64_t* sumLine = nullptr;
-        if (picture)
-        {
-            sumRow = hist.sums.data() + static_cast<std::size_t>(bin) * static_cast<std::size_t>(plan.columns);
-            sumLine = sumRow;
-            if (!plan.identityColumns)
-            {
-                for (int px = 0; px < layout.panelW; ++px)
-                {
-                    sampledSums[static_cast<std::size_t>(px)] = sumRow[plan.columnOf[static_cast<std::size_t>(px)]];
-                }
-                sumLine = sampledSums.data();
-            }
-        }
+        std::uint64_t* sumRow = picture ? hist.sums.data() + static_cast<std::size_t>(bin) * static_cast<std::size_t>(plan.columns) : nullptr;
         if (totals != nullptr && (r == 0 || plan.binOfRow[static_cast<std::size_t>(r) - 1] != bin))
         {
             // The first plot row of this bin: its samples over all columns (§4.7).
@@ -1208,7 +1207,7 @@ void collectTraceCells(RenderPlan const& plan, Histogram& hist, std::vector<Trac
             }
             else if (picture)
             {
-                had[0] = panelRow<false, C, true>(plan, panel, lines, gi, gend, rowBytes * row, trace, sumLine, r, inlineClear) || had[0];
+                had[0] = panelRow<false, C, true>(plan, panel, lines, gi, gend, rowBytes * row, trace, sumRow, r, inlineClear) || had[0];
             }
             else if (panelRow<false, C>(plan, panel, lines + panel.plane, gi, gend, rowBytes * row, trace))
             {
