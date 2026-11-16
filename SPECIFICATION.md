@@ -596,7 +596,7 @@ Accepted deviation (the maintainer, 2026-10-22): the RGB parade every frame on c
 
 The process figures are the M0 measurements on the lab class (Skylake-SP, 3 GHz; accepted by the maintainer 2026-10-15; IMPLEMENTATION_PLAN.md "Analyse in the process"). They include an idle-clock effect: the process is idle most of the time, so the host's power management runs its core at about two thirds of the clock (2.2 against 3.3 GHz measured), and the same work takes up to twice as long as in the busy benchmark. A performance power profile on the host lowers the figures; the desktop class is expected lower as well.
 
-The vectorscope and the picture colour (1.3) have no targets of their own yet; their engine numbers are in `docs/performance.md` ("1.3.0"): at 1080p the vectorscope takes about what the luma waveform takes on a picture (more on bars), the picture colour 1.5 to 3.5 times the time of the green trace.
+The vectorscope and the picture colour (1.3) have no targets of their own yet; their engine numbers are in `docs/performance.md` ("1.3.0"): at 1080p the vectorscope takes about what the luma waveform takes on a picture (more on bars), the luma picture colour 2 to 2.5 times the time of the green trace (process on a real 1080p50 flow at 25 Hz: 0.45 against 0.27 core).
 
 The Kubernetes default for the catalog (§15) comes from these numbers.
 
