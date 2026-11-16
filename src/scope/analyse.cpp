@@ -37,7 +37,7 @@ void Histogram::reset(AnalysePlan const& plan)
     scratch.assign(!wide && plan.twoSubs ? cells : 0, 0);
     counts32.assign(wide ? cells : 0, 0);
     scratch32.assign(wide && plan.twoSubs ? cells : 0, 0);
-    sums.assign(plan.sums > 0 ? cells : 0, 0);
+    sums.assign(plan.sums > 0 ? static_cast<std::size_t>(plan.bins) * static_cast<std::size_t>(plan.sumColumns) + extra : 0, 0);
     outOfGamut = 0;
 }
 
@@ -143,7 +143,10 @@ AnalysePlan makeAnalysePlan(int width, int height, std::size_t stride, int lineS
             continue;
         }
         int cut = std::max(groups * k / parts, plan.strips[static_cast<std::size_t>(plan.partStart.back())].g0);
-        while (cut < groups && cut > 0 && col[static_cast<std::size_t>(6 * cut - 1)] == col[static_cast<std::size_t>(6 * cut)])
+        // With the picture colour a cut also starts an even column: columns 2j and 2j + 1 share a
+        // sum word.
+        while (cut < groups && cut > 0 &&
+               (col[static_cast<std::size_t>(6 * cut - 1)] == col[static_cast<std::size_t>(6 * cut)] || (picture && kind == ScopeKind::Luma && (col[static_cast<std::size_t>(6 * cut)] & 1) != 0)))
         {
             ++cut;
         }
@@ -238,12 +241,20 @@ AnalysePlan makeAnalysePlan(int width, int height, std::size_t stride, int lineS
     plan.wide = maxUpdate > 65535;
     if (picture && (kind == ScopeKind::Luma || vector))
     {
-        // §4.4 picture colour: Cb and Cr per luma cell, Y′ per vectorscope cell; the codes are
-        // shifted right until the largest sum of an update fits 32 bits.
+        // §4.4 picture colour: Cb and Cr per two luma cells, Y′ per two vectorscope cells; the
+        // codes are shifted right until the largest sum of an update (two cells) fits 31 bits (the
+        // trace step reads it as a signed 32-bit value).
+        // The vectorscope keeps a word per cell (its pixel pairs are one cell), the luma waveform
+        // one per two columns.
         plan.sums = vector ? 1 : 2;
-        while ((maxUpdate * (1023u >> plan.sumShift)) > 0xffffffffull)
+        plan.sumColumns = vector ? columns : (columns + 1) / 2;
+        while (((vector ? 1 : 2) * maxUpdate * (1023u >> plan.sumShift)) > 0x7fffffffull)
         {
             ++plan.sumShift;
+        }
+        for (std::size_t v = 0; v < 1024; ++v)
+        {
+            plan.sumRowOffset[v] = plan.binOf[v] * static_cast<std::uint32_t>(plan.sumColumns);
         }
     }
     for (int p = 0; p < plan.planes; ++p)

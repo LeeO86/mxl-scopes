@@ -95,12 +95,17 @@ struct AnalysePlan
     // the trace step never draws it and clears it. 0 for the other kinds (no trash cell).
     int zoom = 1;
     std::uint32_t trashCell = 0;
-    // The picture trace colour (§4.4): per cell, `sums` 32-bit sums next to the count (`Luma`: Cb
-    // and Cr of each sample's co-sited pair; `Vector`: the co-sited Y′), each code >> sumShift so
-    // that the largest sum of an update fits 32 bits. They share one 64-bit word per cell (Cb in
-    // the low half, Cr in the high half), so one add takes both. 0 without the picture colour.
+    // The picture trace colour (§4.4): `sums` 32-bit sums in a 64-bit word (`Luma`: Cb in the low
+    // half and Cr in the high half of each sample's co-sited pair, so one add takes both, a word
+    // per two cells of a bin: columns 2j and 2j + 1, the two pixels of a 4:2:2 chroma sample;
+    // `Vector`: the co-sited Y′, a word per cell, the trash cell's too). Each code >> sumShift so
+    // that the largest sum of an update fits 31 bits. A luma sample's word is
+    // sumRowOffset[code] + column / 2 (`sumColumns` words a bin), a vectorscope sample's its
+    // cell. 0 without the picture colour.
     int sums = 0;
     int sumShift = 0;
+    int sumColumns = 0;
+    std::array<std::uint32_t, 1024> sumRowOffset{};
     struct Strip
     {
         int g0 = 0;     // first v210 group
@@ -146,7 +151,7 @@ struct Histogram
     std::vector<std::uint16_t> scratch;
     std::vector<std::uint32_t> counts32;
     std::vector<std::uint32_t> scratch32;
-    // The picture colour's sums, one 64-bit word per cell (AnalysePlan::sums), else empty.
+    // The picture colour's sum words (AnalysePlan::sums), else empty.
     std::vector<std::uint64_t> sums;
     // Cells after the planes (the vectorscope's trash cell), not part of cells().
     std::size_t extra = 0;

@@ -120,7 +120,7 @@ static inline int analyseGroupRgb(AnalysePlan const& plan, std::uint8_t const* r
 }
 
 // The reference step of `Luma` with the picture colour (§4.4): as analyseGroup, and each taken
-// luma sample adds its co-sited pair (k = i / 2) to the Cb and Cr sums of its cell.
+// luma sample adds its co-sited pair (k = i / 2) to the Cb and Cr sums of its cell's word.
 template <class C>
 static inline void analyseGroupLumaPicture(AnalysePlan const& plan, std::uint8_t const* row, int g, C* counts, C* scratch, std::uint64_t* sums)
 {
@@ -141,7 +141,8 @@ static inline void analyseGroupLumaPicture(AnalysePlan const& plan, std::uint8_t
         auto const idx = plan.rowOffset[y[i]] + plan.columnOf[static_cast<std::size_t>(x)];
         ++(plan.twoSubs && (i & 1) != 0 ? scratch : counts)[idx];
         // Both 32-bit sums in one add: the shift keeps the low one from carrying into the high one.
-        sums[idx] += (static_cast<std::uint64_t>(cr[i / 2] >> plan.sumShift) << 32) | (cb[i / 2] >> plan.sumShift);
+        sums[plan.sumRowOffset[y[i]] + (plan.columnOf[static_cast<std::size_t>(x)] >> 1)] +=
+            (static_cast<std::uint64_t>(cr[i / 2] >> plan.sumShift) << 32) | (cb[i / 2] >> plan.sumShift);
     }
 }
 

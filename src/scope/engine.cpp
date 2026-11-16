@@ -164,7 +164,7 @@ PaintParams ScopeEngine::paintParams() const
 void ScopeEngine::fit(Histogram& hist) const
 {
     bool const sized = hist.columns == analyse_.columns && hist.bins == analyse_.bins && hist.planes == analyse_.planes && hist.wide == analyse_.wide &&
-                       hist.extra == (analyse_.trashCell != 0 ? 1u : 0u) && hist.sums.size() == (analyse_.sums > 0 ? hist.cells() + hist.extra : 0) &&
+                       hist.extra == (analyse_.trashCell != 0 ? 1u : 0u) && hist.sums.size() == (analyse_.sums > 0 ? static_cast<std::size_t>(analyse_.bins) * static_cast<std::size_t>(analyse_.sumColumns) + hist.extra : 0) &&
                        hist.scratchCells() == (analyse_.twoSubs ? hist.cells() + hist.extra : 0) &&
                        hist.cells() == analyse_.planeCells * static_cast<std::size_t>(analyse_.planes);
     if (!sized)

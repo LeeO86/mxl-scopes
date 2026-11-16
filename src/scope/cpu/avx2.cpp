@@ -46,7 +46,8 @@ struct Lanes<6>
 constexpr int kChunkPairs = 32;
 
 // PIC: the picture colour (§4.4); each sample also adds its co-sited Cb and Cr (>> sumShift) to
-// its cell's sum word, the lanes moved next to the luma lanes as in Avx2V (permCbA ... shiftCrB).
+// its cell's sum word, the lanes moved next to the luma lanes as in Avx2V (permCbA ... shiftCrB)
+// and paired into the 64-bit words (Cr << 32 | Cb) in vector registers.
 template <class C, int PS, bool TWO, bool PIC = false>
 void analyseRows(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range)
 {
@@ -54,8 +55,8 @@ void analyseRows(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& h
     auto* scratch = hist.scratchData<C>();
     auto* sums = hist.sums.data();
     alignas(32) std::uint32_t buffer[16 * kChunkPairs];
-    alignas(32) std::uint32_t cbBuffer[PIC ? 16 * kChunkPairs : 1];
-    alignas(32) std::uint32_t crBuffer[PIC ? 16 * kChunkPairs : 1];
+    alignas(32) std::uint64_t sumBuffer[PIC ? 16 * kChunkPairs : 1];
+
     __m128i const sumShift = _mm_cvtsi32_si128(plan.sumShift);
     auto const chroma = [&](__m256i words, __m256i perm, __m256i shift) {
         return _mm256_srl_epi32(_mm256_and_si256(_mm256_srlv_epi32(_mm256_permutevar8x32_epi32(words, perm), shift), _mm256_set1_epi32(0x3ff)), sumShift);
@@ -95,12 +96,17 @@ void analyseRows(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& h
                     _mm256_store_si256(reinterpret_cast<__m256i*>(buffer + 16 * p + 8), idxB);
                     if constexpr (PIC)
                     {
-                        auto* cb = cbBuffer + 16 * p;
-                        auto* cr = crBuffer + 16 * p;
-                        _mm256_store_si256(reinterpret_cast<__m256i*>(cb), chroma(words, _mm256_setr_epi32(0, 0, 1, 2, 4, 4, 5, 6), _mm256_setr_epi32(0, 0, 10, 20, 0, 0, 10, 20)));
-                        _mm256_store_si256(reinterpret_cast<__m256i*>(cr), chroma(words, _mm256_setr_epi32(0, 0, 2, 3, 4, 4, 6, 7), _mm256_setr_epi32(20, 20, 0, 10, 20, 20, 0, 10)));
-                        _mm256_store_si256(reinterpret_cast<__m256i*>(cb + 8), chroma(words, _mm256_setr_epi32(0, 1, 0, 2, 4, 5, 4, 6), _mm256_setr_epi32(0, 10, 0, 20, 0, 10, 0, 20)));
-                        _mm256_store_si256(reinterpret_cast<__m256i*>(cr + 8), chroma(words, _mm256_setr_epi32(0, 2, 0, 3, 4, 6, 4, 7), _mm256_setr_epi32(0, 0, 0, 10, 0, 0, 0, 10)));
+                        // Lanes 0..7 of a (Cb, Cr) pair of vectors -> eight words in lane order.
+                        auto const words64 = [&](__m256i cb, __m256i cr, std::uint64_t* out) {
+                            __m256i const low = _mm256_unpacklo_epi32(cb, cr);  // 0 1 | 4 5
+                            __m256i const high = _mm256_unpackhi_epi32(cb, cr); // 2 3 | 6 7
+                            _mm256_store_si256(reinterpret_cast<__m256i*>(out), _mm256_permute2x128_si256(low, high, 0x20));
+                            _mm256_store_si256(reinterpret_cast<__m256i*>(out + 4), _mm256_permute2x128_si256(low, high, 0x31));
+                        };
+                        words64(chroma(words, _mm256_setr_epi32(0, 0, 1, 2, 4, 4, 5, 6), _mm256_setr_epi32(0, 0, 10, 20, 0, 0, 10, 20)),
+                            chroma(words, _mm256_setr_epi32(0, 0, 2, 3, 4, 4, 6, 7), _mm256_setr_epi32(20, 20, 0, 10, 20, 20, 0, 10)), sumBuffer + 16 * p);
+                        words64(chroma(words, _mm256_setr_epi32(0, 1, 0, 2, 4, 5, 4, 6), _mm256_setr_epi32(0, 10, 0, 20, 0, 10, 0, 20)),
+                            chroma(words, _mm256_setr_epi32(0, 2, 0, 3, 4, 6, 4, 7), _mm256_setr_epi32(0, 0, 0, 10, 0, 0, 0, 10)), sumBuffer + 16 * p + 8);
                     }
                 }
                 for (int p = 0; p < n; ++p)
@@ -110,7 +116,8 @@ void analyseRows(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& h
                     auto const sum = [&](int k) {
                         if constexpr (PIC)
                         {
-                            sums[lane[k]] += (static_cast<std::uint64_t>(crBuffer[16 * p + k]) << 32) | cbBuffer[16 * p + k];
+                            // An even column count (analyseAvx2): the word is the cell / 2.
+                            sums[lane[k] >> 1] += sumBuffer[16 * p + k];
                         }
                     };
                     for (int k : Lanes<PS>::even)
@@ -365,6 +372,12 @@ std::uint64_t analyseAvx2(AnalysePlan const& plan, std::uint8_t const* v210, His
     }
     if (plan.sums > 0)
     {
+        // The sum word of a cell is cell / 2 only with an even column count; an odd one (an input
+        // narrower than the plot, of an odd width) takes the scalar step.
+        if (plan.columns % 2 != 0)
+        {
+            return analyseScalar(plan, v210, hist, range);
+        }
         analyseLuma<true>(plan, v210, hist, range);
     }
     else

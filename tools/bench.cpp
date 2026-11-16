@@ -10,6 +10,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -77,6 +78,7 @@ int main(int argc, char** argv)
         {
             std::cout << "mxl-scopes-bench [--rasters 1920x1080,3840x2160] [--output 1920x1080] [--simd scalar,avx2,avx512]\n"
                          "                 [--strips 32,64,128] [--steps 1/1,2/1,2/2] [--pattern random|bars75|ramp|flat]\n"
+                         "                 [--v210 FILE] (raw v210 frames of the raster, e.g. from ffmpeg -c:v v210 -f rawvideo)\n"
                          "                 [--iterations 200] [--modes luma,ycbcr-parade,rgb-parade,rgb-overlay,ycbcr-overlay,vectorscope] [--threads 1]\n"
                          "                 [--trace-color green|picture] [--zoom 1|2|5]\n"
                          "mxl-scopes-bench --golden DIR   (writes the golden pictures as PNG)\n";
@@ -191,6 +193,23 @@ int main(int argc, char** argv)
         int const w = std::stoi(raster.substr(0, raster.find('x')));
         int const h = std::stoi(raster.substr(raster.find('x') + 1));
         std::vector<std::vector<std::uint8_t>> frames(static_cast<std::size_t>(copies), packPattern(makePattern(pattern, w, h, 512, 7)));
+        // --v210 FILE: real pictures instead, every frame of the file (frames of this raster).
+        if (auto const file = arg(argc, argv, "--v210", ""); !file.empty())
+        {
+            auto const size = v210RowBytes(w) * static_cast<std::size_t>(h);
+            auto const count = std::filesystem::file_size(file) / size;
+            std::ifstream in(file, std::ios::binary);
+            frames.assign(count, std::vector<std::uint8_t>(size));
+            for (auto& frame : frames)
+            {
+                in.read(reinterpret_cast<char*>(frame.data()), static_cast<std::streamsize>(size));
+            }
+            if (frames.empty())
+            {
+                std::fprintf(stderr, "%s holds no %s frame\n", file.c_str(), raster.c_str());
+                return 1;
+            }
+        }
         for (auto const& [mode, simd] : runs)
         {
             if ((simd == "avx2" && !avx2) || (simd == "avx512" && !avx512))

@@ -474,7 +474,7 @@ TEST_CASE("picture colour (vectorscope): the cell's luma and position give its c
     ScopeEngine big(SimdLevel::Scalar);
     big.configure({3840, 2160, v210RowBytes(3840), 1, 61}, vectorSettings(1, "picture"), 1920, 1080);
     CHECK(big.analysePlan().sumShift > 0);
-    CHECK(static_cast<std::uint64_t>(big.analysePlan().maxCellCount) * 61u * (1023u >> big.analysePlan().sumShift) <= 0xffffffffull);
+    CHECK(static_cast<std::uint64_t>(big.analysePlan().maxCellCount) * 61u * (1023u >> big.analysePlan().sumShift) <= 0x7fffffffull);
     auto const uhd = flat(700, 512, 512, 3840, 2160);
     std::vector<std::uint8_t> out(big.packedSize());
     for (int i = 0; i < 3; ++i)
@@ -620,11 +620,11 @@ TEST_CASE("golden hashes of the vectorscope and the picture colour")
 #ifdef SCOPES_WITH_BLEND2D
     std::initializer_list<Golden> const goldens = {Golden{"vectorscope-bars75", "vectorscope", "bars75", "green", 17380955653712384831ull},
         Golden{"vectorscope-bars100", "vectorscope", "bars100", "green", 15799791018308207453ull}, Golden{"vectorscope-scene", "vectorscope", "scene", "green", 9342981987738370560ull},
-        Golden{"vectorscope-picture-scene", "vectorscope", "scene", "picture", 10197902513117317895ull}, Golden{"luma-picture-scene", "luma", "scene", "picture", 1995332149750024895ull}};
+        Golden{"vectorscope-picture-scene", "vectorscope", "scene", "picture", 10197902513117317895ull}, Golden{"luma-picture-scene", "luma", "scene", "picture", 15258407840455406468ull}};
 #else
     std::initializer_list<Golden> const goldens = {Golden{"vectorscope-bars75", "vectorscope", "bars75", "green", 11188988094391039281ull},
         Golden{"vectorscope-bars100", "vectorscope", "bars100", "green", 11879374138297924487ull}, Golden{"vectorscope-scene", "vectorscope", "scene", "green", 18206093701666561454ull},
-        Golden{"vectorscope-picture-scene", "vectorscope", "scene", "picture", 15886855153057354733ull}, Golden{"luma-picture-scene", "luma", "scene", "picture", 3739531868033787636ull}};
+        Golden{"vectorscope-picture-scene", "vectorscope", "scene", "picture", 15886855153057354733ull}, Golden{"luma-picture-scene", "luma", "scene", "picture", 8580033275054352099ull}};
 #endif
     for (auto const& golden : goldens)
     {

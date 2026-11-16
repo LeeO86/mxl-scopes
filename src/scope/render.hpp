@@ -137,6 +137,9 @@ struct RenderPlan
     // luma the cell's mean.
     bool picture = false;
     int sumShift = 0;
+    // Sum words per bin (AnalysePlan::sumColumns): luma one per two columns, the vectorscope one
+    // per cell.
+    int sumColumns = 0;
     std::vector<std::uint16_t> pictureY;
     std::vector<std::int16_t> pictureCb;
     std::vector<std::int16_t> pictureCr;
