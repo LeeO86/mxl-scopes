@@ -363,10 +363,10 @@ TEST_CASE("golden hashes of the default picture")
     // Texts with Blend2D and DejaVu Sans (the default build), else the 8×8 bitmap font.
 #ifdef SCOPES_WITH_BLEND2D
     std::initializer_list<Golden> const goldens = {Golden{"ramp", 8607323095140189430ull}, Golden{"bars75", 17535710280943581695ull}, Golden{"bars100", 1685563661466374873ull},
-        Golden{"flat", 9038984948231426553ull}, Golden{"camera", 15857540602591843699ull}};
+        Golden{"flat", 9038984948231426553ull}, Golden{"camera", 6242084215260760683ull}};
 #else
     std::initializer_list<Golden> const goldens = {Golden{"ramp", 13821711853766737285ull}, Golden{"bars75", 1608078708293595320ull}, Golden{"bars100", 10689912239970163282ull},
-        Golden{"flat", 14827436196761363586ull}, Golden{"camera", 5700041073824102772ull}};
+        Golden{"flat", 14827436196761363586ull}, Golden{"camera", 5941622996150394592ull}};
 #endif
     for (auto const& golden : goldens)
     {

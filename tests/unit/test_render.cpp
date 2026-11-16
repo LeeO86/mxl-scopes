@@ -310,21 +310,26 @@ TEST_CASE("snapshot scaling keeps one-pixel lines")
 
 TEST_CASE("intensity: brightness grows with the hits per cell (§4.4)")
 {
-    // 1080p: about 1200 samples per column; a few hits are dim, many bright.
+    // 1080p: about 1200 samples per column. The log curve: one hit about 21 %, ten about 62 %, a
+    // twentieth of the column (60 hits) full; real pictures have 2 (median) to 50 (p99) hits a cell.
     DisplaySettings settings;
     double const cRef = 1920.0 * 1080.0 / 1722.0;
     auto const table = intensityTable(settings, cRef, 65535);
     auto at = [&](std::size_t c) { return static_cast<int>(table[std::min(c, table.size() - 1)]); };
-    CHECK(at(1) == settings.traceMin);
-    CHECK(at(10) > at(1));
-    CHECK(at(10) < 300);
-    CHECK(at(60) > 550);
-    CHECK(at(60) < 750);
-    CHECK(at(300) > 980);
-    CHECK(at(static_cast<std::size_t>(cRef)) == 1023);
-    // SCOPES_INTENSITY scales the gain: 200 % is brighter at the same count.
+    CHECK(at(1) > 180);
+    CHECK(at(1) < 260);
+    CHECK(at(2) > at(1));
+    CHECK(at(10) > 550);
+    CHECK(at(10) < 700);
+    CHECK(at(30) > 800);
+    CHECK(at(30) < 950);
+    CHECK(at(static_cast<std::size_t>(cRef / 20) + 1) == 1023);
+    // SCOPES_INTENSITY scales the gain: 200 % is brighter at the same count, 25 % puts one hit at
+    // SCOPES_TRACE_MIN.
     settings.intensity = 200;
-    CHECK(static_cast<int>(intensityTable(settings, cRef, 65535)[30]) > at(30));
+    CHECK(static_cast<int>(intensityTable(settings, cRef, 65535)[3]) > at(3));
+    settings.intensity = 25;
+    CHECK(static_cast<int>(intensityTable(settings, cRef, 65535)[1]) == settings.traceMin);
 }
 
 TEST_CASE("graticule behind the trace: a black picture on the 0 % line keeps its trace colour")

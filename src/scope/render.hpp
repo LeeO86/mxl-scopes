@@ -170,9 +170,10 @@ int rowOfCode(RenderPlan const& plan, int code);
 // settings decides the panels; the layout must have its panel count. `sumShift`: the analyse
 // plan's (the picture colour).
 RenderPlan makeRenderPlan(Layout const& layout, DisplaySettings const& settings, int columns, PlaneCounts const& counts, bool key = false, int sumShift = 0);
-// The picture colour's luma floor (§4.4): a cell's luma is lifted to at least 25 % (code 283)
-// before its colour is brightened, so the chroma noise of black stays grey.
-inline constexpr int kPictureLumaFloor = 283;
+// The picture colour's luma floor (§4.4): a cell's luma is lifted to at least 15 % (code 195)
+// before its colour is brightened, so the chroma noise of black stays near grey while dark
+// colours keep most of their hue.
+inline constexpr int kPictureLumaFloor = 195;
 // Rebuilds the intensity tables (and the overlay's colour tables) for other counts: the number
 // of grains in an update changes c_ref and the largest count, nothing else (§4.4).
 void setIntensity(RenderPlan& plan, DisplaySettings const& settings, PlaneCounts const& counts);
@@ -180,11 +181,14 @@ void setIntensity(RenderPlan& plan, DisplaySettings const& settings, PlaneCounts
 RenderPlan makeRenderPlan(Layout const& layout, DisplaySettings const& settings, int columns, std::uint64_t samples, std::uint32_t maxCount);
 
 // Gain of the intensity curve at SCOPES_INTENSITY 100 % (§4.4): a cell with 1/20 of its
-// column's samples is at 63 %, a few hits are dim, a flat field saturates.
+// column's samples is at full brightness.
 inline constexpr double kIntensityGain = 20.0;
+// The shape of the logarithmic curve: one hit of a 1080-line picture is about 21 %.
+inline constexpr double kIntensityLog = 100.0;
 
-// Intensity table of §4.4: I = 1023 × (1 − exp(−g × c / c_ref)), g = intensity / 100 × gain;
-// c = 0 is the background, c >= 1 at least traceMin.
+// Intensity table of §4.4: I = 1023 × ln(1 + A × x) / ln(1 + A), x = min(1, g × c / c_ref),
+// g = intensity / 100 × gain, A = kIntensityLog; c = 0 is the background, c >= 1 at least
+// traceMin.
 std::vector<std::uint16_t> intensityTable(DisplaySettings const& settings, double cRef, std::uint32_t maxCount);
 
 // The plot without a trace (background and graticule) into `frame`, a copy of plan.base.

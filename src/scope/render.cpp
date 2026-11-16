@@ -518,7 +518,8 @@ std::vector<std::uint16_t> intensityTable(DisplaySettings const& settings, doubl
     cRef = std::max(cRef, 1e-9);
     for (std::uint32_t c = 1; c <= std::max<std::uint32_t>(1, maxCount); ++c)
     {
-        auto const value = static_cast<int>(std::lround(1023.0 * (1.0 - std::exp(-g * static_cast<double>(c) / cRef))));
+        double const x = std::min(1.0, g * static_cast<double>(c) / cRef);
+        auto const value = static_cast<int>(std::lround(1023.0 * std::log1p(kIntensityLog * x) / std::log1p(kIntensityLog)));
         auto const level = static_cast<std::uint16_t>(std::clamp(std::max(value, settings.traceMin), 1, 1023));
         table.push_back(level);
         if (level >= 1023)

@@ -413,7 +413,7 @@ TEST_CASE("vectorscope graticule: the hue ring in the hue of its direction, leve
     CHECK(text);
 }
 
-TEST_CASE("picture colour (luma): grey is white, a colour shows its hue, a dark colour stays visible, black noise stays grey")
+TEST_CASE("picture colour (luma): grey is white, a colour shows its hue, a dark colour stays visible, black noise stays near grey")
 {
     auto const render = [](std::vector<std::uint8_t> const& frame, char const* colour, int code, int& y, int& cb, int& cr) {
         DisplaySettings settings;
@@ -443,15 +443,17 @@ TEST_CASE("picture colour (luma): grey is white, a colour shows its hue, a dark 
     render(flat(red.y, red.cb, red.cr), "picture", red.y, y, cb, cr);
     CHECK(cr > 800);
     CHECK(cb < 480);
-    CHECK(y > 300);
+    CHECK(y > 200); // pure red at full brightness: Y′ 21 %
     auto const blue = rgbToYcbcr709(0, 0, 0.2);
     render(flat(blue.y, blue.cb, blue.cr), "picture", blue.y, y, cb, cr);
     CHECK(y > 200);
     CHECK(cb > 700);
+    // Black with a 3-code chroma offset: lifted to 15 %, a slight tint (about 20 codes), not a
+    // saturated colour.
     render(flat(64, 515, 509), "picture", 64, y, cb, cr);
     CHECK(y > 700);
-    CHECK(std::abs(cb - 512) <= 12);
-    CHECK(std::abs(cr - 512) <= 12);
+    CHECK(std::abs(cb - 512) <= 24);
+    CHECK(std::abs(cr - 512) <= 24);
 }
 
 TEST_CASE("picture colour (vectorscope): the cell's luma and position give its colour; large updates shift the sums")
@@ -619,12 +621,12 @@ TEST_CASE("golden hashes of the vectorscope and the picture colour")
     };
 #ifdef SCOPES_WITH_BLEND2D
     std::initializer_list<Golden> const goldens = {Golden{"vectorscope-bars75", "vectorscope", "bars75", "green", 17380955653712384831ull},
-        Golden{"vectorscope-bars100", "vectorscope", "bars100", "green", 15799791018308207453ull}, Golden{"vectorscope-scene", "vectorscope", "scene", "green", 9342981987738370560ull},
-        Golden{"vectorscope-picture-scene", "vectorscope", "scene", "picture", 10197902513117317895ull}, Golden{"luma-picture-scene", "luma", "scene", "picture", 15258407840455406468ull}};
+        Golden{"vectorscope-bars100", "vectorscope", "bars100", "green", 15799791018308207453ull}, Golden{"vectorscope-scene", "vectorscope", "scene", "green", 708120817668257836ull},
+        Golden{"vectorscope-picture-scene", "vectorscope", "scene", "picture", 9447825310821313191ull}, Golden{"luma-picture-scene", "luma", "scene", "picture", 14225330243929626618ull}};
 #else
     std::initializer_list<Golden> const goldens = {Golden{"vectorscope-bars75", "vectorscope", "bars75", "green", 11188988094391039281ull},
-        Golden{"vectorscope-bars100", "vectorscope", "bars100", "green", 11879374138297924487ull}, Golden{"vectorscope-scene", "vectorscope", "scene", "green", 18206093701666561454ull},
-        Golden{"vectorscope-picture-scene", "vectorscope", "scene", "picture", 15886855153057354733ull}, Golden{"luma-picture-scene", "luma", "scene", "picture", 8580033275054352099ull}};
+        Golden{"vectorscope-bars100", "vectorscope", "bars100", "green", 11879374138297924487ull}, Golden{"vectorscope-scene", "vectorscope", "scene", "green", 12397663604212149034ull},
+        Golden{"vectorscope-picture-scene", "vectorscope", "scene", "picture", 3342974221166313741ull}, Golden{"luma-picture-scene", "luma", "scene", "picture", 1138538144545188997ull}};
 #endif
     for (auto const& golden : goldens)
     {
