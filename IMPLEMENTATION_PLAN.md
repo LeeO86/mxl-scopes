@@ -4,7 +4,7 @@ This plan comes before any code. It is updated as the work goes on: every decisi
 
 ## Status (2026-10-23)
 
-1.3.0 (2026-11-12, unreleased, `feat/1.3.0`): the graticule behind the trace, `SCOPES_INTENSITY` up to 1000 %, the `vectorscope` mode with `SCOPES_VECTOR_ZOOM` (SPECIFICATION §5.3) and the `picture` trace colour (§4.4); deviations 27–29; numbers in `docs/performance.md` "1.3.0".
+1.3.0 (released 2026-11-17): the graticule behind the trace, `SCOPES_INTENSITY` up to 1000 %, the `vectorscope` mode with `SCOPES_VECTOR_ZOOM` (SPECIFICATION §5.3) and the `picture` trace colour (§4.4); deviations 27–29; numbers in `docs/performance.md` "1.3.0".
 
 1.1.0 (M3 and M4 together, the maintainer's decision of 2026-10-23) is ready on `feat/m3` and `feat/m4`: the WebRTC preview, the Vue UI, the widget, Blend2D texts, AMWA in CI, the deployment files and the measurements; release notes `docs/release-notes-1.1.0.md`. 1.0.0 was the first release, made after M2 (deviation 26), release notes `docs/release-notes-1.0.0.md`.
 

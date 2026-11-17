@@ -6,7 +6,7 @@ Part of [mxl-stack](https://github.com/LeeO86/mxl-stack), a collection of open-s
 
 ![mxl-scopes: RGB parade of colour bars](docs/images/web-ui.png)
 
-**Status: 1.2.1 (M0–M4).** Every stage-1 mode (luma waveform, YCbCr and RGB parades, RGB and YCbCr overlays) runs end to end: MXL in, MXL out (with a key if wanted), NMOS, REST, metrics with the measurements, a web page with a snapshot; strip workers share the work over several cores. A WebRTC preview, a Vue UI and an operator-screen widget show it in the browser. Release notes: [docs/release-notes-1.2.1.md](docs/release-notes-1.2.1.md). CPU per mode: [docs/performance.md](docs/performance.md). What differs from the specification today is listed under "Deviations" in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md). Read [SPECIFICATION.md](SPECIFICATION.md) for the design.
+**Status: 1.3.0 (M0–M4).** Every stage-1 mode (luma waveform, YCbCr and RGB parades, RGB and YCbCr overlays) and the vectorscope run end to end: MXL in, MXL out (with a key if wanted), NMOS, REST, metrics with the measurements, a web page with a snapshot; strip workers share the work over several cores. A WebRTC preview, a Vue UI and an operator-screen widget show it in the browser. Release notes: [docs/release-notes-1.3.0.md](docs/release-notes-1.3.0.md). CPU per mode: [docs/performance.md](docs/performance.md). What differs from the specification today is listed under "Deviations" in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md). Read [SPECIFICATION.md](SPECIFICATION.md) for the design.
 
 ## At a glance
 
@@ -76,14 +76,14 @@ With libmxl (and `-DSCOPES_WITH_NMOS=ON -DNMOS_CPP_DIR=...`) the build adds `mxl
 
 ## Lab run
 
-The image `ghcr.io/leeo86/mxl-scopes` (`1.2.1`; `nightly-dev` from `main`) needs no GPU (NVENC is used for the preview when a GPU with it is passed in):
+The image `ghcr.io/leeo86/mxl-scopes` (`1.3.0`; `nightly-dev` from `main`) needs no GPU (NVENC is used for the preview when a GPU with it is passed in):
 
 ```sh
 docker run --rm --name scopes --network host --cpuset-cpus 25 \
   -v /Volumes/mxl:/Volumes/mxl -v scopes-config:/config \
   -e NMOS_REGISTRY_ADDRESS=<registry ip> -e NMOS_HOST_ADDRESS=<host ip> \
   -e NMOS_SEED=lab-scopes-1 -e MXL_CLEANUP_ON_EXIT=true \
-  ghcr.io/leeo86/mxl-scopes:1.2.1
+  ghcr.io/leeo86/mxl-scopes:1.3.0
 ```
 
 Route the receiver "Scopes In Video" over IS-05, open `http://<host>:8170/`, and route the sender "Scopes Out Video" to a multiviewer tile. Without a controller, `mxl-scopes-writer --domain DIR --flow UUID --pattern bars75` (or `scene`, a colour picture) in the same image writes a test flow, and a `routes.json` in `/config` routes it at start.
