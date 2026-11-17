@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(mxl-scopes VERSION 1.2.1 LANGUAGES CXX)
+project(mxl-scopes VERSION 1.3.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -118,6 +118,7 @@ if(SCOPES_BUILD_TESTS)
         tests/unit/test_render.cpp
         tests/unit/test_scheduler.cpp
         tests/unit/test_threads.cpp
+        tests/unit/test_vector.cpp
         tests/unit/test_measure.cpp
         tests/unit/test_key.cpp
         tests/unit/test_preview.cpp

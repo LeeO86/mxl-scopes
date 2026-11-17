@@ -10,6 +10,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -77,7 +78,9 @@ int main(int argc, char** argv)
         {
             std::cout << "mxl-scopes-bench [--rasters 1920x1080,3840x2160] [--output 1920x1080] [--simd scalar,avx2,avx512]\n"
                          "                 [--strips 32,64,128] [--steps 1/1,2/1,2/2] [--pattern random|bars75|ramp|flat]\n"
-                         "                 [--iterations 200] [--modes luma,ycbcr-parade,rgb-parade,rgb-overlay,ycbcr-overlay] [--threads 1]\n"
+                         "                 [--v210 FILE] (raw v210 frames of the raster, e.g. from ffmpeg -c:v v210 -f rawvideo)\n"
+                         "                 [--iterations 200] [--modes luma,ycbcr-parade,rgb-parade,rgb-overlay,ycbcr-overlay,vectorscope] [--threads 1]\n"
+                         "                 [--trace-color green|picture] [--zoom 1|2|5]\n"
                          "mxl-scopes-bench --golden DIR   (writes the golden pictures as PNG)\n";
             return 0;
         }
@@ -119,6 +122,33 @@ int main(int argc, char** argv)
                 std::printf("%s/%s-%s.png\n", dir.c_str(), mode, pattern);
             }
         }
+        // The vectorscope (bars and the scene) and the picture trace colour (§4.4, §5.3).
+        struct Extra
+        {
+            char const* name;
+            char const* mode;
+            char const* pattern;
+            char const* color;
+        };
+        for (auto const& extra : {Extra{"vectorscope-bars75", "vectorscope", "bars75", "green"}, Extra{"vectorscope-bars100", "vectorscope", "bars100", "green"},
+                 Extra{"vectorscope-scene", "vectorscope", "scene", "green"}, Extra{"vectorscope-picture-scene", "vectorscope", "scene", "picture"},
+                 Extra{"luma-picture-scene", "luma", "scene", "picture"}})
+        {
+            DisplaySettings settings;
+            settings.mode = extra.mode;
+            settings.traceColor = extra.color;
+            ScopeEngine engine(SimdLevel::Scalar);
+            engine.configure({1920, 1080, v210RowBytes(1920)}, settings, 1920, 1080);
+            auto const frame = packPattern(makePattern(extra.pattern, 1920, 1080, 512));
+            std::vector<std::uint8_t> out(engine.packedSize());
+            engine.analyse(frame.data());
+            engine.render(modeTitle(extra.mode), "", out.data());
+            Frame422 picture;
+            picture.allocate(1920, 1080);
+            unpackV210(out.data(), v210RowBytes(1920), picture);
+            std::ofstream(dir + "/" + extra.name + ".png", std::ios::binary) << encodePng(picture, 1);
+            std::printf("%s/%s.png\n", dir.c_str(), extra.name);
+        }
         return 0;
     }
     auto const rasters = split(arg(argc, argv, "--rasters", "1920x1080,3840x2160"));
@@ -129,6 +159,8 @@ int main(int argc, char** argv)
     auto const pattern = arg(argc, argv, "--pattern", "random");
     auto const modes = split(arg(argc, argv, "--modes", "luma"));
     int const threads = std::clamp(std::stoi(arg(argc, argv, "--threads", "1")), 1, 8);
+    auto const traceColor = arg(argc, argv, "--trace-color", "green");
+    int const zoom = std::stoi(arg(argc, argv, "--zoom", "1"));
     std::vector<std::pair<std::string, std::string>> runs;
     int const iterations = std::max(5, std::stoi(arg(argc, argv, "--iterations", "200")));
     // --frames N cycles through N copies of the picture (N × 5.5 MB at 1080p beats the caches,
@@ -161,6 +193,23 @@ int main(int argc, char** argv)
         int const w = std::stoi(raster.substr(0, raster.find('x')));
         int const h = std::stoi(raster.substr(raster.find('x') + 1));
         std::vector<std::vector<std::uint8_t>> frames(static_cast<std::size_t>(copies), packPattern(makePattern(pattern, w, h, 512, 7)));
+        // --v210 FILE: real pictures instead, every frame of the file (frames of this raster).
+        if (auto const file = arg(argc, argv, "--v210", ""); !file.empty())
+        {
+            auto const size = v210RowBytes(w) * static_cast<std::size_t>(h);
+            auto const count = std::filesystem::file_size(file) / size;
+            std::ifstream in(file, std::ios::binary);
+            frames.assign(count, std::vector<std::uint8_t>(size));
+            for (auto& frame : frames)
+            {
+                in.read(reinterpret_cast<char*>(frame.data()), static_cast<std::streamsize>(size));
+            }
+            if (frames.empty())
+            {
+                std::fprintf(stderr, "%s holds no %s frame\n", file.c_str(), raster.c_str());
+                return 1;
+            }
+        }
         for (auto const& [mode, simd] : runs)
         {
             if ((simd == "avx2" && !avx2) || (simd == "avx512" && !avx512))
@@ -174,6 +223,8 @@ int main(int argc, char** argv)
                 {
                     DisplaySettings settings;
                     settings.mode = mode;
+                    settings.traceColor = traceColor;
+                    settings.vectorZoom = zoom;
                     settings.lineStep = std::stoi(step.substr(0, step.find('/')));
                     settings.pixelStep = std::stoi(step.substr(step.find('/') + 1));
                     ScopeEngine engine(simd == "avx512" ? SimdLevel::Avx512 : simd == "avx2" ? SimdLevel::Avx2 : SimdLevel::Scalar, std::stoi(strip), threads);

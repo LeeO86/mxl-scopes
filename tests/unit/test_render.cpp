@@ -186,6 +186,13 @@ TEST_CASE("intensity: monotonic, background at zero, at least trace_min")
         CHECK(table[c] >= table[c - 1]);
     }
     CHECK(table.back() == 1023);
+    // At the top of SCOPES_INTENSITY (1000 %) the table is shorter, still at least trace_min.
+    settings.intensity = 1000;
+    auto const high = intensityTable(settings, 50.0, 60000);
+    CHECK(high[0] == 0);
+    CHECK(high[1] >= settings.traceMin);
+    CHECK(high.size() < table.size());
+    CHECK(high.back() == 1023);
 }
 
 TEST_CASE("intensity: a flat field keeps its brightness across line and pixel steps")
@@ -303,21 +310,61 @@ TEST_CASE("snapshot scaling keeps one-pixel lines")
 
 TEST_CASE("intensity: brightness grows with the hits per cell (§4.4)")
 {
-    // 1080p: about 1200 samples per column; a few hits are dim, many bright.
+    // 1080p: about 1200 samples per column. The log curve: one hit about 21 %, ten about 62 %, a
+    // twentieth of the column (60 hits) full; real pictures have 2 (median) to 50 (p99) hits a cell.
     DisplaySettings settings;
     double const cRef = 1920.0 * 1080.0 / 1722.0;
     auto const table = intensityTable(settings, cRef, 65535);
     auto at = [&](std::size_t c) { return static_cast<int>(table[std::min(c, table.size() - 1)]); };
-    CHECK(at(1) == settings.traceMin);
-    CHECK(at(10) > at(1));
-    CHECK(at(10) < 300);
-    CHECK(at(60) > 550);
-    CHECK(at(60) < 750);
-    CHECK(at(300) > 980);
-    CHECK(at(static_cast<std::size_t>(cRef)) == 1023);
-    // SCOPES_INTENSITY scales the gain: 200 % is brighter at the same count.
+    CHECK(at(1) > 180);
+    CHECK(at(1) < 260);
+    CHECK(at(2) > at(1));
+    CHECK(at(10) > 550);
+    CHECK(at(10) < 700);
+    CHECK(at(30) > 800);
+    CHECK(at(30) < 950);
+    CHECK(at(static_cast<std::size_t>(cRef / 20) + 1) == 1023);
+    // SCOPES_INTENSITY scales the gain: 200 % is brighter at the same count, 25 % puts one hit at
+    // SCOPES_TRACE_MIN.
     settings.intensity = 200;
-    CHECK(static_cast<int>(intensityTable(settings, cRef, 65535)[30]) > at(30));
+    CHECK(static_cast<int>(intensityTable(settings, cRef, 65535)[3]) > at(3));
+    settings.intensity = 25;
+    CHECK(static_cast<int>(intensityTable(settings, cRef, 65535)[1]) == settings.traceMin);
+}
+
+TEST_CASE("graticule behind the trace: a black picture on the 0 % line keeps its trace colour")
+{
+    // A flat field saturates the trace, so it covers the graticule line under it completely.
+    auto const frame = packPattern(makePattern("flat", 1920, 1080, 64));
+    auto renderWith = [&](int graticuleLevel) {
+        DisplaySettings settings;
+        settings.graticuleLevel = graticuleLevel;
+        ScopeEngine engine(SimdLevel::Scalar);
+        engine.configure({1920, 1080, v210RowBytes(1920)}, settings, 1920, 1080);
+        std::vector<std::uint8_t> out(engine.packedSize());
+        engine.analyse(frame.data());
+        engine.render("Luma waveform", "", out.data());
+        Frame422 picture;
+        picture.allocate(1920, 1080);
+        unpackV210(out.data(), v210RowBytes(1920), picture);
+        return std::pair{picture, engine.renderPlan()};
+    };
+    auto const [lined, plan] = renderWith(100);
+    auto const [bare, unused] = renderWith(0);
+    int const row = rowOfCode(plan, 64);
+    REQUIRE(plan.layout.plotY <= row);
+    for (int px : {0, 101, plan.layout.plotW / 2})
+    {
+        auto const at = static_cast<std::size_t>(row) * 1920 + static_cast<std::size_t>(plan.layout.plotX + px);
+        CHECK(lined.y[at] == bare.y[at]);
+        CHECK(lined.cb[at / 2] == bare.cb[at / 2]);
+        CHECK(lined.cr[at / 2] == bare.cr[at / 2]);
+    }
+    // Next to the trace the line still shows.
+    auto const line = std::find_if(plan.lines.begin(), plan.lines.end(), [](GraticuleLine const& l) { return l.code > 64 && l.style == "solid"; });
+    REQUIRE(line != plan.lines.end());
+    auto const above = static_cast<std::size_t>(line->row) * 1920 + static_cast<std::size_t>(plan.layout.plotX + 101);
+    CHECK(lined.y[above] > kBackgroundY);
 }
 
 TEST_CASE("writer delta: still + old trace, undone and redrawn, equals the full render")

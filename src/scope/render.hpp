@@ -15,7 +15,8 @@ namespace scopes
 // Where the plot sits in the output raster (SPECIFICATION §5.2): 8 % left margin for the
 // labels, 2 % right, 4 % top and bottom (at least one text line on top for the caption).
 // A parade has three panels of equal width with a 4 % gap between them (the chroma labels of
-// the YCbCr parade sit in the gaps); `plotX`/`plotW` span all panels.
+// the YCbCr parade sit in the gaps); `plotX`/`plotW` span all panels. The vectorscope (§5.3) is
+// one square panel in the middle of the raster, the caption still at the 8 % margin.
 struct Layout
 {
     int width = 0;
@@ -30,13 +31,19 @@ struct Layout
     // Panel k starts at panelX[k] and is panelW wide; both multiples of 6 (v210 groups).
     std::array<int, 3> panelX{};
     int panelW = 0;
+    // The vectorscope's square plot (plotW == plotH).
+    bool square = false;
+    // Where the caption and the units start: the 8 % margin.
+    int captionX = 0;
 };
 
 // Panels of a mode: 3 for the parades, else 1.
 int panelCount(std::string const& mode);
-Layout makeLayout(int width, int height, int panels = 1);
+Layout makeLayout(int width, int height, int panels = 1, bool square = false);
+// The layout of a mode: its panels, square for the vectorscope.
+Layout makeModeLayout(int width, int height, std::string const& mode);
 // The histogram size for an input `inputWidth` wide (0: no input): columns min(panelW, width),
-// bins min(plotH, 1024).
+// bins min(plotH, 1024). The vectorscope: min(side / 2, 1024) both, whatever the input.
 int histogramColumns(Layout const& layout, int inputWidth);
 int histogramBins(Layout const& layout);
 
@@ -46,6 +53,9 @@ struct GraticulePixel
     std::uint16_t row = 0;
     std::uint16_t alpha = 0; // 0..1023
     std::uint16_t luma = 0;
+    // Neutral except the vectorscope's hue ring (§5.3); taken at even x (4:2:2).
+    std::uint16_t cb = 512;
+    std::uint16_t cr = 512;
 };
 
 struct GraticuleLine
@@ -117,9 +127,25 @@ struct RenderPlan
     std::array<std::uint16_t, 1024> yOf{};
     std::array<std::uint16_t, 1024> cbOf{};
     std::array<std::uint16_t, 1024> crOf{};
+    // The vectorscope (§5.3) and its zoom.
+    bool vector = false;
+    int zoom = 1;
+    // The picture trace colour (§4.4): a cell in the colour of its samples, from the sums next to
+    // its count (AnalysePlan::sums, sumShift). Luma: the luma of plot row r is pictureY[r] (its
+    // bin's centre code), the chroma the cell's mean. Vectorscope: the chroma of pixel column x
+    // and plot row r is pictureCb[x], pictureCr[r] (code − 512 at the centre of the cell), the
+    // luma the cell's mean.
+    bool picture = false;
+    int sumShift = 0;
+    // Sum words per bin (AnalysePlan::sumColumns): luma one per two columns, the vectorscope one
+    // per cell.
+    int sumColumns = 0;
+    std::vector<std::uint16_t> pictureY;
+    std::vector<std::int16_t> pictureCb;
+    std::vector<std::int16_t> pictureCr;
     // The graticule lines of the first panel.
     std::vector<GraticuleLine> lines;
-    // Graticule pixels inside the plot, blended over the trace on every render, sorted by
+    // Graticule pixels inside the plot, blended behind the trace on every render, sorted by
     // row; the pixels of plot row r are [graticuleStart[r], graticuleStart[r + 1]).
     std::vector<GraticulePixel> plotGraticule;
     std::vector<std::uint32_t> graticuleStart;
@@ -141,8 +167,13 @@ inline constexpr std::uint16_t kBackgroundC = 512;
 // The plot row of a 10-bit code (the middle row of the rows that show its bin).
 int rowOfCode(RenderPlan const& plan, int code);
 // `samples` and `maxCount` come from the analyse plan; zero without an input. The mode in the
-// settings decides the panels; the layout must have its panel count.
-RenderPlan makeRenderPlan(Layout const& layout, DisplaySettings const& settings, int columns, PlaneCounts const& counts, bool key = false);
+// settings decides the panels; the layout must have its panel count. `sumShift`: the analyse
+// plan's (the picture colour).
+RenderPlan makeRenderPlan(Layout const& layout, DisplaySettings const& settings, int columns, PlaneCounts const& counts, bool key = false, int sumShift = 0);
+// The picture colour's luma floor (§4.4): a cell's luma is lifted to at least 15 % (code 195)
+// before its colour is brightened, so the chroma noise of black stays near grey while dark
+// colours keep most of their hue.
+inline constexpr int kPictureLumaFloor = 195;
 // Rebuilds the intensity tables (and the overlay's colour tables) for other counts: the number
 // of grains in an update changes c_ref and the largest count, nothing else (§4.4).
 void setIntensity(RenderPlan& plan, DisplaySettings const& settings, PlaneCounts const& counts);
@@ -150,11 +181,14 @@ void setIntensity(RenderPlan& plan, DisplaySettings const& settings, PlaneCounts
 RenderPlan makeRenderPlan(Layout const& layout, DisplaySettings const& settings, int columns, std::uint64_t samples, std::uint32_t maxCount);
 
 // Gain of the intensity curve at SCOPES_INTENSITY 100 % (§4.4): a cell with 1/20 of its
-// column's samples is at 63 %, a few hits are dim, a flat field saturates.
+// column's samples is at full brightness.
 inline constexpr double kIntensityGain = 20.0;
+// The shape of the logarithmic curve: one hit of a 1080-line picture is about 21 %.
+inline constexpr double kIntensityLog = 100.0;
 
-// Intensity table of §4.4: I = 1023 × (1 − exp(−g × c / c_ref)), g = intensity / 100 × gain;
-// c = 0 is the background, c >= 1 at least traceMin.
+// Intensity table of §4.4: I = 1023 × ln(1 + A × x) / ln(1 + A), x = min(1, g × c / c_ref),
+// g = intensity / 100 × gain, A = kIntensityLog; c = 0 is the background, c >= 1 at least
+// traceMin.
 std::vector<std::uint16_t> intensityTable(DisplaySettings const& settings, double cRef, std::uint32_t maxCount);
 
 // The plot without a trace (background and graticule) into `frame`, a copy of plan.base.
@@ -172,7 +206,7 @@ struct TraceGroup
     std::uint8_t key[8] = {};
 };
 
-// Histogram -> the plot groups with a trace (graticule blended over), row by row. Groups
+// Histogram -> the plot groups with a trace (graticule behind the trace), row by row. Groups
 // without counts keep the still picture's bytes (background and graticule). Clears the counts.
 // Plot rows [rowBegin, rowEnd) only (rowEnd −1: to the last); the parts of traceRowSplit can run
 // on different threads and their traces, in order, are the whole trace.

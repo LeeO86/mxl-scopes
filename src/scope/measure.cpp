@@ -68,7 +68,7 @@ Measurements measure(ScopeKind kind, BinTotals const& totals, std::uint64_t outO
 {
     Measurements m;
     m.codesPerBin = totals.bins > 0 ? 1024.0 / totals.bins : 0;
-    if (kind != ScopeKind::Rgb && totals.planes >= 1)
+    if ((kind == ScopeKind::Luma || kind == ScopeKind::Ycbcr) && totals.planes >= 1)
     {
         auto const luma = planeStats(totals.plane[0], 64, 940);
         if (luma.total > 0)

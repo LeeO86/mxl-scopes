@@ -202,6 +202,20 @@ for mode in rgb-parade ycbcr-parade rgb-overlay ycbcr-overlay; do
   echo "$mode: NMOS flow description $DESC"
   [[ "$DESC" == "$(curl -sf "$API/api/v1/scope" | json 'd["title"]')" ]] || fail "NMOS flow description $DESC does not follow $mode"
 done
+# The vectorscope (§5.3): the flat grey is one dot (2×2 pixels) in the middle of the square plot,
+# black off it; the NMOS flow description follows.
+curl -sf -X PATCH -H 'Content-Type: application/json' -d '{"mode":"vectorscope"}' "$API/api/v1/scope" >/dev/null || fail "PATCH mode vectorscope"
+sleep 0.6
+OUTV="$(curl -sf "$API/api/v1/output")"
+[[ "$(echo "$OUTV" | json 'd["mode"]')" == "vectorscope" ]] || fail "/api/v1/output does not show vectorscope"
+[[ "$(echo "$OUTV" | json 'd["flow_id"]')" == "$FLOW_OUT" ]] || fail "vectorscope minted a new flow id"
+read -r VX VY <<<"$(echo "$OUTV" | json '"%d %d" % (d["plot"]["x"] + d["plot"]["width"] // 2, d["plot"]["y"] + d["plot"]["height"] // 2 - 1)')"
+mapfile -t PIXV < <("$SAMPLE" --domain "$WORK/scopes" --flow "$FLOW_OUT" --width 640 --at "$VX,$VY" --at "$((VX - 12)),$((VY - 12))")
+echo "vectorscope: ${PIXV[*]}"
+(( PIXV[0] > 200 )) || fail "vectorscope: no dot in the middle (${PIXV[*]})"
+(( PIXV[1] == 64 )) || fail "vectorscope: not black off the dot (${PIXV[*]})"
+DESC="$(curl -sf "http://127.0.0.1:${NMOS_PORT}/x-nmos/node/v1.3/flows/${FLOW_OUT}" | json 'd["description"]')"
+[[ "$DESC" == "Vectorscope" ]] || fail "NMOS flow description $DESC does not follow vectorscope"
 # rgb-overlay updates at most every second frame from 50p (§4.6): `frame` runs at 25 Hz.
 curl -sf -X PATCH -H 'Content-Type: application/json' -d '{"mode":"rgb-overlay","update_rate":"frame"}' "$API/api/v1/scope" >/dev/null || fail "PATCH overlay frame"
 sleep 1
@@ -211,7 +225,7 @@ echo "rgb-overlay at frame from 50p: $HZ Hz"
 curl -sf -X PATCH -H 'Content-Type: application/json' -d '{"update_rate":10}' "$API/api/v1/scope" >/dev/null || fail "PATCH 10 Hz"
 grep -q 'mxl_scopes_updates_total{mode="rgb-parade"}' <<<"$(curl -sf "$API/metrics")" || fail "no updates_total for rgb-parade"
 curl -sf -X PATCH -H 'Content-Type: application/json' -d '{"mode":"luma"}' "$API/api/v1/scope" >/dev/null || fail "PATCH mode luma"
-curl -s -X PATCH -H 'Content-Type: application/json' -d '{"mode":"vectorscope"}' -o /dev/null -w '%{http_code}' "$API/api/v1/scope" | grep -q 400 \
+curl -s -X PATCH -H 'Content-Type: application/json' -d '{"mode":"luma-chroma"}' -o /dev/null -w '%{http_code}' "$API/api/v1/scope" | grep -q 400 \
   || fail "a mode that is not built was accepted"
 echo "modes ok"
 

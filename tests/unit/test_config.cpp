@@ -57,14 +57,24 @@ TEST_CASE("environment beats the file, the file beats the defaults")
     auto const cfg = loadConfig(env, {{"SCOPES_UPDATE_RATE", "10"}, {"SCOPES_INTENSITY", "150"}});
     CHECK(cfg.display.updateRate == 0);
     CHECK(cfg.display.intensity == 150);
+    CHECK(loadConfig(env, {{"SCOPES_INTENSITY", "1000"}}).display.intensity == 1000);
+    // 1.3.0: the vectorscope, its zoom and the picture trace colour.
+    auto const vector = loadConfig(env, {{"SCOPES_MODE", "vectorscope"}, {"SCOPES_VECTOR_ZOOM", "5"}, {"SCOPES_TRACE_COLOR", "picture"}});
+    CHECK(vector.display.mode == "vectorscope");
+    CHECK(vector.display.vectorZoom == 5);
+    CHECK(vector.display.traceColor == "picture");
+    CHECK(loadConfig(env, {}).display.vectorZoom == 1);
+    CHECK(loadConfig(env, {{"SCOPES_VECTOR_ZOOM", "2"}}).display.vectorZoom == 2);
 }
 
 TEST_CASE("invalid values are configuration errors (exit 78)")
 {
     std::vector<std::pair<std::string, std::string>> bad = {
         {"SCOPES_MODE", "waveform"},
-        {"SCOPES_MODE", "vectorscope"},
-        {"SCOPES_MODE", "vectorscope"},
+        {"SCOPES_MODE", "luma-chroma"},
+        {"SCOPES_VECTOR_ZOOM", "0"},
+        {"SCOPES_VECTOR_ZOOM", "3"},
+        {"SCOPES_VECTOR_ZOOM", "10"},
         {"SCOPES_UPDATE_RATE", "0.5"},
         {"SCOPES_UPDATE_RATE", "61"},
         {"SCOPES_UPDATE_RATE", "fast"},
@@ -75,7 +85,9 @@ TEST_CASE("invalid values are configuration errors (exit 78)")
         {"SCOPES_GRATICULE_WIDTH", "0"},
         {"SCOPES_GRATICULE_WIDTH", "5"},
         {"SCOPES_INTENSITY", "0"},
+        {"SCOPES_INTENSITY", "1001"},
         {"SCOPES_TRACE_COLOR", "red"},
+        {"SCOPES_TRACE_COLOR", "colour"},
         {"SCOPES_OUTPUT_FORMAT", "1921x1080"},
         {"SCOPES_OUTPUT_FORMAT", "7680x4320"},
         {"SCOPES_OUTPUT_RATE", "120"},
@@ -187,7 +199,7 @@ TEST_CASE("store: file layer, atomic writes, live keys over the environment")
     CHECK(std::get<ConfigStore::UpdateResult>(live).notPersisted == std::vector<std::string>{"SCOPES_MODE"});
     CHECK(store.effectiveConfig().display.updateRate == 0);
     // Invalid values change nothing.
-    CHECK(std::holds_alternative<std::string>(store.applyLive({{"SCOPES_INTENSITY", "999"}})));
+    CHECK(std::holds_alternative<std::string>(store.applyLive({{"SCOPES_INTENSITY", "1001"}})));
     CHECK(store.effectiveConfig().display.intensity == 200);
     // Restart keys are not live.
     CHECK(std::holds_alternative<std::string>(store.applyLive({{"WEB_PORT", "8000"}})));

@@ -295,6 +295,16 @@ bool avx512Compiled()
 
 std::uint64_t analyseAvx512(AnalysePlan const& plan, std::uint8_t const* v210, Histogram& hist, StripRange range)
 {
+    // The vectorscope takes the scalar step on every level, the luma picture colour the AVX2 step
+    // (an AVX-512 CPU has AVX2; IMPLEMENTATION_PLAN.md deviation 27).
+    if (plan.kind == ScopeKind::Vector)
+    {
+        return analyseScalar(plan, v210, hist, range);
+    }
+    if (plan.sums > 0)
+    {
+        return analyseAvx2(plan, v210, hist, range);
+    }
     if (std::uint64_t outOfGamut = 0; cpu::analyseMulti<Avx512V>(plan, v210, hist, range, outOfGamut))
     {
         return outOfGamut;

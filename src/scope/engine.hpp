@@ -43,6 +43,8 @@ struct PaintParams
     bool hasInput = false;
     // video/v210a: a key plane after the fill (SPECIFICATION §7).
     bool key = false;
+    // The analyse plan's shift of the picture colour's sums (AnalysePlan::sumShift).
+    int sumShift = 0;
     [[nodiscard]] bool operator==(PaintParams const&) const = default;
 };
 
@@ -237,7 +239,7 @@ private:
     Histogram hist_;
     ScopePainter painter_;
     // The bin totals of the luma and chroma planes (§4.7); the RGB modes measure only the gamut,
-    // counted by the analyse step, and skip them.
+    // counted by the analyse step, and skip them, as does the vectorscope (no measurements).
     BinTotals totals_;
     Measurements measurements_;
     std::uint64_t measuredUpdates_ = 0;

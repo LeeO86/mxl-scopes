@@ -419,15 +419,15 @@ TEST_CASE("golden hashes of the other modes")
     };
     // Texts with Blend2D and DejaVu Sans (the default build), else the 8×8 bitmap font.
 #ifdef SCOPES_WITH_BLEND2D
-    std::initializer_list<Golden> const goldens = {Golden{"ycbcr-parade", "bars75", 16112493681838085292ull}, Golden{"ycbcr-parade", "scene", 13741738321202238735ull},
-        Golden{"rgb-parade", "bars75", 6271932770675128523ull}, Golden{"rgb-parade", "scene", 1175018419344649874ull},
-        Golden{"rgb-overlay", "bars75", 13005490703363175360ull}, Golden{"rgb-overlay", "scene", 6557156064615835958ull},
-        Golden{"ycbcr-overlay", "bars75", 10995230070966186144ull}, Golden{"ycbcr-overlay", "scene", 2383013418506283363ull}};
+    std::initializer_list<Golden> const goldens = {Golden{"ycbcr-parade", "bars75", 3152102908446814036ull}, Golden{"ycbcr-parade", "scene", 11602112155844246583ull},
+        Golden{"rgb-parade", "bars75", 18031814477896615841ull}, Golden{"rgb-parade", "scene", 14385091724333455844ull},
+        Golden{"rgb-overlay", "bars75", 17573976724285001356ull}, Golden{"rgb-overlay", "scene", 15027747327454849466ull},
+        Golden{"ycbcr-overlay", "bars75", 16641902732555503328ull}, Golden{"ycbcr-overlay", "scene", 17589383957557055467ull}};
 #else
-    std::initializer_list<Golden> const goldens = {Golden{"ycbcr-parade", "bars75", 4875393164406064390ull}, Golden{"ycbcr-parade", "scene", 15272075516455124313ull},
-             Golden{"rgb-parade", "bars75", 5859775929604755087ull}, Golden{"rgb-parade", "scene", 3552925228055185350ull},
-             Golden{"rgb-overlay", "bars75", 8764227533769970585ull}, Golden{"rgb-overlay", "scene", 5015253149129364499ull},
-             Golden{"ycbcr-overlay", "bars75", 13929600765576822091ull}, Golden{"ycbcr-overlay", "scene", 15493724190738023384ull}};
+    std::initializer_list<Golden> const goldens = {Golden{"ycbcr-parade", "bars75", 10701286858435520170ull}, Golden{"ycbcr-parade", "scene", 966660872402941393ull},
+             Golden{"rgb-parade", "bars75", 7097764704021622309ull}, Golden{"rgb-parade", "scene", 8937904631545080388ull},
+             Golden{"rgb-overlay", "bars75", 2517492334488171781ull}, Golden{"rgb-overlay", "scene", 3419110660009368523ull},
+             Golden{"ycbcr-overlay", "bars75", 13920702656983015723ull}, Golden{"ycbcr-overlay", "scene", 6383341825178704728ull}};
 #endif
     for (auto const& golden : goldens)
     {

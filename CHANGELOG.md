@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.3.0 (2026-11-17)
+
+- The graticule is behind the trace now (it was blended over it). A trace on a graticule line keeps its colour: a black picture is a green line on the 0 % line, not a grey one. The trace covers the line by its intensity, so a faint trace still lets the line show. The golden pictures and hashes changed for that.
+- `SCOPES_INTENSITY` goes up to 1000 % (was 400 %), also in `PATCH /api/v1/scope` and the Scope tab slider.
+- New mode `vectorscope` ("Vectorscope"): the Cb/Cr 2D histogram in a square plot in the middle of the output, with a hue ring, rings, vectors to the six colours, the skin-tone line and BT.709 target boxes at 75 % and 100 %. The graticule level and width apply; the graticule is behind the trace. No measurements in this mode. Works with the key output, the NMOS `scope-mode` tag and flow description, the UI and the widget.
+- New setting `SCOPES_VECTOR_ZOOM` (`vector_zoom` in `PATCH /api/v1/scope`, a select in the Scope tab): 1, 2 or 5, live; the zoom shows as "2×" right of the plot.
+- Brighter traces on real pictures: the intensity curve is logarithmic now, `I = 1023 × ln(1 + 100 x) / ln(101)`, `x = min(1, g × c / c_ref)`. A cell with 1/20 of its column's samples is still at full brightness, but a sparse cell is readable: at 1080 lines one hit is about 21 % (before: `SCOPES_TRACE_MIN`, 9 %), ten hits 62 % (before 14 %). On a camera picture 80 % of the lit cells were at the minimum before. Bars and flat fields look the same. `SCOPES_INTENSITY` still scales it (1–1000 %). Every golden picture with a non-saturated trace changed.
+- New trace colour `picture` ("picture colour") for `luma` and `vectorscope`: each trace point in the colour of the picture samples in it (one colour per pixel pair, as 4:2:2 chroma), brightened to the brightest colour of its hue (luma lifted to at least 15 % first, so black noise stays near grey), its brightness still from the intensity. It costs more CPU than the other colours (numbers in `docs/performance.md`); green, white and amber keep their speed.
+
 ## 1.2.1 (2026-11-05)
 
 - Same as 1.2.0 below, with `SCOPES_VERSION` set right (v1.2.0 had 1.1.0 there; its image was refused, no 1.2.0 image exists).

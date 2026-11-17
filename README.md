@@ -1,19 +1,20 @@
 # mxl-scopes
 
-Video scopes for MXL: a media function that reads one MXL video flow and writes a waveform monitor (luma first, then YCbCr and RGB parades) as an ordinary MXL video flow. The multiviewer or any other MXL function can show it, keyed over the picture if wanted. Operators also see it in a browser and on operator screens.
+Video scopes for MXL: a media function that reads one MXL video flow and writes a waveform monitor (luma, YCbCr and RGB parades and overlays) or a vectorscope as an ordinary MXL video flow. The multiviewer or any other MXL function can show it, keyed over the picture if wanted. Operators also see it in a browser and on operator screens.
 
 Part of [mxl-stack](https://github.com/LeeO86/mxl-stack), a collection of open-source MXL media functions with Docker Compose and Kubernetes examples.
 
 ![mxl-scopes: RGB parade of colour bars](docs/images/web-ui.png)
 
-**Status: 1.2.1 (M0–M4).** Every stage-1 mode (luma waveform, YCbCr and RGB parades, RGB and YCbCr overlays) runs end to end: MXL in, MXL out (with a key if wanted), NMOS, REST, metrics with the measurements, a web page with a snapshot; strip workers share the work over several cores. A WebRTC preview, a Vue UI and an operator-screen widget show it in the browser. Release notes: [docs/release-notes-1.2.1.md](docs/release-notes-1.2.1.md). CPU per mode: [docs/performance.md](docs/performance.md). What differs from the specification today is listed under "Deviations" in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md). Read [SPECIFICATION.md](SPECIFICATION.md) for the design.
+**Status: 1.3.0 (M0–M4).** Every stage-1 mode (luma waveform, YCbCr and RGB parades, RGB and YCbCr overlays) and the vectorscope run end to end: MXL in, MXL out (with a key if wanted), NMOS, REST, metrics with the measurements, a web page with a snapshot; strip workers share the work over several cores. A WebRTC preview, a Vue UI and an operator-screen widget show it in the browser. Release notes: [docs/release-notes-1.3.0.md](docs/release-notes-1.3.0.md). CPU per mode: [docs/performance.md](docs/performance.md). What differs from the specification today is listed under "Deviations" in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md). Read [SPECIFICATION.md](SPECIFICATION.md) for the design.
 
 ## At a glance
 
 - C++20, one process per scope, one video input per instance.
 - Input `video/v210` (or `v210a`), BT.709, up to 3840×2160.
 - Output `video/v210`, or `video/v210a` with a key for overlays, default 1920×1080 at the input rate.
-- Modes: `luma`, `ycbcr-parade`, `rgb-parade`, `rgb-overlay`, `ycbcr-overlay` (live, the output flow id stays). Later: `vectorscope`, `luma-chroma`, HDR.
+- Modes: `luma`, `ycbcr-parade`, `rgb-parade`, `rgb-overlay`, `ycbcr-overlay`, `vectorscope` (from 1.3; live, the output flow id stays). Later: `luma-chroma`, HDR.
+- Trace colours: green, white, amber, or `picture`: each point in the colour of the picture samples in it (luma waveform and vectorscope, from 1.3).
 - Configurable update rate (`frame`, or 1–60 Hz) and reduced sampling, to save CPU.
 - CPU engine with AVX-512, AVX2 and a scalar reference, bit-exact; a CUDA backend can be added later.
 - NMOS IS-04/IS-05 with BCP-007-03; web UI and REST; `/livez`, `/readyz`, `/metrics`; the `scope` widget; WebRTC preview through the platform's preview contract.
@@ -32,13 +33,14 @@ Environment > `SCOPES_CONFIG_FILE` (flat JSON, else `<SCOPES_STATE_DIR>/config.j
 
 | Key | Default | |
 | --- | --- | --- |
-| `SCOPES_MODE` | `luma` | `luma`, `ycbcr-parade`, `rgb-parade`, `rgb-overlay`, `ycbcr-overlay`, live (stage-2 modes exit 78) |
+| `SCOPES_MODE` | `luma` | `luma`, `ycbcr-parade`, `rgb-parade`, `rgb-overlay`, `ycbcr-overlay`, `vectorscope`, live (`luma-chroma` exits 78) |
 | `SCOPES_UPDATE_RATE` | `25` | `frame` or 1–60 Hz, live; the overlays run at most every n-th input frame, at most 30 Hz (25 Hz from 50p) |
 | `SCOPES_ACCUMULATE` | `latest` | `latest` or `all` (every frame between two updates), live |
 | `SCOPES_LINE_STEP`, `SCOPES_PIXEL_STEP` | 1, 1 | live; 32-bit histogram cells when 16 bits would not hold an update (UHD on a small output, a parade, `all`) |
 | `SCOPES_RANGE`, `SCOPES_GRATICULE_UNITS`, `SCOPES_GRATICULE_LEVEL` | `limited`, `mv`, 60 | live |
 | `SCOPES_GRATICULE_WIDTH` | 1 | live; thickness of the graticule lines, 1–4 px (the traces are not lines and keep their size) |
-| `SCOPES_INTENSITY`, `SCOPES_TRACE_MIN`, `SCOPES_TRACE_COLOR`, `SCOPES_CAPTION` | 100, 96, `green`, `true` | live; the trace colour applies to `luma` (the parades and the overlay colour each component) |
+| `SCOPES_INTENSITY`, `SCOPES_TRACE_MIN`, `SCOPES_TRACE_COLOR`, `SCOPES_CAPTION` | 100, 96, `green`, `true` | live; intensity 1–1000 %; the trace colour (`green`, `white`, `amber`, `picture`) applies to `luma` and `vectorscope` (the parades and the overlays colour each component) |
+| `SCOPES_VECTOR_ZOOM` | 1 | `1`, `2` or `5`, live: the vectorscope zoomed around its centre (shown as "2×") |
 | `SCOPES_OUTPUT_FORMAT`, `SCOPES_OUTPUT_RATE` | `1920x1080`, `input` | live with a new output flow id (`PUT /api/v1/config`; `input` follows the routed flow) |
 | `SCOPES_OUTPUT_KEY`, `SCOPES_BG_ALPHA` | `false`, 0 | `true`: `video/v210a`, the scope over a picture in a multiviewer (key: background `SCOPES_BG_ALPHA`, trace at its intensity, graticule at its level, texts opaque); the key live with a new output flow id, `SCOPES_BG_ALPHA` live |
 | `SCOPES_HOLD_MS`, `SCOPES_INPUT_OFFSET_GRAINS` | 1000, 0 | live |
@@ -57,7 +59,7 @@ Environment > `SCOPES_CONFIG_FILE` (flat JSON, else `<SCOPES_STATE_DIR>/config.j
 | `GET`, `PATCH /api/v1/scope` | display settings, live; 400 on an invalid value |
 | `GET /api/v1/snapshot.png` | the latest scope picture |
 | `GET /widgets`, `GET /widget/scope?controls=&measurements=&theme=dark\|light\|transparent` | the operator-screen widget: the scope picture (WebRTC, else HLS, else the snapshot), optionally the mode and update rate and one line of measurements; `frame-ancestors` from `WIDGET_FRAME_ANCESTORS` |
-| `GET /api/v1/measurements` | luma min, max, mean and legal shares; chroma out of range; R′G′B′ out of gamut (per mode, null where the mode has no plane; also on the WebSocket and as metrics) |
+| `GET /api/v1/measurements` | luma min, max, mean and legal shares; chroma out of range; R′G′B′ out of gamut (per mode, null where the mode has no plane, all null in the vectorscope; also on the WebSocket and as metrics) |
 | `GET /api/v1/events` | WebSocket, status and settings five times a second |
 | `GET`, `PUT /api/v1/config`; `GET /api/v1/config/export`, `POST /api/v1/config/import`, `GET /api/v1/config/env` | settings with their origin |
 | `/livez`, `/readyz`, `/metrics` | probes; Prometheus, prefix `mxl_scopes_` |
@@ -74,14 +76,14 @@ With libmxl (and `-DSCOPES_WITH_NMOS=ON -DNMOS_CPP_DIR=...`) the build adds `mxl
 
 ## Lab run
 
-The image `ghcr.io/leeo86/mxl-scopes` (`1.2.1`; `nightly-dev` from `main`) needs no GPU (NVENC is used for the preview when a GPU with it is passed in):
+The image `ghcr.io/leeo86/mxl-scopes` (`1.3.0`; `nightly-dev` from `main`) needs no GPU (NVENC is used for the preview when a GPU with it is passed in):
 
 ```sh
 docker run --rm --name scopes --network host --cpuset-cpus 25 \
   -v /Volumes/mxl:/Volumes/mxl -v scopes-config:/config \
   -e NMOS_REGISTRY_ADDRESS=<registry ip> -e NMOS_HOST_ADDRESS=<host ip> \
   -e NMOS_SEED=lab-scopes-1 -e MXL_CLEANUP_ON_EXIT=true \
-  ghcr.io/leeo86/mxl-scopes:1.2.1
+  ghcr.io/leeo86/mxl-scopes:1.3.0
 ```
 
 Route the receiver "Scopes In Video" over IS-05, open `http://<host>:8170/`, and route the sender "Scopes Out Video" to a multiviewer tile. Without a controller, `mxl-scopes-writer --domain DIR --flow UUID --pattern bars75` (or `scene`, a colour picture) in the same image writes a test flow, and a `routes.json` in `/config` routes it at start.
